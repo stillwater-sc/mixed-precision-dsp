@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <stdexcept>
 #include <complex>
 #include <vector>
 #include <sw/dsp/concepts/scalar.hpp>
@@ -65,7 +66,7 @@ inline std::vector<double> legendre_solve(int n) {
 	std::vector<double> p(n + 3, 0.0);
 	std::vector<double> s(n + 3, 0.0);
 	std::vector<double> w(n + 3, 0.0);
-	std::vector<double> v(2 * k + 4, 0.0);
+	std::vector<double> v(n + 3, 0.0);  // integration step writes through v[n+2]
 	std::vector<double> aa(n + 3, 0.0);
 	std::vector<double> bb(n + 3, 0.0);
 
@@ -181,8 +182,11 @@ public:
 				solver.root(j++) = solver.root(i);
 			}
 		}
+		if (j < num_poles) {
+			throw std::runtime_error("legendre: failed to isolate all left-half-plane poles");
+		}
 		// Sort by descending imaginary part
-		solver.sort(degree / 2);
+		solver.sort(j);
 
 		const int pairs = num_poles / 2;
 		for (int i = 0; i < pairs; ++i) {

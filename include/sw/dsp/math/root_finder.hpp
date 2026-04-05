@@ -36,20 +36,33 @@ public:
 	using complex_t = std::complex<T>;
 
 	// Access input coefficients (degree+1 elements, index 0..degree)
-	complex_t& coef(int i) { assert(i >= 0 && i <= MaxDegree); return coef_[i]; }
-	const complex_t& coef(int i) const { assert(i >= 0 && i <= MaxDegree); return coef_[i]; }
+	complex_t& coef(int i) {
+		if (i < 0 || i > MaxDegree) throw std::out_of_range("RootFinder::coef index out of range");
+		return coef_[i];
+	}
+	const complex_t& coef(int i) const {
+		if (i < 0 || i > MaxDegree) throw std::out_of_range("RootFinder::coef index out of range");
+		return coef_[i];
+	}
 
 	// Access roots (degree elements, index 0..degree-1)
-	complex_t& root(int i) { assert(i >= 0 && i < MaxDegree); return root_[i]; }
-	const complex_t& root(int i) const { assert(i >= 0 && i < MaxDegree); return root_[i]; }
+	complex_t& root(int i) {
+		if (i < 0 || i >= MaxDegree) throw std::out_of_range("RootFinder::root index out of range");
+		return root_[i];
+	}
+	const complex_t& root(int i) const {
+		if (i < 0 || i >= MaxDegree) throw std::out_of_range("RootFinder::root index out of range");
+		return root_[i];
+	}
 
 	// Find all roots of the polynomial of given degree.
 	// If polish=true, roots are refined using the original (un-deflated) polynomial.
 	// If do_sort=true, roots are sorted by descending imaginary part.
 	void solve(int degree, bool polish = true, bool do_sort = true) {
-		assert(degree >= 1 && degree <= MaxDegree);
+		if (degree < 1 || degree > MaxDegree)
+			throw std::out_of_range("RootFinder::solve degree out of range");
 
-		const double EPS = 1.0e-30;
+		const T snap_eps = std::numeric_limits<T>::epsilon() * T{32};
 
 		// Copy coefficients for deflation
 		for (int j = 0; j <= degree; ++j) {
@@ -63,7 +76,7 @@ public:
 			laguerre(j + 1, deflated_.data(), x, its);
 
 			// Snap near-real roots to real axis
-			if (std::abs(x.imag()) <= T{2} * static_cast<T>(EPS) * std::abs(x.real())) {
+			if (std::abs(x.imag()) <= T{2} * snap_eps * std::max(T{1}, std::abs(x.real()))) {
 				x = complex_t(x.real(), T{});
 			}
 
@@ -93,6 +106,8 @@ public:
 
 	// Sort roots by descending imaginary part
 	void sort(int degree) {
+		if (degree < 0 || degree > MaxDegree)
+			throw std::out_of_range("RootFinder::sort degree out of range");
 		// Insertion sort
 		for (int j = 1; j < degree; ++j) {
 			complex_t x = root_[j];
@@ -111,7 +126,7 @@ private:
 		constexpr int MR = 8;
 		constexpr int MT = 10;
 		constexpr int MAXIT = MT * MR;
-		const double EPS = std::numeric_limits<double>::epsilon();
+		const T EPS = std::numeric_limits<T>::epsilon();
 
 		static const double frac[MR + 1] = {
 			0.0, 0.5, 0.25, 0.75, 0.13, 0.38, 0.62, 0.88, 1.0
@@ -121,9 +136,9 @@ private:
 		for (int iter = 1; iter <= MAXIT; ++iter) {
 			its = iter;
 			complex_t b = a[m];
-			double err = std::abs(b);
+			T err = std::abs(b);
 			complex_t d(T{}), f(T{});
-			double abx = std::abs(x);
+			T abx = std::abs(x);
 
 			for (int j = m - 1; j >= 0; --j) {
 				f = x * f + d;
@@ -144,15 +159,15 @@ private:
 			complex_t gp = g + sq;
 			complex_t gm = g - sq;
 
-			double abp = std::abs(gp);
-			double abm = std::abs(gm);
+			T abp = std::abs(gp);
+			T abm = std::abs(gm);
 			if (abp < abm) gp = gm;
 
 			complex_t dx;
-			if (std::max(abp, abm) > 0.0) {
+			if (std::max(abp, abm) > T{}) {
 				dx = complex_t(static_cast<T>(m)) / gp;
 			} else {
-				dx = std::polar(1.0 + abx, static_cast<double>(iter));
+				dx = std::polar(static_cast<double>(T{1} + abx), static_cast<double>(iter));
 			}
 
 			complex_t x1 = x - dx;
