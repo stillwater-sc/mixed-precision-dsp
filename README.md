@@ -103,15 +103,15 @@ The library covers the full DSP domain, organized into focused modules:
 
 | Module | Description |
 |--------|-------------|
-| **filter/iir** | IIR filter design: Butterworth, Chebyshev I/II, Elliptic, Bessel, Legendre, RBJ cookbook. Full pipeline: analog prototype, bilinear/Constantinides transforms, cascade of biquads, Direct Form I/II/Transposed realizations. |
-| **filter/fir** | FIR filter design (window method, Parks-McClellan), direct-form convolution, polyphase decomposition, overlap-add/save. |
-| **filter/biquad** | Second-order section engine: coefficients, state forms (CRTP, no virtual dispatch), cascade, smooth parameter interpolation. |
 | **signals** | Signal representation over MTL5 dense vectors. Generators: sine, chirp, white noise, impulse, step. |
+| **conditioning** | Envelope followers, dynamic range compression, AGC, polyphase interpolation/decimation, sample rate conversion. |
 | **windows** | Window functions: Hamming, Hanning, Blackman, Kaiser, rectangular, flat-top. |
 | **quantization** | ADC/DAC modeling, dithering (TPDF, RPDF), noise shaping, SQNR analysis. The toolbox for evaluating mixed-precision trade-offs. |
 | **spectral** | DFT, FFT (Cooley-Tukey), Z-transform and Laplace transform evaluation, power spectral density, STFT/spectrogram. |
+| **filtering** | IIR filter design: Butterworth, Chebyshev I/II, Elliptic, Bessel, Legendre, RBJ cookbook. Full pipeline: analog prototype, bilinear/Constantinides transforms, cascade of biquads, Direct Form I/II/Transposed realizations. |
+|  | FIR filter design (window method, Parks-McClellan), direct-form convolution, polyphase decomposition, overlap-add/save. |
+|  | Second-order section engine: coefficients, state forms (CRTP, no virtual dispatch), cascade, smooth parameter interpolation. |
 | **estimation** | Kalman filters (linear, extended, unscented), LMS and RLS adaptive filters. |
-| **conditioning** | Envelope followers, dynamic range compression, AGC, polyphase interpolation/decimation, sample rate conversion. |
 | **image** | 2D convolution, separable filters, morphological operations, edge detection (Sobel, Prewitt, Canny). |
 | **analysis** | Coefficient sensitivity, condition number estimation, stability margin checking. Numerical quality tools for mixed-precision research. |
 
