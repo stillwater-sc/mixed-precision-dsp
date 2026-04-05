@@ -7,8 +7,10 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <string>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/math/constants.hpp>
 #include <sw/dsp/types/biquad_coefficients.hpp>
@@ -23,6 +25,20 @@ namespace detail {
 template <DspField T>
 BiquadCoefficients<T> normalize(T b0, T b1, T b2, T a0, T a1, T a2) {
 	return BiquadCoefficients<T>(b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0);
+}
+
+inline void validate_freq(double sample_rate, double freq, const char* name) {
+	if (!(sample_rate > 0.0) || !std::isfinite(sample_rate))
+		throw std::invalid_argument(std::string(name) + ": sample_rate must be > 0 and finite");
+	if (!(freq > 0.0) || !std::isfinite(freq))
+		throw std::invalid_argument(std::string(name) + ": frequency must be > 0 and finite");
+	if (freq >= sample_rate * 0.5)
+		throw std::invalid_argument(std::string(name) + ": frequency must be < Nyquist (sample_rate/2)");
+}
+
+inline void validate_q(double q, const char* name) {
+	if (!(q > 0.0) || !std::isfinite(q))
+		throw std::invalid_argument(std::string(name) + ": Q/bandwidth must be > 0 and finite");
 }
 
 } // namespace detail
@@ -42,6 +58,8 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double q = 0.7071) {
+		detail::validate_freq(sample_rate, cutoff_freq, "rbj::LowPass");
+		detail::validate_q(q, "rbj::LowPass");
 		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
 		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
 		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
@@ -75,6 +93,8 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double q = 0.7071) {
+		detail::validate_freq(sample_rate, cutoff_freq, "rbj::HighPass");
+		detail::validate_q(q, "rbj::HighPass");
 		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
 		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
 		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
@@ -108,6 +128,8 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double center_freq, double bandwidth = 1.0) {
+		detail::validate_freq(sample_rate, center_freq, "rbj::BandPass");
+		detail::validate_q(bandwidth, "rbj::BandPass");
 		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(center_freq / sample_rate);
 		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
 		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
@@ -141,6 +163,8 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double center_freq, double bandwidth = 1.0) {
+		detail::validate_freq(sample_rate, center_freq, "rbj::BandStop");
+		detail::validate_q(bandwidth, "rbj::BandStop");
 		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(center_freq / sample_rate);
 		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
 		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
@@ -174,6 +198,8 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double center_freq, double q = 0.7071) {
+		detail::validate_freq(sample_rate, center_freq, "rbj::AllPass");
+		detail::validate_q(q, "rbj::AllPass");
 		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(center_freq / sample_rate);
 		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
 		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
@@ -207,12 +233,15 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double gain_db, double slope = 1.0) {
+		detail::validate_freq(sample_rate, cutoff_freq, "rbj::LowShelf");
 		if (!(slope > 0.0)) throw std::invalid_argument("rbj::LowShelf: slope must be > 0");
+		if (!std::isfinite(gain_db)) throw std::invalid_argument("rbj::LowShelf: gain_db must be finite");
 		double A  = std::pow(10.0, gain_db / 40.0);
 		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
 		double cs = std::cos(static_cast<double>(w0));
 		double sn = std::sin(static_cast<double>(w0));
-		double alpha = sn / 2.0 * std::sqrt((A + 1.0/A) * (1.0/slope - 1.0) + 2.0);
+		double radicand = (A + 1.0/A) * (1.0/slope - 1.0) + 2.0;
+		double alpha = sn / 2.0 * std::sqrt(std::max(0.0, radicand));
 		double sq = 2.0 * std::sqrt(A) * alpha;
 
 		auto C = [](double v) { return static_cast<CoeffScalar>(v); };
@@ -245,12 +274,15 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double gain_db, double slope = 1.0) {
+		detail::validate_freq(sample_rate, cutoff_freq, "rbj::HighShelf");
 		if (!(slope > 0.0)) throw std::invalid_argument("rbj::HighShelf: slope must be > 0");
+		if (!std::isfinite(gain_db)) throw std::invalid_argument("rbj::HighShelf: gain_db must be finite");
 		double A  = std::pow(10.0, gain_db / 40.0);
 		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
 		double cs = std::cos(static_cast<double>(w0));
 		double sn = std::sin(static_cast<double>(w0));
-		double alpha = sn / 2.0 * std::sqrt((A + 1.0/A) * (1.0/slope - 1.0) + 2.0);
+		double radicand = (A + 1.0/A) * (1.0/slope - 1.0) + 2.0;
+		double alpha = sn / 2.0 * std::sqrt(std::max(0.0, radicand));
 		double sq = 2.0 * std::sqrt(A) * alpha;
 
 		auto C = [](double v) { return static_cast<CoeffScalar>(v); };
