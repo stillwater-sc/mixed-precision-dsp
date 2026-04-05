@@ -87,3 +87,42 @@ jobs:
             ${{github.workspace}}/dsp/build/CMakeCache.txt
             ${{github.workspace}}/dsp/build/CMakeFiles/CMakeOutput.log
             ${{github.workspace}}/dsp/build/CMakeFiles/CMakeError.log
+
+  cross-riscv64:
+    concurrency:
+      group: cmake-riscv64-${{ github.ref }}
+      cancel-in-progress: true
+    name: "Linux RISC-V 64 (GCC cross-compile)"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout dsp
+        uses: actions/checkout@v4
+        with:
+          path: dsp
+
+      - name: Checkout Universal (with MTL5 submodule)
+        uses: actions/checkout@v4
+        with:
+          repository: stillwater-sc/universal
+          path: universal
+          submodules: recursive
+
+      - name: Install RISC-V GCC toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+
+      - name: Configure CMake (RISC-V 64 cross-compile)
+        run: >
+          cmake -B ${{github.workspace}}/dsp/build
+          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+          -DCMAKE_TOOLCHAIN_FILE=${{github.workspace}}/dsp/cmake/toolchains/riscv64-gcc.cmake
+          -DUNIVERSAL_DIR=${{github.workspace}}/universal
+          -DMTL5_DIR=${{github.workspace}}/universal/mtl5
+          -DDSP_BUILD_TESTS=OFF
+          -DDSP_BUILD_APPLICATIONS=OFF
+        working-directory: ${{github.workspace}}/dsp
+
+      - name: Build (compile-only, no execution)
+        run: cmake --build ${{github.workspace}}/dsp/build --config ${{env.BUILD_TYPE}}
