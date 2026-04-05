@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: MIT
 
 #include <cmath>
+#include <stdexcept>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/math/constants.hpp>
 #include <sw/dsp/types/biquad_coefficients.hpp>
@@ -61,8 +62,6 @@ public:
 
 private:
 	Cascade<CoeffScalar, 1> cascade_{};
-	friend struct CascadeInit;
-	struct CascadeInit { CascadeInit(LowPass& f) { f.cascade_.stage(0).set_identity(); } };
 };
 
 template <DspField CoeffScalar = double,
@@ -208,6 +207,7 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double gain_db, double slope = 1.0) {
+		if (!(slope > 0.0)) throw std::invalid_argument("rbj::LowShelf: slope must be > 0");
 		double A  = std::pow(10.0, gain_db / 40.0);
 		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
 		double cs = std::cos(static_cast<double>(w0));
@@ -245,6 +245,7 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double gain_db, double slope = 1.0) {
+		if (!(slope > 0.0)) throw std::invalid_argument("rbj::HighShelf: slope must be > 0");
 		double A  = std::pow(10.0, gain_db / 40.0);
 		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
 		double cs = std::cos(static_cast<double>(w0));
