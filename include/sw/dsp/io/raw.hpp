@@ -49,9 +49,14 @@ std::vector<T> read_raw(const std::string& path) {
 	if (!ifs) throw std::runtime_error("raw: cannot open " + path + " for reading");
 
 	auto file_size = ifs.tellg();
+	if (file_size < 0) throw std::runtime_error("raw: cannot determine file size for " + path);
 	ifs.seekg(0, std::ios::beg);
 
-	std::size_t count = static_cast<std::size_t>(file_size) / sizeof(T);
+	auto byte_count = static_cast<std::size_t>(file_size);
+	if (byte_count % sizeof(T) != 0) {
+		throw std::runtime_error("raw: file size is not a multiple of sample size");
+	}
+	std::size_t count = byte_count / sizeof(T);
 	std::vector<T> result(count);
 	ifs.read(reinterpret_cast<char*>(result.data()),
 	         static_cast<std::streamsize>(count * sizeof(T)));

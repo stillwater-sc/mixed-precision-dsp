@@ -24,7 +24,7 @@ bool near(double a, double b, double eps) {
 struct TempFile {
 	std::string path;
 	TempFile(const std::string& name) : path(std::filesystem::temp_directory_path().string() + "/" + name) {}
-	~TempFile() { std::filesystem::remove(path); }
+	~TempFile() noexcept { std::error_code ec; std::filesystem::remove(path, ec); }
 };
 
 void test_wav_16bit_roundtrip() {
@@ -127,6 +127,28 @@ void test_wav_stereo() {
 	std::cout << "  wav_stereo: passed\n";
 }
 
+void test_wav_32bit_roundtrip() {
+	TempFile tmp("test_dsp_32bit.wav");
+	constexpr int sr = 48000;
+
+	auto sig = sine<double>(500, 1000.0, static_cast<double>(sr));
+	std::vector<double> samples(sig.begin(), sig.end());
+
+	write_wav<double>(tmp.path, std::span<const double>(samples), sr, 32);
+
+	auto wav = read_wav(tmp.path);
+	assert(wav.sample_rate == sr);
+	assert(wav.bits_per_sample == 32);
+
+	double max_err = 0;
+	for (std::size_t i = 0; i < samples.size(); ++i) {
+		max_err = std::max(max_err, std::abs(wav.channels[0][i] - samples[i]));
+	}
+	assert(max_err < 1e-8);  // 32-bit int: ~4.7e-10
+
+	std::cout << "  wav_32bit_roundtrip: passed (max_err=" << max_err << ")\n";
+}
+
 void test_csv_roundtrip() {
 	TempFile tmp("test_dsp.csv");
 
@@ -200,17 +222,26 @@ void test_raw_read_all() {
 }
 
 int main() {
-	std::cout << "Signal File I/O Tests\n";
+	try {
+		std::cout << "Signal File I/O Tests\n";
 
-	test_wav_16bit_roundtrip();
-	test_wav_8bit_roundtrip();
-	test_wav_24bit_roundtrip();
-	test_wav_stereo();
-	test_csv_roundtrip();
-	test_csv_two_column();
-	test_raw_roundtrip();
-	test_raw_read_all();
+		test_wav_16bit_roundtrip();
+		test_wav_8bit_roundtrip();
+		test_wav_24bit_roundtrip();
+		test_wav_32bit_roundtrip();
+		test_wav_stereo();
+		test_csv_roundtrip();
+		test_csv_two_column();
+		test_raw_roundtrip();
+		test_raw_read_all();
 
-	std::cout << "All signal I/O tests passed.\n";
-	return 0;
+		std::cout << "All signal I/O tests passed.\n";
+		return 0;
+	} catch (const std::exception& e) {
+		std::cerr << "FAILED: " << e.what() << '\n';
+		return 1;
+	} catch (...) {
+		std::cerr << "FAILED: unknown exception\n";
+		return 1;
+	}
 }

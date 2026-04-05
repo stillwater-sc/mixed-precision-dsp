@@ -69,6 +69,10 @@ void write_wav_channels(const std::string& path,
                          const std::vector<std::span<const T>>& channels,
                          int sample_rate, int bits_per_sample = 16) {
 	if (channels.empty()) throw std::invalid_argument("wav: no channels");
+	if (bits_per_sample != 8 && bits_per_sample != 16 &&
+	    bits_per_sample != 24 && bits_per_sample != 32) {
+		throw std::invalid_argument("wav: unsupported bits_per_sample (must be 8, 16, 24, or 32)");
+	}
 
 	std::ofstream ofs(path, std::ios::binary);
 	if (!ofs) throw std::runtime_error("wav: cannot open " + path + " for writing");
@@ -76,8 +80,8 @@ void write_wav_channels(const std::string& path,
 	const int num_channels = static_cast<int>(channels.size());
 	const auto num_samples = channels[0].size();
 	const int bytes_per_sample = bits_per_sample / 8;
-	const uint16_t audio_format = (bits_per_sample == 32 && bytes_per_sample == 4) ? 3 : 1;
-	// format 1 = PCM integer, format 3 = IEEE float
+	// format 1 = PCM integer, format 3 = IEEE float (32-bit only)
+	const uint16_t audio_format = 1;  // always PCM integer for write
 	const uint32_t data_size = static_cast<uint32_t>(num_samples * num_channels * bytes_per_sample);
 	const uint32_t byte_rate = static_cast<uint32_t>(sample_rate * num_channels * bytes_per_sample);
 	const uint16_t block_align = static_cast<uint16_t>(num_channels * bytes_per_sample);
@@ -119,14 +123,9 @@ void write_wav_channels(const std::string& path,
 				char b[3] = { static_cast<char>(s & 0xFF), static_cast<char>((s >> 8) & 0xFF),
 				              static_cast<char>((s >> 16) & 0xFF) };
 				ofs.write(b, 3);
-			} else if (bits_per_sample == 32 && audio_format == 1) {
+			} else if (bits_per_sample == 32) {
 				int32_t s = static_cast<int32_t>(v * 2147483647.0);
 				detail::write_le32(ofs, static_cast<uint32_t>(s));
-			} else if (bits_per_sample == 32 && audio_format == 3) {
-				float f = static_cast<float>(v);
-				char b[4];
-				std::memcpy(b, &f, 4);
-				ofs.write(b, 4);
 			}
 		}
 	}
@@ -187,9 +186,10 @@ inline WavData read_wav(const std::string& path) {
 			detail::read_le32(ifs);  // byte rate
 			detail::read_le16(ifs);  // block align
 			bits_per_sample = detail::read_le16(ifs);
-			// Skip any extra format bytes
+			// Skip any extra format bytes (RIFF chunks are word-aligned)
 			if (chunk_size > 16) {
-				ifs.seekg(chunk_size - 16, std::ios::cur);
+				uint32_t skip = (chunk_size - 16) + (chunk_size & 1);
+				ifs.seekg(skip, std::ios::cur);
 			}
 			found_fmt = true;
 		} else if (std::strncmp(chunk_id, "data", 4) == 0) {
@@ -197,16 +197,22 @@ inline WavData read_wav(const std::string& path) {
 			found_data = true;
 			// Don't skip — we'll read the data below
 		} else {
-			// Skip unknown chunks
-			ifs.seekg(chunk_size, std::ios::cur);
+			// Skip unknown chunks (RIFF chunks are word-aligned)
+			uint32_t skip = chunk_size + (chunk_size & 1);
+			ifs.seekg(skip, std::ios::cur);
 		}
 	}
 
 	if (!found_fmt || !found_data)
 		throw std::runtime_error("wav: missing fmt or data chunk");
+	if (bits_per_sample == 0 || (bits_per_sample % 8) != 0)
+		throw std::runtime_error("wav: invalid bits_per_sample");
+	if (num_channels == 0)
+		throw std::runtime_error("wav: invalid num_channels");
 
 	int bytes_per_sample = bits_per_sample / 8;
-	std::size_t num_samples = data_size / (num_channels * bytes_per_sample);
+	std::size_t frame_size = static_cast<std::size_t>(num_channels) * bytes_per_sample;
+	std::size_t num_samples = data_size / frame_size;
 
 	WavData result;
 	result.sample_rate = static_cast<int>(sample_rate);

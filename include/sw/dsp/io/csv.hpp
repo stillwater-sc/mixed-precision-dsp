@@ -7,6 +7,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <algorithm>
 #include <cstddef>
 #include <fstream>
 #include <iomanip>
@@ -96,6 +97,7 @@ void write_csv(const std::string& path,
 // Skips the first row if it doesn't parse as a number (header detection).
 template <typename T>
 std::vector<T> read_csv(const std::string& path, int column = 0) {
+	if (column < 0) throw std::invalid_argument("csv: column index must be non-negative");
 	std::ifstream ifs(path);
 	if (!ifs) throw std::runtime_error("csv: cannot open " + path + " for reading");
 
