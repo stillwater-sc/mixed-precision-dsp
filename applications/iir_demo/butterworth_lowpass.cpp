@@ -44,13 +44,21 @@ void print_coefficients(const CascadeType& cascade) {
 	}
 }
 
+struct PrecisionResult {
+	std::string type_name;
+	std::string description;
+	double max_abs_error;
+	double max_rel_error;
+};
+
 // Run impulse response comparison between double reference and a mixed-precision config
 template <typename MixedFilter>
-void compare_impulse_response(const std::string& label, MixedFilter& filter_mixed,
-                               double sample_rate, double cutoff_freq) {
+PrecisionResult compare_impulse_response(const std::string& type_name,
+                                          const std::string& description,
+                                          MixedFilter& filter_mixed,
+                                          double sample_rate, double cutoff_freq) {
 	using sample_t = typename MixedFilter::sample_scalar;
 
-	// Reference: pure double
 	SimpleFilter<iir::ButterworthLowPass<4, double, double, double>> filter_ref;
 	filter_ref.setup(4, sample_rate, cutoff_freq);
 	filter_mixed.reset();
@@ -68,12 +76,28 @@ void compare_impulse_response(const std::string& label, MixedFilter& filter_mixe
 		max_ref = std::max(max_ref, std::abs(y_ref));
 	}
 
-	std::cout << "  " << label << ":\n";
-	std::cout << "    Max absolute error: " << std::scientific << std::setprecision(6) << max_err;
-	if (max_ref > 0) {
-		std::cout << "  (relative: " << std::scientific << max_err / max_ref << ")";
+	double rel = (max_ref > 0) ? max_err / max_ref : 0.0;
+	return {type_name, description, max_err, rel};
+}
+
+void print_precision_table(const std::vector<PrecisionResult>& results) {
+	// Header
+	std::cout << std::left
+	          << std::setw(18) << "Type"
+	          << std::setw(38) << "Description"
+	          << std::right
+	          << std::setw(12) << "Abs Error"
+	          << std::setw(12) << "Rel Error" << "\n";
+	std::cout << std::string(80, '-') << "\n";
+
+	for (const auto& r : results) {
+		std::cout << std::left
+		          << std::setw(18) << r.type_name
+		          << std::setw(38) << r.description
+		          << std::right << std::scientific << std::setprecision(2)
+		          << std::setw(12) << r.max_abs_error
+		          << std::setw(12) << r.max_rel_error << "\n";
 	}
-	std::cout << "\n";
 }
 
 int main() {
@@ -93,51 +117,48 @@ int main() {
 	std::cout << "  Coefficients designed in double, processing in target type.\n";
 	std::cout << "  Reference: double coefficients, double state, double samples.\n\n";
 
+	std::vector<PrecisionResult> results;
+
 	{
-		// Native float: IEEE 754 binary32 (24-bit mantissa, 8-bit exponent)
 		SimpleFilter<iir::ButterworthLowPass<4, double, float, float>> f;
 		f.setup(4, sample_rate, cutoff_freq);
-		compare_impulse_response("float          (IEEE 754 binary32: 24-bit mantissa, 8-bit exp)",
-		                          f, sample_rate, cutoff_freq);
+		results.push_back(compare_impulse_response(
+			"float", "IEEE 754 binary32, 24-bit mantissa", f, sample_rate, cutoff_freq));
 	}
 
 	{
-		// cfloat<24,5>: 24-bit float with 5-bit exponent (18-bit mantissa)
 		using cf24 = sw::universal::cfloat<24, 5>;
 		SimpleFilter<iir::ButterworthLowPass<4, double, cf24, cf24>> f;
 		f.setup(4, sample_rate, cutoff_freq);
-		compare_impulse_response("cfloat<24,5>   (24-bit float: 18-bit mantissa, 5-bit exp)",
-		                          f, sample_rate, cutoff_freq);
+		results.push_back(compare_impulse_response(
+			"cfloat<24,5>", "24-bit float, 18-bit mantissa", f, sample_rate, cutoff_freq));
 	}
 
 	{
-		// half: IEEE 754 binary16 (11-bit mantissa, 5-bit exponent)
 		using half = sw::universal::half;
 		SimpleFilter<iir::ButterworthLowPass<4, double, half, half>> f;
 		f.setup(4, sample_rate, cutoff_freq);
-		compare_impulse_response("half           (IEEE 754 binary16: 11-bit mantissa, 5-bit exp)",
-		                          f, sample_rate, cutoff_freq);
+		results.push_back(compare_impulse_response(
+			"half", "IEEE 754 binary16, 11-bit mantissa", f, sample_rate, cutoff_freq));
 	}
 
 	{
-		// fixpnt<16,14>: 16-bit fixed point with 14 fractional bits
-		// Range: [-2, 1.99994] with resolution 1/16384 ~ 6.1e-5
 		using fp16_14 = sw::universal::fixpnt<16, 14>;
 		SimpleFilter<iir::ButterworthLowPass<4, double, fp16_14, fp16_14>> f;
 		f.setup(4, sample_rate, cutoff_freq);
-		compare_impulse_response("fixpnt<16,14>  (16-bit fixed: 14 frac bits, range [-2, 2))",
-		                          f, sample_rate, cutoff_freq);
+		results.push_back(compare_impulse_response(
+			"fixpnt<16,14>", "16-bit fixed, 14 frac bits [-2, 2)", f, sample_rate, cutoff_freq));
 	}
 
 	{
-		// fixpnt<16,8>: 16-bit fixed point with 8 fractional bits
-		// Range: [-128, 127.996] with resolution 1/256 ~ 3.9e-3
 		using fp16_8 = sw::universal::fixpnt<16, 8>;
 		SimpleFilter<iir::ButterworthLowPass<4, double, fp16_8, fp16_8>> f;
 		f.setup(4, sample_rate, cutoff_freq);
-		compare_impulse_response("fixpnt<16,8>   (16-bit fixed: 8 frac bits, range [-128, 128))",
-		                          f, sample_rate, cutoff_freq);
+		results.push_back(compare_impulse_response(
+			"fixpnt<16,8>", "16-bit fixed, 8 frac bits [-128, 128)", f, sample_rate, cutoff_freq));
 	}
+
+	print_precision_table(results);
 
 	// ================================================================
 	// 2. Design filters of orders 2, 4, 6, 8 and show coefficients
