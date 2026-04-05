@@ -3,8 +3,8 @@
 # Each subdirectory contains its own CMakeLists.txt
 # Uncomment as implementations become available
 
-# Phase 3: IIR filters
-# add_subdirectory(iir_demo)
+# IIR filter demos
+add_subdirectory(iir_demo)
 
 # Phase 6: FIR filters
 # add_subdirectory(fir_demo)

@@ -1,0 +1,2 @@
+add_executable(butterworth_lowpass butterworth_lowpass.cpp)
+target_link_libraries(butterworth_lowpass PRIVATE sw::dsp)
