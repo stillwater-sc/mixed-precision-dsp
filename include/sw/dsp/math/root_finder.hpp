@@ -62,6 +62,7 @@ public:
 		if (degree < 1 || degree > MaxDegree)
 			throw std::out_of_range("RootFinder::solve degree out of range");
 
+		using std::abs;
 		const T snap_eps = std::numeric_limits<T>::epsilon() * T{32};
 
 		// Copy coefficients for deflation
@@ -76,7 +77,7 @@ public:
 			laguerre(j + 1, deflated_.data(), x, its);
 
 			// Snap near-real roots to real axis
-			if (std::abs(x.imag()) <= T{2} * snap_eps * std::max(T{1}, std::abs(x.real()))) {
+			if (abs(x.imag()) <= T{2} * snap_eps * std::max(T{1}, abs(x.real()))) {
 				x = complex_t(x.real(), T{});
 			}
 
@@ -127,6 +128,9 @@ private:
 		constexpr int MT = 10;
 		constexpr int MAXIT = MT * MR;
 		const T EPS = std::numeric_limits<T>::epsilon();
+		using std::abs;
+		using std::sqrt;
+		using std::polar;
 
 		static const double frac[MR + 1] = {
 			0.0, 0.5, 0.25, 0.75, 0.13, 0.38, 0.62, 0.88, 1.0
@@ -136,38 +140,38 @@ private:
 		for (int iter = 1; iter <= MAXIT; ++iter) {
 			its = iter;
 			complex_t b = a[m];
-			T err = std::abs(b);
+			T err = abs(b);
 			complex_t d(T{}), f(T{});
-			T abx = std::abs(x);
+			T abx = abs(x);
 
 			for (int j = m - 1; j >= 0; --j) {
 				f = x * f + d;
 				d = x * d + b;
 				b = x * b + a[j];
-				err = std::abs(b) + abx * err;
+				err = abs(b) + abx * err;
 			}
 			err *= EPS;
 
-			if (std::abs(b) <= err) return;
+			if (abs(b) <= err) return;
 
 			complex_t g = d / b;
 			complex_t g2 = g * g;
 			complex_t h = g2 - complex_t(T{2}) * f / b;
 
-			complex_t sq = std::sqrt(
+			complex_t sq = sqrt(
 				complex_t(static_cast<T>(m - 1)) * (complex_t(static_cast<T>(m)) * h - g2));
 			complex_t gp = g + sq;
 			complex_t gm = g - sq;
 
-			T abp = std::abs(gp);
-			T abm = std::abs(gm);
+			T abp = abs(gp);
+			T abm = abs(gm);
 			if (abp < abm) gp = gm;
 
 			complex_t dx;
 			if (std::max(abp, abm) > T{}) {
 				dx = complex_t(static_cast<T>(m)) / gp;
 			} else {
-				dx = std::polar(static_cast<double>(T{1} + abx), static_cast<double>(iter));
+				dx = polar(static_cast<double>(T{1} + abx), static_cast<double>(iter));
 			}
 
 			complex_t x1 = x - dx;

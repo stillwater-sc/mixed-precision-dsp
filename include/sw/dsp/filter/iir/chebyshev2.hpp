@@ -30,7 +30,9 @@ public:
 		layout.reset();
 		layout.set_normal(T{}, T{1});
 
-		const T eps = std::sqrt(T{1} / (std::exp(stopband_db * T{0.1} * ln10_v<T>) - T{1}));
+		using std::sqrt;
+		using std::exp;
+		const T eps = sqrt(T{1} / (exp(stopband_db * T{0.1} * ln10_v<T>) - T{1}));
 		const T v0 = static_cast<T>(std::asinh(static_cast<double>(T{1} / eps))) / static_cast<T>(num_poles);
 		const T sinh_v0 = T{-1} * static_cast<T>(std::sinh(static_cast<double>(v0)));
 		const T cosh_v0 = static_cast<T>(std::cosh(static_cast<double>(v0)));

@@ -32,10 +32,11 @@ public:
 	LowPassTransform(T fc,
 	                  PoleZeroLayout<T, MaxDigital>& digital,
 	                  const PoleZeroLayout<T, MaxAnalog>& analog) {
+		using std::tan;
 		digital.reset();
 
 		// Prewarp
-		f_ = std::tan(pi_v<T> * fc);
+		f_ = tan(pi_v<T> * fc);
 
 		const int num_poles = analog.num_poles();
 		const int pairs = num_poles / 2;
@@ -80,10 +81,11 @@ public:
 	HighPassTransform(T fc,
 	                  PoleZeroLayout<T, MaxDigital>& digital,
 	                  const PoleZeroLayout<T, MaxAnalog>& analog) {
+		using std::tan;
 		digital.reset();
 
 		// Prewarp (reciprocal for highpass)
-		f_ = T{1} / std::tan(pi_v<T> * fc);
+		f_ = T{1} / tan(pi_v<T> * fc);
 
 		const int num_poles = analog.num_poles();
 		const int pairs = num_poles / 2;
