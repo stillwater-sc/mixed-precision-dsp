@@ -38,12 +38,12 @@ jobs:
 
     steps:
       - name: Checkout dsp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: dsp
 
       - name: Checkout Universal (with MTL5 submodule)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: stillwater-sc/universal
           path: universal
@@ -79,7 +79,7 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-logs-${{ matrix.artifact }}
           path: |
@@ -97,12 +97,12 @@ jobs:
 
     steps:
       - name: Checkout dsp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: dsp
 
       - name: Checkout Universal (with MTL5 submodule)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: stillwater-sc/universal
           path: universal
