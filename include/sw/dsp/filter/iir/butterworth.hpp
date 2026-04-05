@@ -67,11 +67,19 @@ public:
 		const T gp = T{-1} / g;
 		const T gz = T{-1} * g;
 
+		// gp and gz are negative: polar() requires non-negative rho.
+		// Negate and shift angle by pi to represent the negative magnitude.
+		using std::abs;    // ADL: finds sw::universal::abs for Universal types
+		using std::polar;  // ADL: finds sw::universal::polar for Universal types
+		const T rho_p = abs(gp);
+		const T rho_z = abs(gz);
+
 		const int pairs = num_poles / 2;
 		for (int i = 1; i <= pairs; ++i) {
 			T theta = pi_v<T> * (T{0.5} - static_cast<T>(2 * i - 1) / n2);
-			using std::polar;  // ADL for Universal types
-			layout.add_conjugate_pairs(polar(gp, theta), polar(gz, theta));
+			layout.add_conjugate_pairs(
+				polar(rho_p, theta + pi_v<T>),
+				polar(rho_z, theta + pi_v<T>));
 		}
 
 		if (num_poles & 1) {
