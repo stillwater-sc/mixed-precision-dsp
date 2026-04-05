@@ -15,7 +15,8 @@ latency. Yet traditional DSP libraries hardcode `double` throughout
 their implementations, making it impossible to explore how reduced or
 alternative precision affects algorithm quality, throughput, and energy.
 
-Consider the classical IIR filter design pipeline:
+Consider the classical IIR filter design pipeline faithfully implemented
+by Vinnie Falco's [DSPFilters](https://github.com/vinniefalco/DSPFilters)
 
 1. **Analog prototype design** -- place poles and zeros in the s-plane
    using Butterworth, Chebyshev, Elliptic, or Bessel polynomial roots
@@ -32,8 +33,7 @@ to avoid overflow and enough precision to suppress quantization noise.
 Input/output sample streams may tolerate substantially lower precision
 for throughput or power savings.
 
-Traditional DSP libraries like Vinnie Falco's
-[DSPFilters](https://github.com/vinniefalco/DSPFilters) --  a
+Traditional DSP libraries like Vinnie Falco's DSPFilters -- a beautifully crafted,
 well-engineered C++ IIR filter library -- use `double` for every one of
 these stages. The coefficients are `double`. The state variables are
 `double`. The sample buffers are `double`. This uniformity simplifies
