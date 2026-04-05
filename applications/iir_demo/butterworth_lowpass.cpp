@@ -12,6 +12,10 @@
 #include <sw/dsp/signals/generators.hpp>
 #include <sw/dsp/viz/viz.hpp>
 
+// Universal number types for mixed-precision demonstration
+#if __has_include(<bit>)
+#include <bit>  // std::bit_cast, required by Universal on MSVC
+#endif
 #include <sw/universal/number/fixpnt/fixpnt.hpp>
 #include <sw/universal/number/cfloat/cfloat.hpp>
 
