@@ -65,33 +65,35 @@ void plot_line(std::ostream& os, std::span<const T> data, const PlotConfig& cfg 
 		os << std::string(pad, ' ') << cfg.title << '\n';
 	}
 
-	// Build character grid
-	std::vector<std::string> grid(h, std::string(w, ' '));
+	// For each column, compute the min/max envelope of all samples
+	// that map to it. This gives a clear waveform display even when
+	// many samples share a column (dense signals).
+	std::vector<double> col_min(w, ymax);
+	std::vector<double> col_max(w, ymin);
+	std::vector<bool>   col_hit(w, false);
 
-	// Plot data points
 	for (std::size_t i = 0; i < y.size(); ++i) {
 		int col = static_cast<int>(static_cast<double>(i) / (y.size() - 1) * (w - 1));
-		if (col < 0) col = 0;
-		if (col >= w) col = w - 1;
-		int row = static_cast<int>((ymax - y[i]) / (ymax - ymin) * (h - 1));
-		if (row < 0) row = 0;
-		if (row >= h) row = h - 1;
-		grid[row][col] = cfg.fill_char;
+		col = std::clamp(col, 0, w - 1);
+		col_min[col] = std::min(col_min[col], y[i]);
+		col_max[col] = std::max(col_max[col], y[i]);
+		col_hit[col] = true;
 	}
 
-	// Connect adjacent points with vertical lines for continuity
-	for (std::size_t i = 0; i + 1 < y.size(); ++i) {
-		int col0 = static_cast<int>(static_cast<double>(i) / (y.size() - 1) * (w - 1));
-		int col1 = static_cast<int>(static_cast<double>(i + 1) / (y.size() - 1) * (w - 1));
-		if (col0 == col1) {
-			int row0 = static_cast<int>((ymax - y[i]) / (ymax - ymin) * (h - 1));
-			int row1 = static_cast<int>((ymax - y[i + 1]) / (ymax - ymin) * (h - 1));
-			row0 = std::clamp(row0, 0, h - 1);
-			row1 = std::clamp(row1, 0, h - 1);
-			int lo = std::min(row0, row1), hi = std::max(row0, row1);
-			for (int r = lo; r <= hi; ++r) {
-				if (grid[r][col0] == ' ') grid[r][col0] = '|';
-			}
+	// Build character grid from the envelope
+	std::vector<std::string> grid(h, std::string(w, ' '));
+
+	for (int c = 0; c < w; ++c) {
+		if (!col_hit[c]) continue;
+
+		int row_top = std::clamp(
+			static_cast<int>((ymax - col_max[c]) / (ymax - ymin) * (h - 1)), 0, h - 1);
+		int row_bot = std::clamp(
+			static_cast<int>((ymax - col_min[c]) / (ymax - ymin) * (h - 1)), 0, h - 1);
+
+		// Fill the envelope range for this column
+		for (int r = row_top; r <= row_bot; ++r) {
+			grid[r][c] = cfg.fill_char;
 		}
 	}
 
