@@ -15,6 +15,7 @@
 #include <sw/universal/number/fixpnt/fixpnt.hpp>
 #include <sw/universal/number/cfloat/cfloat.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <iomanip>
@@ -127,11 +128,19 @@ int main() {
 	}
 
 	{
+		using cf24_sub = sw::universal::cfloat<24, 5, uint32_t, true, false, false>;
+		SimpleFilter<iir::ButterworthLowPass<4, double, cf24_sub, cf24_sub>> f;
+		f.setup(4, sample_rate, cutoff_freq);
+		results.push_back(compare_impulse_response(
+			"cfloat<24,5>+sub", "24b float, 18b mantissa, w/ subs", f, sample_rate, cutoff_freq));
+	}
+
+	{
 		using cf24 = sw::universal::cfloat<24, 5>;
 		SimpleFilter<iir::ButterworthLowPass<4, double, cf24, cf24>> f;
 		f.setup(4, sample_rate, cutoff_freq);
 		results.push_back(compare_impulse_response(
-			"cfloat<24,5>", "24-bit float, 18-bit mantissa", f, sample_rate, cutoff_freq));
+			"cfloat<24,5>", "24b float, 18b mantissa, no subs", f, sample_rate, cutoff_freq));
 	}
 
 	{
@@ -139,7 +148,7 @@ int main() {
 		SimpleFilter<iir::ButterworthLowPass<4, double, half, half>> f;
 		f.setup(4, sample_rate, cutoff_freq);
 		results.push_back(compare_impulse_response(
-			"half", "IEEE 754 binary16, 11-bit mantissa", f, sample_rate, cutoff_freq));
+			"half", "IEEE 754 binary16, 11b mantissa, w/ subs", f, sample_rate, cutoff_freq));
 	}
 
 	{
@@ -158,7 +167,18 @@ int main() {
 			"fixpnt<16,8>", "16-bit fixed, 8 frac bits [-128, 128)", f, sample_rate, cutoff_freq));
 	}
 
+	// Sort by absolute error (best to worst)
+	std::sort(results.begin(), results.end(),
+	          [](const PrecisionResult& a, const PrecisionResult& b) {
+	              return a.max_abs_error < b.max_abs_error;
+	          });
+
 	print_precision_table(results);
+
+	std::cout << "\n  Note: half (16-bit with subnormals) outperforms cfloat<24,5> (24-bit without\n"
+	          << "  subnormals) because the biquad coefficients b0=2.9e-4 fall in the subnormal\n"
+	          << "  range. Without subnormals, small values flush to zero, destroying the filter.\n"
+	          << "  Enabling subnormals on cfloat<24,5> restores expected precision ordering.\n";
 
 	// ================================================================
 	// 2. Design filters of orders 2, 4, 6, 8 and show coefficients
