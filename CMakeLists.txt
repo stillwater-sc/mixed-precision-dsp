@@ -31,45 +31,50 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 ####
 # Dependencies
 #
-# Universal number arithmetic library
+# Strategy: try find_package first (for system/installed copies),
+# then fall back to FetchContent from GitHub (headers only).
+include(FetchContent)
+
+# Universal number arithmetic library (header-only)
 find_package(universal CONFIG QUIET)
-if(NOT universal_FOUND)
-	# Fall back to local path for development
-	set(UNIVERSAL_DIR "" CACHE PATH "Path to Universal library root")
-	if(EXISTS "${UNIVERSAL_DIR}/include/sw/universal")
-		target_include_directories(${PROJECT_NAME} INTERFACE
-			$<BUILD_INTERFACE:${UNIVERSAL_DIR}/include>)
-		message(STATUS "Using Universal from: ${UNIVERSAL_DIR}")
-	elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../universal/include/sw/universal")
-		target_include_directories(${PROJECT_NAME} INTERFACE
-			$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../universal/include>)
-		message(STATUS "Using Universal from sibling directory")
-	else()
-		message(WARNING "Universal library not found. Some features will be unavailable.")
-	endif()
-else()
+if(universal_FOUND)
 	target_link_libraries(${PROJECT_NAME} INTERFACE universal::universal)
 	message(STATUS "Found Universal via find_package")
+else()
+	message(STATUS "Universal not found via find_package, fetching headers from GitHub")
+	FetchContent_Declare(universal
+		GIT_REPOSITORY https://github.com/stillwater-sc/universal.git
+		GIT_TAG        main
+		GIT_SHALLOW    TRUE
+	)
+	# Header-only: fetch source but do NOT add_subdirectory (avoids building Universal's targets)
+	FetchContent_GetProperties(universal)
+	if(NOT universal_POPULATED)
+		FetchContent_Populate(universal)
+	endif()
+	target_include_directories(${PROJECT_NAME} INTERFACE
+		$<BUILD_INTERFACE:${universal_SOURCE_DIR}/include>)
 endif()
 
-# MTL5 linear algebra library
+# MTL5 linear algebra library (header-only)
 find_package(MTL5 CONFIG QUIET)
-if(NOT MTL5_FOUND)
-	set(MTL5_DIR "" CACHE PATH "Path to MTL5 library root")
-	if(EXISTS "${MTL5_DIR}/include/mtl")
-		target_include_directories(${PROJECT_NAME} INTERFACE
-			$<BUILD_INTERFACE:${MTL5_DIR}/include>)
-		message(STATUS "Using MTL5 from: ${MTL5_DIR}")
-	elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../universal/mtl5/include/mtl")
-		target_include_directories(${PROJECT_NAME} INTERFACE
-			$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../universal/mtl5/include>)
-		message(STATUS "Using MTL5 from universal/mtl5 sibling directory")
-	else()
-		message(WARNING "MTL5 library not found. Some features will be unavailable.")
-	endif()
-else()
+if(MTL5_FOUND)
 	target_link_libraries(${PROJECT_NAME} INTERFACE MTL5::mtl5)
 	message(STATUS "Found MTL5 via find_package")
+else()
+	message(STATUS "MTL5 not found via find_package, fetching headers from GitHub")
+	FetchContent_Declare(mtl5
+		GIT_REPOSITORY https://github.com/stillwater-sc/mtl5.git
+		GIT_TAG        main
+		GIT_SHALLOW    TRUE
+	)
+	# Header-only: fetch source but do NOT add_subdirectory (avoids building MTL5's targets)
+	FetchContent_GetProperties(mtl5)
+	if(NOT mtl5_POPULATED)
+		FetchContent_Populate(mtl5)
+	endif()
+	target_include_directories(${PROJECT_NAME} INTERFACE
+		$<BUILD_INTERFACE:${mtl5_SOURCE_DIR}/include>)
 endif()
 
 ####
