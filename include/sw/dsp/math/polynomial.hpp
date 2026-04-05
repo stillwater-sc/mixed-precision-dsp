@@ -29,23 +29,23 @@ T evaluate_polynomial(const std::vector<T>& coeffs, T x) {
 
 // Evaluate polynomial at a complex point using Horner's method.
 template <DspField T>
-std::complex<T> evaluate_polynomial(const std::vector<T>& coeffs, std::complex<T> x) {
-	if (coeffs.empty()) return std::complex<T>{};
+complex_for_t<T> evaluate_polynomial(const std::vector<T>& coeffs, complex_for_t<T> x) {
+	if (coeffs.empty()) return complex_for_t<T>{};
 
-	std::complex<T> result(coeffs.back());
+	complex_for_t<T> result(coeffs.back());
 	for (int i = static_cast<int>(coeffs.size()) - 2; i >= 0; --i) {
-		result = result * x + std::complex<T>(coeffs[static_cast<std::size_t>(i)]);
+		result = result * x + complex_for_t<T>(coeffs[static_cast<std::size_t>(i)]);
 	}
 	return result;
 }
 
 // Evaluate a complex-coefficient polynomial at a complex point.
 template <DspField T>
-std::complex<T> evaluate_polynomial(const std::vector<std::complex<T>>& coeffs,
-                                    std::complex<T> x) {
-	if (coeffs.empty()) return std::complex<T>{};
+complex_for_t<T> evaluate_polynomial(const std::vector<complex_for_t<T>>& coeffs,
+                                    complex_for_t<T> x) {
+	if (coeffs.empty()) return complex_for_t<T>{};
 
-	std::complex<T> result = coeffs.back();
+	complex_for_t<T> result = coeffs.back();
 	for (int i = static_cast<int>(coeffs.size()) - 2; i >= 0; --i) {
 		result = result * x + coeffs[static_cast<std::size_t>(i)];
 	}

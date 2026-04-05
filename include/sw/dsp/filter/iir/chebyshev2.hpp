@@ -44,12 +44,12 @@ public:
 			T im = T{1} / static_cast<T>(std::cos(static_cast<double>(static_cast<T>(k) * fn)));
 
 			layout.add_conjugate_pairs(
-				std::complex<T>(a / d2, b / d2),
-				std::complex<T>(T{}, im));
+				complex_for_t<T>(a / d2, b / d2),
+				complex_for_t<T>(T{}, im));
 		}
 
 		if (num_poles & 1) {
-			layout.add(std::complex<T>(T{1} / sinh_v0), s_infinity<T>());
+			layout.add(complex_for_t<T>(T{1} / sinh_v0), s_infinity<T>());
 		}
 	}
 };

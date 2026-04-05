@@ -172,13 +172,13 @@ public:
 
 		// Build polynomial for root finding: 1 + w(s^2)
 		RootFinder<T, MaxOrder * 2> solver;
-		solver.coef(0) = std::complex<T>(T{1} + w[0]);
-		solver.coef(1) = std::complex<T>(T{});
+		solver.coef(0) = complex_for_t<T>(T{1} + w[0]);
+		solver.coef(1) = complex_for_t<T>(T{});
 		for (int i = 1; i <= num_poles; ++i) {
 			T sign = (i & 1) ? T{-1} : T{1};
-			solver.coef(2 * i) = std::complex<T>(w[i] * sign);
+			solver.coef(2 * i) = complex_for_t<T>(w[i] * sign);
 			if (2 * i + 1 <= degree) {
-				solver.coef(2 * i + 1) = std::complex<T>(T{});
+				solver.coef(2 * i + 1) = complex_for_t<T>(T{});
 			}
 		}
 		solver.solve(degree);
@@ -202,7 +202,7 @@ public:
 
 		if (num_poles & 1) {
 			layout.add(
-				std::complex<T>(solver.root(pairs).real(), T{}),
+				complex_for_t<T>(solver.root(pairs).real(), T{}),
 				s_infinity<T>());
 		}
 	}

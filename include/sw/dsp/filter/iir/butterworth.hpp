@@ -40,12 +40,13 @@ public:
 
 		for (int i = 0; i < pairs; ++i) {
 			T theta = half_pi_v<T> + static_cast<T>(2 * i + 1) * pi_v<T> / n2;
-			auto pole = std::polar(T{1}, theta);
+			using std::polar;  // ADL for Universal types
+			auto pole = polar(T{1}, theta);
 			layout.add_conjugate_pairs(pole, s_infinity<T>());
 		}
 
 		if (num_poles & 1) {
-			layout.add(std::complex<T>(T{-1}), s_infinity<T>());
+			layout.add(complex_for_t<T>(T{-1}), s_infinity<T>());
 		}
 	}
 };
@@ -69,11 +70,12 @@ public:
 		const int pairs = num_poles / 2;
 		for (int i = 1; i <= pairs; ++i) {
 			T theta = pi_v<T> * (T{0.5} - static_cast<T>(2 * i - 1) / n2);
-			layout.add_conjugate_pairs(std::polar(gp, theta), std::polar(gz, theta));
+			using std::polar;  // ADL for Universal types
+			layout.add_conjugate_pairs(polar(gp, theta), polar(gz, theta));
 		}
 
 		if (num_poles & 1) {
-			layout.add(std::complex<T>(gp), std::complex<T>(gz));
+			layout.add(complex_for_t<T>(gp), complex_for_t<T>(gz));
 		}
 	}
 };

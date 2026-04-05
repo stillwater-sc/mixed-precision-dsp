@@ -8,6 +8,17 @@
 #include <type_traits>
 #include <complex>
 
+// Conditionally include Universal's complex when available.
+// This enables complex_for_t<T> to dispatch to sw::universal::complex<T>
+// for non-native types, since std::complex<T> is only defined for
+// float, double, and long double per the C++ standard.
+#if __has_include(<universal/math/complex.hpp>)
+#include <universal/math/complex.hpp>
+#define SW_DSP_HAS_UNIVERSAL_COMPLEX 1
+#else
+#define SW_DSP_HAS_UNIVERSAL_COMPLEX 0
+#endif
+
 namespace sw::dsp {
 
 // A type that supports basic arithmetic and value initialization.
@@ -65,5 +76,33 @@ template <typename T>
 concept ConvertibleToDouble = requires(T a) {
 	{ static_cast<double>(a) } -> std::convertible_to<double>;
 };
+
+// ============================================================================
+// complex_for<T>: maps a scalar type to the correct complex type.
+//
+// For native IEEE types (float, double, long double): std::complex<T>
+// For all other types (Universal posit, cfloat, fixpnt, etc.):
+//   sw::universal::complex<T> if available, otherwise std::complex<T> (best effort)
+//
+// Usage: complex_for_t<double>        -> std::complex<double>
+//        complex_for_t<posit<32,2>>   -> sw::universal::complex<posit<32,2>>
+// ============================================================================
+
+template <typename T, typename Enable = void>
+struct complex_for {
+	// Default: use std::complex<T> for native floating-point types
+	using type = std::complex<T>;
+};
+
+#if SW_DSP_HAS_UNIVERSAL_COMPLEX
+// For non-native types: use sw::universal::complex<T>
+template <typename T>
+struct complex_for<T, std::enable_if_t<!std::is_floating_point_v<T>>> {
+	using type = sw::universal::complex<T>;
+};
+#endif
+
+template <typename T>
+using complex_for_t = typename complex_for<T>::type;
 
 } // namespace sw::dsp

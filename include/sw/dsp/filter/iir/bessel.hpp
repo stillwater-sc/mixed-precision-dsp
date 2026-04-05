@@ -56,7 +56,7 @@ public:
 		// Set up reverse Bessel polynomial coefficients in T precision
 		RootFinder<T, MaxOrder> solver;
 		for (int i = 0; i <= num_poles; ++i) {
-			solver.coef(i) = std::complex<T>(detail::reverse_bessel_coef<T>(i, num_poles));
+			solver.coef(i) = complex_for_t<T>(detail::reverse_bessel_coef<T>(i, num_poles));
 		}
 		solver.solve(num_poles);
 
@@ -67,7 +67,7 @@ public:
 
 		if (num_poles & 1) {
 			layout.add(
-				std::complex<T>(solver.root(pairs).real(), T{}),
+				complex_for_t<T>(solver.root(pairs).real(), T{}),
 				s_infinity<T>());
 		}
 	}

@@ -33,7 +33,7 @@ namespace sw::dsp {
 template <DspField T, int MaxDegree>
 class RootFinder {
 public:
-	using complex_t = std::complex<T>;
+	using complex_t = complex_for_t<T>;
 
 	// Access input coefficients (degree+1 elements, index 0..degree)
 	complex_t& coef(int i) {
