@@ -15,8 +15,8 @@
 #include <sw/dsp/math/quadratic.hpp>
 #include <sw/dsp/math/polynomial.hpp>
 
-#include <cassert>
 #include <cmath>
+#include <stdexcept>
 #include <complex>
 #include <iostream>
 #include <vector>
@@ -50,47 +50,47 @@ int main() {
 	{
 		ComplexPair<double> cp(std::complex<double>(1.0, 2.0),
 		                       std::complex<double>(1.0, -2.0));
-		assert(cp.is_conjugate());
-		assert(!cp.is_real());
-		assert(cp.is_matched_pair());
-		assert(!cp.is_nan());
+		if (!(cp.is_conjugate())) throw std::runtime_error("test failed: cp.is_conjugate()");
+		if (!(!cp.is_real())) throw std::runtime_error("test failed: !cp.is_real()");
+		if (!(cp.is_matched_pair())) throw std::runtime_error("test failed: cp.is_matched_pair()");
+		if (!(!cp.is_nan())) throw std::runtime_error("test failed: !cp.is_nan()");
 
 		ComplexPair<double> real_pair(std::complex<double>(1.0, 0.0),
 		                              std::complex<double>(2.0, 0.0));
-		assert(real_pair.is_real());
-		assert(real_pair.is_matched_pair());
+		if (!(real_pair.is_real())) throw std::runtime_error("test failed: real_pair.is_real()");
+		if (!(real_pair.is_matched_pair())) throw std::runtime_error("test failed: real_pair.is_matched_pair()");
 	}
 
 	// Test PoleZeroPair
 	{
 		PoleZeroPair<double> pz(std::complex<double>(-0.5, 0.0),
 		                        std::complex<double>(-1.0, 0.0));
-		assert(pz.is_single_pole());
+		if (!(pz.is_single_pole())) throw std::runtime_error("test failed: pz.is_single_pole()");
 
 		PoleZeroPair<double> pz2(std::complex<double>(-0.5, 0.5),
 		                         std::complex<double>(-1.0, 0.0),
 		                         std::complex<double>(-0.5, -0.5),
 		                         std::complex<double>(-1.0, 0.0));
-		assert(!pz2.is_single_pole());
+		if (!(!pz2.is_single_pole())) throw std::runtime_error("test failed: !pz2.is_single_pole()");
 	}
 
 	// Test BiquadCoefficients
 	{
 		BiquadCoefficients<double> bq;
 		bq.set_identity();
-		assert(bq.b0 == 1.0);
-		assert(bq.b1 == 0.0);
-		assert(bq.a1 == 0.0);
+		if (!(bq.b0 == 1.0)) throw std::runtime_error("test failed: bq.b0 == 1.0");
+		if (!(bq.b1 == 0.0)) throw std::runtime_error("test failed: bq.b1 == 0.0");
+		if (!(bq.a1 == 0.0)) throw std::runtime_error("test failed: bq.a1 == 0.0");
 
 		// Response of identity filter should be 1.0 at all frequencies
 		auto r = bq.response(0.25);
-		assert(std::abs(std::abs(r) - 1.0) < 1e-10);
+		if (!(std::abs(std::abs(r) - 1.0) < 1e-10)) throw std::runtime_error("test failed: std::abs(std::abs(r) - 1.0) < 1e-10");
 	}
 
 	// Test FilterKind string conversion
 	{
-		assert(to_string(FilterKind::low_pass) == "Low Pass");
-		assert(to_string(FilterKind::band_stop) == "Band Stop");
+		if (!(to_string(FilterKind::low_pass) == "Low Pass")) throw std::runtime_error("test failed: low_pass string");
+		if (!(to_string(FilterKind::band_stop) == "Band Stop")) throw std::runtime_error("test failed: band_stop string");
 	}
 
 	// Test FilterSpec
@@ -98,14 +98,14 @@ int main() {
 		FilterSpec spec;
 		spec.sample_rate = 48000.0;
 		spec.cutoff_frequency = 1000.0;
-		assert(std::abs(spec.normalized_cutoff() - 1000.0 / 48000.0) < 1e-15);
+		if (!(std::abs(spec.normalized_cutoff() - 1000.0 / 48000.0) < 1e-15)) throw std::runtime_error("test failed: std::abs(spec.normalized_cutoff() - 1000.0 / 48000.0) < 1e-15");
 	}
 
 	// Test constants
 	{
-		assert(std::abs(pi - 3.14159265358979323846) < 1e-15);
-		assert(std::abs(two_pi - 2.0 * pi) < 1e-15);
-		assert(std::abs(pi_v<float> - 3.14159265f) < 1e-6f);
+		if (!(std::abs(pi - 3.14159265358979323846) < 1e-15)) throw std::runtime_error("test failed: std::abs(pi - 3.14159265358979323846) < 1e-15");
+		if (!(std::abs(two_pi - 2.0 * pi) < 1e-15)) throw std::runtime_error("test failed: std::abs(two_pi - 2.0 * pi) < 1e-15");
+		if (!(std::abs(pi_v<float> - 3.14159265f) < 1e-6f)) throw std::runtime_error("test failed: std::abs(pi_v<float> - 3.14159265f) < 1e-6f");
 	}
 
 	// Test DenormalPrevention
@@ -113,39 +113,39 @@ int main() {
 		DenormalPrevention<double> dp;
 		double v1 = dp.ac();
 		double v2 = dp.ac();
-		assert(v1 == -v2);  // alternating sign
-		assert(v1 != 0.0);  // non-zero for IEEE types
+		if (!(v1 == -v2)) throw std::runtime_error("test failed: v1 == -v2");  // alternating sign
+		if (!(v1 != 0.0)) throw std::runtime_error("test failed: v1 != 0.0");  // non-zero for IEEE types
 	}
 
 	// Test quadratic solver
 	{
 		// x^2 - 5x + 6 = 0 -> roots at 2 and 3
 		auto [r1, r2] = solve_quadratic(1.0, -5.0, 6.0);
-		assert(std::abs(r1.real() - 3.0) < 1e-10);
-		assert(std::abs(r2.real() - 2.0) < 1e-10);
-		assert(std::abs(r1.imag()) < 1e-10);
-		assert(std::abs(r2.imag()) < 1e-10);
+		if (!(std::abs(r1.real() - 3.0) < 1e-10)) throw std::runtime_error("test failed: std::abs(r1.real() - 3.0) < 1e-10");
+		if (!(std::abs(r2.real() - 2.0) < 1e-10)) throw std::runtime_error("test failed: std::abs(r2.real() - 2.0) < 1e-10");
+		if (!(std::abs(r1.imag()) < 1e-10)) throw std::runtime_error("test failed: std::abs(r1.imag()) < 1e-10");
+		if (!(std::abs(r2.imag()) < 1e-10)) throw std::runtime_error("test failed: std::abs(r2.imag()) < 1e-10");
 
 		// x^2 + 1 = 0 -> roots at +i and -i
 		auto [c1, c2] = solve_quadratic(1.0, 0.0, 1.0);
-		assert(std::abs(c1.real()) < 1e-10);
-		assert(std::abs(std::abs(c1.imag()) - 1.0) < 1e-10);
+		if (!(std::abs(c1.real()) < 1e-10)) throw std::runtime_error("test failed: std::abs(c1.real()) < 1e-10");
+		if (!(std::abs(std::abs(c1.imag()) - 1.0) < 1e-10)) throw std::runtime_error("test failed: std::abs(std::abs(c1.imag()) - 1.0) < 1e-10");
 	}
 
 	// Test polynomial evaluation
 	{
 		// p(x) = 1 + 2x + 3x^2, p(2) = 1 + 4 + 12 = 17
 		std::vector<double> coeffs = {1.0, 2.0, 3.0};
-		assert(std::abs(evaluate_polynomial(coeffs, 2.0) - 17.0) < 1e-10);
+		if (!(std::abs(evaluate_polynomial(coeffs, 2.0) - 17.0) < 1e-10)) throw std::runtime_error("test failed: std::abs(evaluate_polynomial(coeffs, 2.0) - 17.0) < 1e-10");
 
 		// Polynomial multiplication: (1 + x)(1 + 2x) = 1 + 3x + 2x^2
 		std::vector<double> a = {1.0, 1.0};
 		std::vector<double> b = {1.0, 2.0};
 		auto product = multiply_polynomials(a, b);
-		assert(product.size() == 3);
-		assert(std::abs(product[0] - 1.0) < 1e-10);
-		assert(std::abs(product[1] - 3.0) < 1e-10);
-		assert(std::abs(product[2] - 2.0) < 1e-10);
+		if (!(product.size() == 3)) throw std::runtime_error("test failed: product.size() == 3");
+		if (!(std::abs(product[0] - 1.0) < 1e-10)) throw std::runtime_error("test failed: std::abs(product[0] - 1.0) < 1e-10");
+		if (!(std::abs(product[1] - 3.0) < 1e-10)) throw std::runtime_error("test failed: std::abs(product[1] - 3.0) < 1e-10");
+		if (!(std::abs(product[2] - 2.0) < 1e-10)) throw std::runtime_error("test failed: std::abs(product[2] - 2.0) < 1e-10");
 	}
 
 	std::cout << "All Phase 1 tests passed.\n";

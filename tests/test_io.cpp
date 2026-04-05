@@ -6,8 +6,8 @@
 #include <sw/dsp/io/io.hpp>
 #include <sw/dsp/signals/generators.hpp>
 
-#include <cassert>
 #include <cmath>
+#include <stdexcept>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -40,10 +40,10 @@ void test_wav_16bit_roundtrip() {
 
 	// Read back
 	auto wav = read_wav(tmp.path);
-	assert(wav.sample_rate == sr);
-	assert(wav.bits_per_sample == 16);
-	assert(wav.num_channels == 1);
-	assert(wav.num_samples() == samples.size());
+	if (!(wav.sample_rate == sr)) throw std::runtime_error("test failed: wav.sample_rate == sr");
+	if (!(wav.bits_per_sample == 16)) throw std::runtime_error("test failed: wav.bits_per_sample == 16");
+	if (!(wav.num_channels == 1)) throw std::runtime_error("test failed: wav.num_channels == 1");
+	if (!(wav.num_samples() == samples.size())) throw std::runtime_error("test failed: wav.num_samples() == samples.size()");
 
 	// Compare within 16-bit quantization error (~1/32768 = 3e-5)
 	double max_err = 0;
@@ -51,7 +51,7 @@ void test_wav_16bit_roundtrip() {
 		double err = std::abs(wav.channels[0][i] - samples[i]);
 		max_err = std::max(max_err, err);
 	}
-	assert(max_err < 1e-3);  // 16-bit: ~3e-5 per sample, some accumulation
+	if (!(max_err < 1e-3)) throw std::runtime_error("test failed: max_err < 1e-3");  // 16-bit: ~3e-5 per sample, some accumulation
 
 	std::cout << "  wav_16bit_roundtrip: passed (max_err=" << max_err << ")\n";
 }
@@ -66,16 +66,16 @@ void test_wav_8bit_roundtrip() {
 	write_wav<double>(tmp.path, std::span<const double>(samples), sr, 8);
 
 	auto wav = read_wav(tmp.path);
-	assert(wav.sample_rate == sr);
-	assert(wav.bits_per_sample == 8);
-	assert(wav.num_samples() == samples.size());
+	if (!(wav.sample_rate == sr)) throw std::runtime_error("test failed: wav.sample_rate == sr");
+	if (!(wav.bits_per_sample == 8)) throw std::runtime_error("test failed: wav.bits_per_sample == 8");
+	if (!(wav.num_samples() == samples.size())) throw std::runtime_error("test failed: wav.num_samples() == samples.size()");
 
 	// 8-bit: ~1/128 = 7.8e-3 quantization
 	double max_err = 0;
 	for (std::size_t i = 0; i < samples.size(); ++i) {
 		max_err = std::max(max_err, std::abs(wav.channels[0][i] - samples[i]));
 	}
-	assert(max_err < 0.02);
+	if (!(max_err < 0.02)) throw std::runtime_error("test failed: max_err < 0.02");
 
 	std::cout << "  wav_8bit_roundtrip: passed (max_err=" << max_err << ")\n";
 }
@@ -90,14 +90,14 @@ void test_wav_24bit_roundtrip() {
 	write_wav<double>(tmp.path, std::span<const double>(samples), sr, 24);
 
 	auto wav = read_wav(tmp.path);
-	assert(wav.sample_rate == sr);
-	assert(wav.bits_per_sample == 24);
+	if (!(wav.sample_rate == sr)) throw std::runtime_error("test failed: wav.sample_rate == sr");
+	if (!(wav.bits_per_sample == 24)) throw std::runtime_error("test failed: wav.bits_per_sample == 24");
 
 	double max_err = 0;
 	for (std::size_t i = 0; i < samples.size(); ++i) {
 		max_err = std::max(max_err, std::abs(wav.channels[0][i] - samples[i]));
 	}
-	assert(max_err < 1e-5);  // 24-bit: ~1.2e-7
+	if (!(max_err < 1e-5)) throw std::runtime_error("test failed: max_err < 1e-5");  // 24-bit: ~1.2e-7
 
 	std::cout << "  wav_24bit_roundtrip: passed (max_err=" << max_err << ")\n";
 }
@@ -114,15 +114,15 @@ void test_wav_stereo() {
 	write_wav<double>(tmp.path, std::span<const double>(l), std::span<const double>(r), sr, 16);
 
 	auto wav = read_wav(tmp.path);
-	assert(wav.num_channels == 2);
-	assert(wav.num_samples() == 500);
+	if (!(wav.num_channels == 2)) throw std::runtime_error("test failed: wav.num_channels == 2");
+	if (!(wav.num_samples() == 500)) throw std::runtime_error("test failed: wav.num_samples() == 500");
 
 	// Verify left and right are different
 	double diff = 0;
 	for (std::size_t i = 0; i < wav.num_samples(); ++i) {
 		diff += std::abs(wav.channels[0][i] - wav.channels[1][i]);
 	}
-	assert(diff > 1.0);  // they should differ significantly
+	if (!(diff > 1.0)) throw std::runtime_error("test failed: diff > 1.0");  // they should differ significantly
 
 	std::cout << "  wav_stereo: passed\n";
 }
@@ -137,14 +137,14 @@ void test_wav_32bit_roundtrip() {
 	write_wav<double>(tmp.path, std::span<const double>(samples), sr, 32);
 
 	auto wav = read_wav(tmp.path);
-	assert(wav.sample_rate == sr);
-	assert(wav.bits_per_sample == 32);
+	if (!(wav.sample_rate == sr)) throw std::runtime_error("test failed: wav.sample_rate == sr");
+	if (!(wav.bits_per_sample == 32)) throw std::runtime_error("test failed: wav.bits_per_sample == 32");
 
 	double max_err = 0;
 	for (std::size_t i = 0; i < samples.size(); ++i) {
 		max_err = std::max(max_err, std::abs(wav.channels[0][i] - samples[i]));
 	}
-	assert(max_err < 1e-8);  // 32-bit int: ~4.7e-10
+	if (!(max_err < 1e-8)) throw std::runtime_error("test failed: max_err < 1e-8");  // 32-bit int: ~4.7e-10
 
 	std::cout << "  wav_32bit_roundtrip: passed (max_err=" << max_err << ")\n";
 }
@@ -158,13 +158,13 @@ void test_csv_roundtrip() {
 	write_csv<double>(tmp.path, std::span<const double>(samples), "signal");
 
 	auto read_back = read_csv<double>(tmp.path, 0);
-	assert(read_back.size() == samples.size());
+	if (!(read_back.size() == samples.size())) throw std::runtime_error("test failed: read_back.size() == samples.size()");
 
 	double max_err = 0;
 	for (std::size_t i = 0; i < samples.size(); ++i) {
 		max_err = std::max(max_err, std::abs(read_back[i] - samples[i]));
 	}
-	assert(max_err < 1e-10);  // text format preserves 15 digits
+	if (!(max_err < 1e-10)) throw std::runtime_error("test failed: max_err < 1e-10");  // text format preserves 15 digits
 
 	std::cout << "  csv_roundtrip: passed (max_err=" << max_err << ")\n";
 }
@@ -183,10 +183,10 @@ void test_csv_two_column() {
 	auto col0 = read_csv<double>(tmp.path, 0);
 	auto col1 = read_csv<double>(tmp.path, 1);
 
-	assert(col0.size() == 5);
-	assert(col1.size() == 5);
-	assert(near(col0[2], 0.2, 1e-10));
-	assert(near(col1[2], 1.0, 1e-10));
+	if (!(col0.size() == 5)) throw std::runtime_error("test failed: col0.size() == 5");
+	if (!(col1.size() == 5)) throw std::runtime_error("test failed: col1.size() == 5");
+	if (!(near(col0[2], 0.2, 1e-10))) throw std::runtime_error("test failed: near(col0[2], 0.2, 1e-10)");
+	if (!(near(col1[2], 1.0, 1e-10))) throw std::runtime_error("test failed: near(col1[2], 1.0, 1e-10)");
 
 	std::cout << "  csv_two_column: passed\n";
 }
@@ -198,10 +198,10 @@ void test_raw_roundtrip() {
 	write_raw<double>(tmp.path, std::span<const double>(samples));
 
 	auto read_back = read_raw<double>(tmp.path, 5);
-	assert(read_back.size() == 5);
+	if (!(read_back.size() == 5)) throw std::runtime_error("test failed: read_back.size() == 5");
 
 	for (std::size_t i = 0; i < samples.size(); ++i) {
-		assert(read_back[i] == samples[i]);  // exact binary match
+		if (!(read_back[i] == samples[i])) throw std::runtime_error("test failed: read_back[i] == samples[i]");  // exact binary match
 	}
 
 	std::cout << "  raw_roundtrip: passed\n";
@@ -214,9 +214,9 @@ void test_raw_read_all() {
 	write_raw<float>(tmp.path, std::span<const float>(samples));
 
 	auto read_back = read_raw<float>(tmp.path);
-	assert(read_back.size() == 3);
-	assert(read_back[0] == 1.0f);
-	assert(read_back[2] == 3.0f);
+	if (!(read_back.size() == 3)) throw std::runtime_error("test failed: read_back.size() == 3");
+	if (!(read_back[0] == 1.0f)) throw std::runtime_error("test failed: read_back[0] == 1.0f");
+	if (!(read_back[2] == 3.0f)) throw std::runtime_error("test failed: read_back[2] == 3.0f");
 
 	std::cout << "  raw_read_all: passed\n";
 }

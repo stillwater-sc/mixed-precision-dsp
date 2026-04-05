@@ -9,8 +9,8 @@
 #include <sw/dsp/filter/filter.hpp>
 #include <sw/dsp/math/constants.hpp>
 
-#include <cassert>
 #include <cmath>
+#include <stdexcept>
 #include <iostream>
 
 using namespace sw::dsp;
@@ -32,7 +32,7 @@ void test_cheby1_lowpass_dc() {
 
 	double db_dc = mag_db(f.cascade().response(0.0));
 	// Even order: DC gain = -ripple_db
-	assert(near(db_dc, -1.0, 0.5));
+	if (!(near(db_dc, -1.0, 0.5))) throw std::runtime_error("test failed: near(db_dc, -1.0, 0.5)");
 
 	std::cout << "  cheby1_lowpass_dc: passed (DC=" << db_dc << " dB)\n";
 }
@@ -46,8 +46,8 @@ void test_cheby1_lowpass_cutoff() {
 	double fc = 1000.0 / 44100.0;
 	double db_cutoff = mag_db(f.cascade().response(fc));
 	// Should be within the ripple band
-	assert(db_cutoff < 0.0);
-	assert(db_cutoff > -ripple - 1.0);
+	if (!(db_cutoff < 0.0)) throw std::runtime_error("test failed: db_cutoff < 0.0");
+	if (!(db_cutoff > -ripple - 1.0)) throw std::runtime_error("test failed: db_cutoff > -ripple - 1.0");
 
 	std::cout << "  cheby1_lowpass_cutoff: passed (cutoff=" << db_cutoff << " dB)\n";
 }
@@ -58,7 +58,7 @@ void test_cheby1_lowpass_stopband() {
 	f.setup(4, 44100.0, 1000.0, 1.0);
 
 	double db_high = mag_db(f.cascade().response(5000.0 / 44100.0));
-	assert(db_high < -40.0);
+	if (!(db_high < -40.0)) throw std::runtime_error("test failed: db_high < -40.0");
 
 	std::cout << "  cheby1_lowpass_stopband: passed (5kHz=" << db_high << " dB)\n";
 }
@@ -69,11 +69,11 @@ void test_cheby1_highpass() {
 
 	// Near Nyquist/2 should be close to passband
 	double db_high = mag_db(f.cascade().response(0.25));
-	assert(db_high > -3.0);
+	if (!(db_high > -3.0)) throw std::runtime_error("test failed: db_high > -3.0");
 
 	// Below cutoff should be attenuated
 	double db_low = mag_db(f.cascade().response(100.0 / 44100.0));
-	assert(db_low < -30.0);
+	if (!(db_low < -30.0)) throw std::runtime_error("test failed: db_low < -30.0");
 
 	std::cout << "  cheby1_highpass: passed\n";
 }
@@ -84,7 +84,7 @@ void test_cheby1_bandpass() {
 
 	// Near center should peak
 	double db_center = mag_db(f.cascade().response(4000.0 / 44100.0));
-	assert(db_center > -6.0);
+	if (!(db_center > -6.0)) throw std::runtime_error("test failed: db_center > -6.0");
 
 	std::cout << "  cheby1_bandpass: passed (center=" << db_center << " dB)\n";
 }
@@ -95,7 +95,7 @@ void test_cheby1_odd_order() {
 	f.setup(3, 44100.0, 2000.0, 1.0);
 
 	double db_dc = mag_db(f.cascade().response(0.0));
-	assert(near(db_dc, 0.0, 0.5));
+	if (!(near(db_dc, 0.0, 0.5))) throw std::runtime_error("test failed: near(db_dc, 0.0, 0.5)");
 
 	std::cout << "  cheby1_odd_order: passed (DC=" << db_dc << " dB)\n";
 }
@@ -108,7 +108,7 @@ void test_cheby2_lowpass_dc() {
 	f.setup(4, 44100.0, 1000.0, 40.0);  // 40 dB stopband
 
 	double db_dc = mag_db(f.cascade().response(0.0));
-	assert(near(db_dc, 0.0, 0.5));
+	if (!(near(db_dc, 0.0, 0.5))) throw std::runtime_error("test failed: near(db_dc, 0.0, 0.5)");
 
 	std::cout << "  cheby2_lowpass_dc: passed (DC=" << db_dc << " dB)\n";
 }
@@ -121,7 +121,7 @@ void test_cheby2_lowpass_stopband() {
 
 	// Well into stopband
 	double db_stop = mag_db(f.cascade().response(10000.0 / 44100.0));
-	assert(db_stop < -30.0);  // should approach -40 dB
+	if (!(db_stop < -30.0)) throw std::runtime_error("test failed: db_stop < -30.0");  // should approach -40 dB
 
 	std::cout << "  cheby2_lowpass_stopband: passed (10kHz=" << db_stop << " dB)\n";
 }
@@ -131,10 +131,10 @@ void test_cheby2_highpass() {
 	f.setup(4, 44100.0, 1000.0, 40.0);
 
 	double db_high = mag_db(f.cascade().response(0.25));
-	assert(db_high > -3.0);
+	if (!(db_high > -3.0)) throw std::runtime_error("test failed: db_high > -3.0");
 
 	double db_low = mag_db(f.cascade().response(100.0 / 44100.0));
-	assert(db_low < -20.0);
+	if (!(db_low < -20.0)) throw std::runtime_error("test failed: db_low < -20.0");
 
 	std::cout << "  cheby2_highpass: passed\n";
 }
@@ -144,7 +144,7 @@ void test_cheby2_bandpass() {
 	f.setup(2, 44100.0, 4000.0, 2000.0, 40.0);
 
 	double db_center = mag_db(f.cascade().response(4000.0 / 44100.0));
-	assert(db_center > -6.0);
+	if (!(db_center > -6.0)) throw std::runtime_error("test failed: db_center > -6.0");
 
 	std::cout << "  cheby2_bandpass: passed (center=" << db_center << " dB)\n";
 }
@@ -156,10 +156,10 @@ void test_rbj_lowpass() {
 	f.setup(44100.0, 1000.0, 0.7071);
 
 	double db_dc = mag_db(f.cascade().response(0.0));
-	assert(near(db_dc, 0.0, 0.5));
+	if (!(near(db_dc, 0.0, 0.5))) throw std::runtime_error("test failed: near(db_dc, 0.0, 0.5)");
 
 	double db_cutoff = mag_db(f.cascade().response(1000.0 / 44100.0));
-	assert(near(db_cutoff, -3.0, 1.0));
+	if (!(near(db_cutoff, -3.0, 1.0))) throw std::runtime_error("test failed: near(db_cutoff, -3.0, 1.0)");
 
 	std::cout << "  rbj_lowpass: passed (DC=" << db_dc << ", cutoff=" << db_cutoff << " dB)\n";
 }
@@ -169,10 +169,10 @@ void test_rbj_highpass() {
 	f.setup(44100.0, 1000.0);
 
 	double db_high = mag_db(f.cascade().response(0.4));
-	assert(db_high > -1.0);
+	if (!(db_high > -1.0)) throw std::runtime_error("test failed: db_high > -1.0");
 
 	double db_low = mag_db(f.cascade().response(100.0 / 44100.0));
-	assert(db_low < -20.0);
+	if (!(db_low < -20.0)) throw std::runtime_error("test failed: db_low < -20.0");
 
 	std::cout << "  rbj_highpass: passed\n";
 }
@@ -182,7 +182,7 @@ void test_rbj_bandpass() {
 	f.setup(44100.0, 4000.0, 1.0);
 
 	double db_center = mag_db(f.cascade().response(4000.0 / 44100.0));
-	assert(db_center > -3.0);
+	if (!(db_center > -3.0)) throw std::runtime_error("test failed: db_center > -3.0");
 
 	std::cout << "  rbj_bandpass: passed (center=" << db_center << " dB)\n";
 }
@@ -192,10 +192,10 @@ void test_rbj_bandstop() {
 	f.setup(44100.0, 4000.0, 1.0);
 
 	double db_center = mag_db(f.cascade().response(4000.0 / 44100.0));
-	assert(db_center < -20.0);
+	if (!(db_center < -20.0)) throw std::runtime_error("test failed: db_center < -20.0");
 
 	double db_pass = mag_db(f.cascade().response(0.0));
-	assert(near(db_pass, 0.0, 0.5));
+	if (!(near(db_pass, 0.0, 0.5))) throw std::runtime_error("test failed: near(db_pass, 0.0, 0.5)");
 
 	std::cout << "  rbj_bandstop: passed (center=" << db_center << ", DC=" << db_pass << " dB)\n";
 }
@@ -207,7 +207,7 @@ void test_rbj_allpass() {
 	// Allpass: magnitude = 1 at all frequencies
 	for (double freq = 0.01; freq < 0.49; freq += 0.05) {
 		double mag = std::abs(f.cascade().response(freq));
-		assert(near(mag, 1.0, 0.01));
+		if (!(near(mag, 1.0, 0.01))) throw std::runtime_error("test failed: near(mag, 1.0, 0.01)");
 	}
 
 	std::cout << "  rbj_allpass: passed (|H|=1 at all frequencies)\n";
@@ -219,14 +219,14 @@ void test_rbj_shelves() {
 	ls.setup(44100.0, 1000.0, 6.0);
 
 	double db_dc = mag_db(ls.cascade().response(0.0));
-	assert(near(db_dc, 6.0, 1.0));
+	if (!(near(db_dc, 6.0, 1.0))) throw std::runtime_error("test failed: near(db_dc, 6.0, 1.0)");
 
 	// High shelf with +6 dB gain
 	iir::rbj::HighShelf<> hs;
 	hs.setup(44100.0, 1000.0, 6.0);
 
 	double db_high = mag_db(hs.cascade().response(0.4));
-	assert(near(db_high, 6.0, 1.0));
+	if (!(near(db_high, 6.0, 1.0))) throw std::runtime_error("test failed: near(db_high, 6.0, 1.0)");
 
 	std::cout << "  rbj_shelves: passed (low DC=" << db_dc << ", high top=" << db_high << " dB)\n";
 }
@@ -237,12 +237,12 @@ void test_rbj_simple_filter() {
 
 	double y0 = f.process(1.0);
 	double y1 = f.process(0.0);
-	assert(std::isfinite(y0));
-	assert(std::isfinite(y1));
+	if (!(std::isfinite(y0))) throw std::runtime_error("test failed: std::isfinite(y0)");
+	if (!(std::isfinite(y1))) throw std::runtime_error("test failed: std::isfinite(y1)");
 
 	f.reset();
 	double y0b = f.process(1.0);
-	assert(near(y0, y0b, 1e-15));
+	if (!(near(y0, y0b, 1e-15))) throw std::runtime_error("test failed: near(y0, y0b, 1e-15)");
 
 	std::cout << "  rbj_simple_filter: passed\n";
 }
