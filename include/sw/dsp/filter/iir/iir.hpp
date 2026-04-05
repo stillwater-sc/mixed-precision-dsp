@@ -10,4 +10,4 @@
 #include <sw/dsp/filter/iir/rbj.hpp>
 #include <sw/dsp/filter/iir/bessel.hpp>
 #include <sw/dsp/filter/iir/legendre.hpp>
-// Future: elliptic.hpp
+#include <sw/dsp/filter/iir/elliptic.hpp>
