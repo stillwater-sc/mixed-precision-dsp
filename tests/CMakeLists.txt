@@ -18,3 +18,6 @@ dsp_add_test(test_butterworth)
 
 # Signal generators (Issue #10)
 dsp_add_test(test_generators)
+
+# Signal file I/O (Issue #11)
+dsp_add_test(test_io)
