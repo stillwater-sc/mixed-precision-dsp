@@ -19,6 +19,7 @@
 #include <cmath>
 #include <complex>
 #include <stdexcept>
+#include <string>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/math/constants.hpp>
 #include <sw/dsp/math/root_finder.hpp>
@@ -163,6 +164,11 @@ template <DspField T, int MaxOrder>
 class LegendreAnalogPrototype {
 public:
 	void design(int num_poles, PoleZeroLayout<T, MaxOrder>& layout) {
+		if (num_poles <= 0)
+			throw std::invalid_argument("legendre: num_poles must be > 0");
+		if (num_poles > MaxOrder)
+			throw std::out_of_range("legendre: num_poles exceeds MaxOrder");
+
 		layout.reset();
 		layout.set_normal(T{}, T{1});
 
@@ -208,6 +214,26 @@ public:
 	}
 };
 
+namespace detail {
+
+inline void validate_iir_lp_hp(double sample_rate, double cutoff_freq, const char* name) {
+	if (!(sample_rate > 0.0))
+		throw std::invalid_argument(std::string(name) + ": sample_rate must be > 0");
+	if (!(cutoff_freq > 0.0) || cutoff_freq >= sample_rate * 0.5)
+		throw std::invalid_argument(std::string(name) + ": cutoff must be in (0, Nyquist)");
+}
+
+inline void validate_iir_bp_bs(double sample_rate, double center_freq, double width_freq, const char* name) {
+	if (!(sample_rate > 0.0))
+		throw std::invalid_argument(std::string(name) + ": sample_rate must be > 0");
+	if (!(center_freq > 0.0) || center_freq >= sample_rate * 0.5)
+		throw std::invalid_argument(std::string(name) + ": center_freq must be in (0, Nyquist)");
+	if (!(width_freq > 0.0))
+		throw std::invalid_argument(std::string(name) + ": width_freq must be > 0");
+}
+
+} // namespace detail
+
 // Legendre filter designs: LP, HP, BP, BS
 template <int MaxOrder,
           DspField CoeffScalar = double,
@@ -221,6 +247,7 @@ public:
 	static constexpr int max_stages = (MaxOrder + 1) / 2;
 
 	void setup(int order, double sample_rate, double cutoff_freq) {
+		detail::validate_iir_lp_hp(sample_rate, cutoff_freq, "LegendreLowPass");
 		LegendreAnalogPrototype<CoeffScalar, MaxOrder> proto;
 		proto.design(order, analog_);
 		LowPassTransform<CoeffScalar>(
@@ -248,6 +275,7 @@ public:
 	static constexpr int max_stages = (MaxOrder + 1) / 2;
 
 	void setup(int order, double sample_rate, double cutoff_freq) {
+		detail::validate_iir_lp_hp(sample_rate, cutoff_freq, "LegendreHighPass");
 		LegendreAnalogPrototype<CoeffScalar, MaxOrder> proto;
 		proto.design(order, analog_);
 		HighPassTransform<CoeffScalar>(
@@ -275,6 +303,7 @@ public:
 	static constexpr int max_stages = MaxOrder;
 
 	void setup(int order, double sample_rate, double center_freq, double width_freq) {
+		detail::validate_iir_bp_bs(sample_rate, center_freq, width_freq, "LegendreBandPass");
 		LegendreAnalogPrototype<CoeffScalar, MaxOrder> proto;
 		proto.design(order, analog_);
 		BandPassTransform<CoeffScalar>(
@@ -303,6 +332,7 @@ public:
 	static constexpr int max_stages = MaxOrder;
 
 	void setup(int order, double sample_rate, double center_freq, double width_freq) {
+		detail::validate_iir_bp_bs(sample_rate, center_freq, width_freq, "LegendreBandStop");
 		LegendreAnalogPrototype<CoeffScalar, MaxOrder> proto;
 		proto.design(order, analog_);
 		BandStopTransform<CoeffScalar>(

@@ -122,7 +122,7 @@ public:
 
 private:
 	// Laguerre's method: improve x as a root of polynomial a[] of given degree
-	static void laguerre(int degree, complex_t a[], complex_t& x, int& its) {
+	static void laguerre(int degree, const complex_t* a, complex_t& x, int& its) {
 		constexpr int MR = 8;
 		constexpr int MT = 10;
 		constexpr int MAXIT = MT * MR;
