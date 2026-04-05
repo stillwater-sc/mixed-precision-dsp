@@ -12,3 +12,6 @@ dsp_add_test(test_concepts)
 
 # Phase 2: Biquad Engine + Cascade
 dsp_add_test(test_biquad)
+
+# Phase 3: Transforms + Butterworth
+dsp_add_test(test_butterworth)
