@@ -43,7 +43,7 @@ public:
 
 	// Add a single real pole/zero (first-order section).
 	// Must be the last addition (odd-order term).
-	constexpr void add(const std::complex<T>& pole, const std::complex<T>& zero) {
+	constexpr void add(const complex_for_t<T>& pole, const complex_for_t<T>& zero) {
 		assert(!(num_poles_ & 1));  // single must come last
 		int idx = num_poles_ / 2;
 		assert(idx < max_pairs);
@@ -52,12 +52,13 @@ public:
 	}
 
 	// Add a conjugate pair of poles/zeros (second-order section).
-	constexpr void add_conjugate_pairs(const std::complex<T>& pole,
-	                                   const std::complex<T>& zero) {
+	constexpr void add_conjugate_pairs(const complex_for_t<T>& pole,
+	                                   const complex_for_t<T>& zero) {
 		assert(!(num_poles_ & 1));  // single must come last
 		int idx = num_poles_ / 2;
 		assert(idx < max_pairs);
-		pairs_[idx] = PoleZeroPair<T>(pole, zero, std::conj(pole), std::conj(zero));
+		using std::conj;  // ADL: finds sw::universal::conj for Universal types
+		pairs_[idx] = PoleZeroPair<T>(pole, zero, conj(pole), conj(zero));
 		num_poles_ += 2;
 	}
 

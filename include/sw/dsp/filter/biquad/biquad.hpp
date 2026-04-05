@@ -21,7 +21,7 @@ struct BiquadPoleState : PoleZeroPair<T> {
 
 	// Construct from biquad coefficients by extracting poles and zeros
 	explicit BiquadPoleState(const BiquadCoefficients<T>& c) {
-		using complex_t = std::complex<T>;
+		using complex_t = complex_for_t<T>;
 
 		// Extract zeros from numerator: b0 + b1*z^-1 + b2*z^-2
 		// Roots of b0*z^2 + b1*z + b2 = 0

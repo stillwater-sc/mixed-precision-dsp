@@ -40,11 +40,11 @@ public:
 			const int k = 2 * i + 1 - num_poles;
 			T a = sinh_v0 * static_cast<T>(std::cos(static_cast<double>(static_cast<T>(k) * pi_v<T> / n2)));
 			T b = cosh_v0 * static_cast<T>(std::sin(static_cast<double>(static_cast<T>(k) * pi_v<T> / n2)));
-			layout.add_conjugate_pairs(std::complex<T>(a, b), s_infinity<T>());
+			layout.add_conjugate_pairs(complex_for_t<T>(a, b), s_infinity<T>());
 		}
 
 		if (num_poles & 1) {
-			layout.add(std::complex<T>(sinh_v0), s_infinity<T>());
+			layout.add(complex_for_t<T>(sinh_v0), s_infinity<T>());
 			layout.set_normal(T{}, T{1});
 		} else {
 			layout.set_normal(T{}, static_cast<T>(std::pow(10.0, static_cast<double>(T{-1} * ripple_db) / 20.0)));

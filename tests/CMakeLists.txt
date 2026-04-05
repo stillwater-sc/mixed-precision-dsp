@@ -24,3 +24,6 @@ dsp_add_test(test_io)
 
 # Chebyshev I/II + RBJ (Issue #2)
 dsp_add_test(test_chebyshev)
+
+# Bessel + Legendre (Issue #2)
+dsp_add_test(test_bessel)

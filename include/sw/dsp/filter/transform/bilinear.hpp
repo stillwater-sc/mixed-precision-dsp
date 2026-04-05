@@ -58,9 +58,9 @@ public:
 	}
 
 private:
-	std::complex<T> transform(std::complex<T> c) const {
+	complex_for_t<T> transform(complex_for_t<T> c) const {
 		if (c.real() == std::numeric_limits<T>::infinity()) {
-			return std::complex<T>(T{-1}, T{});
+			return complex_for_t<T>(T{-1}, T{});
 		}
 		c = f_ * c;
 		return (T{1} + c) / (T{1} - c);
@@ -106,9 +106,9 @@ public:
 	}
 
 private:
-	std::complex<T> transform(std::complex<T> c) const {
+	complex_for_t<T> transform(complex_for_t<T> c) const {
 		if (c.real() == std::numeric_limits<T>::infinity()) {
-			return std::complex<T>(T{1}, T{});
+			return complex_for_t<T>(T{1}, T{});
 		}
 		c = f_ * c;
 		return T{-1} * (T{1} + c) / (T{1} - c);

@@ -15,7 +15,7 @@ namespace sw::dsp {
 //   - A single real value (first-order section, second is zero)
 template <DspField T>
 struct PoleZeroPair {
-	using complex_type = std::complex<T>;
+	using complex_type = complex_for_t<T>;
 
 	ComplexPair<T> poles;
 	ComplexPair<T> zeros;

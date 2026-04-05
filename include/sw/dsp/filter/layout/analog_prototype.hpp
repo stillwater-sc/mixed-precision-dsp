@@ -22,8 +22,8 @@ namespace sw::dsp {
 // Used for all-pole prototypes (Butterworth, Chebyshev, Bessel)
 // where every zero is at s = infinity.
 template <DspField T>
-inline std::complex<T> s_infinity() {
-	return std::complex<T>(std::numeric_limits<T>::infinity(), T{});
+inline complex_for_t<T> s_infinity() {
+	return complex_for_t<T>(std::numeric_limits<T>::infinity(), T{});
 }
 
 } // namespace sw::dsp

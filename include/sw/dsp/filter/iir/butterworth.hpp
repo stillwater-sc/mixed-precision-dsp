@@ -40,12 +40,13 @@ public:
 
 		for (int i = 0; i < pairs; ++i) {
 			T theta = half_pi_v<T> + static_cast<T>(2 * i + 1) * pi_v<T> / n2;
-			auto pole = std::polar(T{1}, theta);
+			using std::polar;  // ADL for Universal types
+			auto pole = polar(T{1}, theta);
 			layout.add_conjugate_pairs(pole, s_infinity<T>());
 		}
 
 		if (num_poles & 1) {
-			layout.add(std::complex<T>(T{-1}), s_infinity<T>());
+			layout.add(complex_for_t<T>(T{-1}), s_infinity<T>());
 		}
 	}
 };
@@ -66,14 +67,23 @@ public:
 		const T gp = T{-1} / g;
 		const T gz = T{-1} * g;
 
+		// gp and gz are negative: polar() requires non-negative rho.
+		// Negate and shift angle by pi to represent the negative magnitude.
+		using std::abs;    // ADL: finds sw::universal::abs for Universal types
+		using std::polar;  // ADL: finds sw::universal::polar for Universal types
+		const T rho_p = abs(gp);
+		const T rho_z = abs(gz);
+
 		const int pairs = num_poles / 2;
 		for (int i = 1; i <= pairs; ++i) {
 			T theta = pi_v<T> * (T{0.5} - static_cast<T>(2 * i - 1) / n2);
-			layout.add_conjugate_pairs(std::polar(gp, theta), std::polar(gz, theta));
+			layout.add_conjugate_pairs(
+				polar(rho_p, theta + pi_v<T>),
+				polar(rho_z, theta + pi_v<T>));
 		}
 
 		if (num_poles & 1) {
-			layout.add(std::complex<T>(gp), std::complex<T>(gz));
+			layout.add(complex_for_t<T>(gp), complex_for_t<T>(gz));
 		}
 	}
 };

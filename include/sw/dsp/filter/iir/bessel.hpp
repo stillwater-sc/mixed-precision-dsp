@@ -1,9 +1,11 @@
 #pragma once
-// chebyshev2.hpp: Chebyshev Type II (Inverse Chebyshev) IIR filter design
+// bessel.hpp: Bessel (Thomson) IIR filter design
 //
-// Monotonic passband, equiripple stopband. Specified by order and
-// stopband attenuation in dB. Has finite zeros (not all at infinity)
-// which gives better stopband rejection.
+// Maximally flat group delay. Poles are found by computing the reverse
+// Bessel polynomial coefficients and finding roots via Laguerre's method.
+//
+// All polynomial computations are parameterized on CoeffScalar to
+// preserve precision when using high-precision arithmetic types.
 //
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
@@ -12,6 +14,7 @@
 #include <complex>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/math/constants.hpp>
+#include <sw/dsp/math/root_finder.hpp>
 #include <sw/dsp/filter/layout/layout.hpp>
 #include <sw/dsp/filter/layout/analog_prototype.hpp>
 #include <sw/dsp/filter/biquad/cascade.hpp>
@@ -20,55 +23,71 @@
 
 namespace sw::dsp::iir {
 
-// Chebyshev Type II analog lowpass prototype.
-// Poles and zeros are derived from the stopband specification.
-// Zeros lie on the imaginary axis (giving the notches in the stopband).
+namespace detail {
+
+// n! (factorial) in type T
+template <DspField T>
+T factorial(int n) {
+	T y{1};
+	for (int i = 2; i <= n; ++i) y = y * static_cast<T>(i);
+	return y;
+}
+
+// k-th coefficient of the reverse Bessel polynomial of degree n
+// reversebessel(k, n) = (2n - k)! / (k! * (n-k)! * 2^(n-k))
+template <DspField T>
+T reverse_bessel_coef(int k, int n) {
+	return factorial<T>(2 * n - k) /
+	       (factorial<T>(n - k) * factorial<T>(k) *
+	        static_cast<T>(std::pow(2.0, n - k)));
+}
+
+} // namespace detail
+
+// Bessel analog lowpass prototype.
+// Uses Laguerre root finder on the reverse Bessel polynomial.
 template <DspField T, int MaxOrder>
-class ChebyshevIIAnalogPrototype {
+class BesselAnalogPrototype {
 public:
-	void design(int num_poles, T stopband_db, PoleZeroLayout<T, MaxOrder>& layout) {
+	void design(int num_poles, PoleZeroLayout<T, MaxOrder>& layout) {
 		layout.reset();
 		layout.set_normal(T{}, T{1});
 
-		const T eps = std::sqrt(T{1} / (std::exp(stopband_db * T{0.1} * ln10_v<T>) - T{1}));
-		const T v0 = static_cast<T>(std::asinh(static_cast<double>(T{1} / eps))) / static_cast<T>(num_poles);
-		const T sinh_v0 = T{-1} * static_cast<T>(std::sinh(static_cast<double>(v0)));
-		const T cosh_v0 = static_cast<T>(std::cosh(static_cast<double>(v0)));
-		const T fn = pi_v<T> / (T{2} * static_cast<T>(num_poles));
+		// Set up reverse Bessel polynomial coefficients in T precision
+		RootFinder<T, MaxOrder> solver;
+		for (int i = 0; i <= num_poles; ++i) {
+			solver.coef(i) = complex_for_t<T>(detail::reverse_bessel_coef<T>(i, num_poles));
+		}
+		solver.solve(num_poles);
 
-		int k = 1;
-		for (int i = num_poles / 2; --i >= 0; k += 2) {
-			T a = sinh_v0 * static_cast<T>(std::cos(static_cast<double>(static_cast<T>(k - num_poles) * fn)));
-			T b = cosh_v0 * static_cast<T>(std::sin(static_cast<double>(static_cast<T>(k - num_poles) * fn)));
-			T d2 = a * a + b * b;
-			T im = T{1} / static_cast<T>(std::cos(static_cast<double>(static_cast<T>(k) * fn)));
-
-			layout.add_conjugate_pairs(
-				complex_for_t<T>(a / d2, b / d2),
-				complex_for_t<T>(T{}, im));
+		const int pairs = num_poles / 2;
+		for (int i = 0; i < pairs; ++i) {
+			layout.add_conjugate_pairs(solver.root(i), s_infinity<T>());
 		}
 
 		if (num_poles & 1) {
-			layout.add(complex_for_t<T>(T{1} / sinh_v0), s_infinity<T>());
+			layout.add(
+				complex_for_t<T>(solver.root(pairs).real(), T{}),
+				s_infinity<T>());
 		}
 	}
 };
 
-// Chebyshev Type II filter designs: LP, HP, BP, BS
+// Bessel filter designs: LP, HP, BP, BS
 template <int MaxOrder,
           DspField CoeffScalar = double,
           DspField StateScalar = CoeffScalar,
           DspScalar SampleScalar = StateScalar>
-class ChebyshevIILowPass {
+class BesselLowPass {
 public:
 	using coeff_scalar  = CoeffScalar;
 	using state_scalar  = StateScalar;
 	using sample_scalar = SampleScalar;
 	static constexpr int max_stages = (MaxOrder + 1) / 2;
 
-	void setup(int order, double sample_rate, double cutoff_freq, double stopband_db) {
-		ChebyshevIIAnalogPrototype<CoeffScalar, MaxOrder> proto;
-		proto.design(order, static_cast<CoeffScalar>(stopband_db), analog_);
+	void setup(int order, double sample_rate, double cutoff_freq) {
+		BesselAnalogPrototype<CoeffScalar, MaxOrder> proto;
+		proto.design(order, analog_);
 		LowPassTransform<CoeffScalar>(
 			static_cast<CoeffScalar>(cutoff_freq / sample_rate), digital_, analog_);
 		cascade_.set_layout(digital_);
@@ -86,16 +105,16 @@ template <int MaxOrder,
           DspField CoeffScalar = double,
           DspField StateScalar = CoeffScalar,
           DspScalar SampleScalar = StateScalar>
-class ChebyshevIIHighPass {
+class BesselHighPass {
 public:
 	using coeff_scalar  = CoeffScalar;
 	using state_scalar  = StateScalar;
 	using sample_scalar = SampleScalar;
 	static constexpr int max_stages = (MaxOrder + 1) / 2;
 
-	void setup(int order, double sample_rate, double cutoff_freq, double stopband_db) {
-		ChebyshevIIAnalogPrototype<CoeffScalar, MaxOrder> proto;
-		proto.design(order, static_cast<CoeffScalar>(stopband_db), analog_);
+	void setup(int order, double sample_rate, double cutoff_freq) {
+		BesselAnalogPrototype<CoeffScalar, MaxOrder> proto;
+		proto.design(order, analog_);
 		HighPassTransform<CoeffScalar>(
 			static_cast<CoeffScalar>(cutoff_freq / sample_rate), digital_, analog_);
 		cascade_.set_layout(digital_);
@@ -113,16 +132,16 @@ template <int MaxOrder,
           DspField CoeffScalar = double,
           DspField StateScalar = CoeffScalar,
           DspScalar SampleScalar = StateScalar>
-class ChebyshevIIBandPass {
+class BesselBandPass {
 public:
 	using coeff_scalar  = CoeffScalar;
 	using state_scalar  = StateScalar;
 	using sample_scalar = SampleScalar;
 	static constexpr int max_stages = MaxOrder;
 
-	void setup(int order, double sample_rate, double center_freq, double width_freq, double stopband_db) {
-		ChebyshevIIAnalogPrototype<CoeffScalar, MaxOrder> proto;
-		proto.design(order, static_cast<CoeffScalar>(stopband_db), analog_);
+	void setup(int order, double sample_rate, double center_freq, double width_freq) {
+		BesselAnalogPrototype<CoeffScalar, MaxOrder> proto;
+		proto.design(order, analog_);
 		BandPassTransform<CoeffScalar>(
 			static_cast<CoeffScalar>(center_freq / sample_rate),
 			static_cast<CoeffScalar>(width_freq / sample_rate), digital_, analog_);
@@ -141,16 +160,16 @@ template <int MaxOrder,
           DspField CoeffScalar = double,
           DspField StateScalar = CoeffScalar,
           DspScalar SampleScalar = StateScalar>
-class ChebyshevIIBandStop {
+class BesselBandStop {
 public:
 	using coeff_scalar  = CoeffScalar;
 	using state_scalar  = StateScalar;
 	using sample_scalar = SampleScalar;
 	static constexpr int max_stages = MaxOrder;
 
-	void setup(int order, double sample_rate, double center_freq, double width_freq, double stopband_db) {
-		ChebyshevIIAnalogPrototype<CoeffScalar, MaxOrder> proto;
-		proto.design(order, static_cast<CoeffScalar>(stopband_db), analog_);
+	void setup(int order, double sample_rate, double center_freq, double width_freq) {
+		BesselAnalogPrototype<CoeffScalar, MaxOrder> proto;
+		proto.design(order, analog_);
 		BandStopTransform<CoeffScalar>(
 			static_cast<CoeffScalar>(center_freq / sample_rate),
 			static_cast<CoeffScalar>(width_freq / sample_rate), digital_, analog_);

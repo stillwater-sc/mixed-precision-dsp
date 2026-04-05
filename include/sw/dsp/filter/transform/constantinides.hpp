@@ -25,8 +25,8 @@ namespace detail {
 
 // Fused multiply-add for complex numbers: c + v * c1
 template <typename T>
-inline std::complex<T> addmul(const std::complex<T>& c, T v, const std::complex<T>& c1) {
-	return std::complex<T>(c.real() + v * c1.real(), c.imag() + v * c1.imag());
+inline complex_for_t<T> addmul(const complex_for_t<T>& c, T v, const complex_for_t<T>& c1) {
+	return complex_for_t<T>(c.real() + v * c1.real(), c.imag() + v * c1.imag());
 }
 
 } // namespace detail
@@ -87,8 +87,8 @@ public:
 	}
 
 private:
-	ComplexPair<T> transform(std::complex<T> c) const {
-		using complex_t = std::complex<T>;
+	ComplexPair<T> transform(complex_for_t<T> c) const {
+		using complex_t = complex_for_t<T>;
 		if (c.real() == std::numeric_limits<T>::infinity()) {
 			return ComplexPair<T>(complex_t(T{-1}), complex_t(T{1}));
 		}
@@ -175,8 +175,8 @@ public:
 	}
 
 private:
-	ComplexPair<T> transform(std::complex<T> c) const {
-		using complex_t = std::complex<T>;
+	ComplexPair<T> transform(complex_for_t<T> c) const {
+		using complex_t = complex_for_t<T>;
 
 		if (c.real() == std::numeric_limits<T>::infinity()) {
 			c = complex_t(T{-1});

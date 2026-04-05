@@ -15,7 +15,7 @@ namespace sw::dsp {
 // representations that map directly to second-order sections.
 template <DspField T>
 struct ComplexPair {
-	using complex_type = std::complex<T>;
+	using complex_type = complex_for_t<T>;
 
 	complex_type first{};
 	complex_type second{};
