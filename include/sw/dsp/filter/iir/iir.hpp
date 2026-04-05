@@ -8,4 +8,6 @@
 #include <sw/dsp/filter/iir/chebyshev1.hpp>
 #include <sw/dsp/filter/iir/chebyshev2.hpp>
 #include <sw/dsp/filter/iir/rbj.hpp>
-// Future: elliptic.hpp, bessel.hpp, legendre.hpp
+#include <sw/dsp/filter/iir/bessel.hpp>
+#include <sw/dsp/filter/iir/legendre.hpp>
+// Future: elliptic.hpp
