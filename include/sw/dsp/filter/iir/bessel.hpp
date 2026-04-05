@@ -4,6 +4,9 @@
 // Maximally flat group delay. Poles are found by computing the reverse
 // Bessel polynomial coefficients and finding roots via Laguerre's method.
 //
+// All polynomial computations are parameterized on CoeffScalar to
+// preserve precision when using high-precision arithmetic types.
+//
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
@@ -22,18 +25,21 @@ namespace sw::dsp::iir {
 
 namespace detail {
 
-// n! (factorial)
-inline double factorial(int n) {
-	double y = 1.0;
-	for (int i = 2; i <= n; ++i) y *= i;
+// n! (factorial) in type T
+template <DspField T>
+T factorial(int n) {
+	T y{1};
+	for (int i = 2; i <= n; ++i) y = y * static_cast<T>(i);
 	return y;
 }
 
 // k-th coefficient of the reverse Bessel polynomial of degree n
 // reversebessel(k, n) = (2n - k)! / (k! * (n-k)! * 2^(n-k))
-inline double reverse_bessel_coef(int k, int n) {
-	return factorial(2 * n - k) /
-	       (factorial(n - k) * factorial(k) * std::pow(2.0, n - k));
+template <DspField T>
+T reverse_bessel_coef(int k, int n) {
+	return factorial<T>(2 * n - k) /
+	       (factorial<T>(n - k) * factorial<T>(k) *
+	        static_cast<T>(std::pow(2.0, n - k)));
 }
 
 } // namespace detail
@@ -47,11 +53,10 @@ public:
 		layout.reset();
 		layout.set_normal(T{}, T{1});
 
-		// Set up reverse Bessel polynomial coefficients
+		// Set up reverse Bessel polynomial coefficients in T precision
 		RootFinder<T, MaxOrder> solver;
 		for (int i = 0; i <= num_poles; ++i) {
-			solver.coef(i) = std::complex<T>(
-				static_cast<T>(detail::reverse_bessel_coef(i, num_poles)));
+			solver.coef(i) = std::complex<T>(detail::reverse_bessel_coef<T>(i, num_poles));
 		}
 		solver.solve(num_poles);
 
