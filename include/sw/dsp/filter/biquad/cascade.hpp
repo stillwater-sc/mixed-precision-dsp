@@ -28,6 +28,13 @@ public:
 	// Number of active biquad stages
 	constexpr int num_stages() const { return num_stages_; }
 
+	// Set number of active stages (for direct coefficient injection
+	// without going through set_layout)
+	constexpr void set_num_stages(int n) {
+		assert(n >= 0 && n <= MaxStages);
+		num_stages_ = n;
+	}
+
 	// Access a stage's coefficients
 	constexpr const BiquadCoefficients<CoeffScalar>& stage(int index) const {
 		assert(index >= 0 && index < num_stages_);

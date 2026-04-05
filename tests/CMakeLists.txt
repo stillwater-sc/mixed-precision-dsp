@@ -21,3 +21,6 @@ dsp_add_test(test_generators)
 
 # Signal file I/O (Issue #11)
 dsp_add_test(test_io)
+
+# Chebyshev I/II + RBJ (Issue #2)
+dsp_add_test(test_chebyshev)
