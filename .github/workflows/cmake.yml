@@ -108,10 +108,10 @@ jobs:
           path: universal
           submodules: recursive
 
-      - name: Install RISC-V GCC toolchain
+      - name: Install RISC-V GCC toolchain and QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+          sudo apt-get install -y gcc-riscv64-linux-gnu g++-riscv64-linux-gnu qemu-user-static
 
       - name: Configure CMake (RISC-V 64 cross-compile)
         run: >
@@ -120,9 +120,16 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE=${{github.workspace}}/dsp/cmake/toolchains/riscv64-gcc.cmake
           -DUNIVERSAL_DIR=${{github.workspace}}/universal
           -DMTL5_DIR=${{github.workspace}}/universal/mtl5
-          -DDSP_BUILD_TESTS=OFF
-          -DDSP_BUILD_APPLICATIONS=OFF
         working-directory: ${{github.workspace}}/dsp
 
-      - name: Build (compile-only, no execution)
+      - name: Build
         run: cmake --build ${{github.workspace}}/dsp/build --config ${{env.BUILD_TYPE}}
+
+      - name: Test (via QEMU user-mode)
+        working-directory: ${{github.workspace}}/dsp/build
+        run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
+
+      - name: Rerun failed tests
+        if: failure()
+        working-directory: ${{github.workspace}}/dsp/build
+        run: ctest -C ${{env.BUILD_TYPE}} --rerun-failed --output-on-failure
