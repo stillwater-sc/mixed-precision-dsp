@@ -15,3 +15,6 @@ dsp_add_test(test_biquad)
 
 # Phase 3: Transforms + Butterworth
 dsp_add_test(test_butterworth)
+
+# Signal generators (Issue #10)
+dsp_add_test(test_generators)
