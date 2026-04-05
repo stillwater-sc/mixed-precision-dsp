@@ -161,10 +161,12 @@ themselves header-only).
 | Library | Purpose | Repository |
 |---------|---------|------------|
 | [Universal](https://github.com/stillwater-sc/universal) | Number type arithmetic: posit, cfloat, fixpnt, integer, rational, and more | `stillwater-sc/universal` |
-| [MTL5](https://github.com/stillwater-sc/mtl5) | Dense/sparse vectors and matrices, linear algebra operations | `stillwater-sc/mtl5` (submodule of Universal) |
+| [MTL5](https://github.com/stillwater-sc/mtl5) | Dense/sparse vectors and matrices, linear algebra operations | `stillwater-sc/mtl5` |
 
-Both are header-only C++20 libraries. `sw::dsp` can also be used with
-native IEEE 754 types (`float`, `double`, `long double`) alone.
+Both are header-only C++20 libraries. Dependencies are fetched
+automatically via CMake `FetchContent` if not found on the system.
+`sw::dsp` can also be used with native IEEE 754 types (`float`,
+`double`, `long double`) alone.
 
 ## Building
 
@@ -176,31 +178,25 @@ native IEEE 754 types (`float`, `double`, `long double`) alone.
 ### Native Build
 
 ```bash
-# Clone with dependencies
-git clone https://github.com/stillwater-sc/mixed-precision-dsp.git dsp
-git clone --recurse-submodules https://github.com/stillwater-sc/universal.git
+git clone https://github.com/stillwater-sc/mixed-precision-dsp.git
+cd mixed-precision-dsp
 
-# Build and test
-cmake -B dsp/build -S dsp \
-  -DUNIVERSAL_DIR=$(pwd)/universal \
-  -DMTL5_DIR=$(pwd)/universal/mtl5
-cmake --build dsp/build
-ctest --test-dir dsp/build --output-on-failure
+# CMake will fetch Universal and MTL5 automatically via FetchContent
+cmake -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-If Universal and MTL5 are installed system-wide or in sibling directories,
-CMake will find them automatically.
+If Universal or MTL5 are installed system-wide (`find_package` succeeds),
+those installations are used instead of FetchContent.
 
 ### RISC-V Cross-Compilation
 
 ```bash
-cmake -B dsp/build-rv64 -S dsp \
-  -DCMAKE_TOOLCHAIN_FILE=dsp/cmake/toolchains/riscv64-gcc.cmake \
-  -DUNIVERSAL_DIR=$(pwd)/universal \
-  -DMTL5_DIR=$(pwd)/universal/mtl5
-cmake --build dsp/build-rv64
+cmake -B build-rv64 -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/riscv64-gcc.cmake
+cmake --build build-rv64
 # Tests run via QEMU user-mode (set up automatically by the toolchain file)
-ctest --test-dir dsp/build-rv64 --output-on-failure
+ctest --test-dir build-rv64 --output-on-failure
 ```
 
 ### CMake Options
@@ -209,8 +205,6 @@ ctest --test-dir dsp/build-rv64 --output-on-failure
 |--------|---------|-------------|
 | `DSP_BUILD_APPLICATIONS` | `ON` | Build demonstration programs in `applications/` |
 | `DSP_BUILD_TESTS` | `ON` | Build and register unit tests |
-| `UNIVERSAL_DIR` | (auto) | Path to Universal library root |
-| `MTL5_DIR` | (auto) | Path to MTL5 library root |
 
 ### Using sw::dsp in Your Project
 
