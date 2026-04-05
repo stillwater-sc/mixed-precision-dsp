@@ -103,7 +103,7 @@ The library covers the full DSP domain, organized into focused modules:
 
 | Module | Description |
 |--------|-------------|
-| **signals** | Signal representation over MTL5 dense vectors. Generators: sine, chirp, white noise, impulse, step. |
+| **signals** | Signal representation over dense vectors. Generators: sine, chirp, white noise, impulse, step. |
 | **conditioning** | Envelope followers, dynamic range compression, AGC, polyphase interpolation/decimation, sample rate conversion. |
 | **windows** | Window functions: Hamming, Hanning, Blackman, Kaiser, rectangular, flat-top. |
 | **quantization** | ADC/DAC modeling, dithering (TPDF, RPDF), noise shaping, SQNR analysis. The toolbox for evaluating mixed-precision trade-offs. |
@@ -246,16 +246,17 @@ include/sw/dsp/
   math/            Constants, denormal prevention, quadratic solver,
                    polynomial evaluation, elliptic integrals, root finder
   signals/         Signal representation and generators
+  conditioning/    Envelope, compression, AGC, resampling
   windows/         Window functions
   quantization/    ADC/DAC models, dithering, noise shaping, SQNR
-  filter/biquad/   Biquad coefficients, Direct Form state, cascade
-  filter/layout/   Pole-zero layouts and analog prototypes
-  filter/transform/ Bilinear and Constantinides transforms
-  filter/iir/      IIR filter families (Butterworth through RBJ)
-  filter/fir/      FIR filter, design, polyphase, overlap methods
   spectral/        DFT, FFT, Z-transform, Laplace, PSD, spectrogram
+  filter/
+    biquad/        Biquad coefficients, Direct Form state, cascade
+    layout/        Pole-zero layouts and analog prototypes
+    transform/     Bilinear and Constantinides transforms
+    iir/           IIR filter families (Butterworth through RBJ)
+    fir/           FIR filter, design, polyphase, overlap methods
   estimation/      Kalman filters, LMS/RLS adaptive filters
-  conditioning/    Envelope, compression, AGC, resampling
   image/           2D convolution, morphology, edge detection
   analysis/        Sensitivity, condition number, stability
 applications/      Demonstration programs
