@@ -13,6 +13,7 @@
 #include <sw/dsp/viz/viz.hpp>
 
 #include <sw/universal/number/fixpnt/fixpnt.hpp>
+#include <sw/universal/number/cfloat/cfloat.hpp>
 
 #include <array>
 #include <cmath>
@@ -93,21 +94,49 @@ int main() {
 	std::cout << "  Reference: double coefficients, double state, double samples.\n\n";
 
 	{
-		// Native float: design in double, process in float
-		SimpleFilter<iir::ButterworthLowPass<4, double, float, float>> filter_float;
-		filter_float.setup(4, sample_rate, cutoff_freq);
-		compare_impulse_response("float state + float samples (IEEE 754 binary32)",
-		                          filter_float, sample_rate, cutoff_freq);
+		// Native float: IEEE 754 binary32 (24-bit mantissa, 8-bit exponent)
+		SimpleFilter<iir::ButterworthLowPass<4, double, float, float>> f;
+		f.setup(4, sample_rate, cutoff_freq);
+		compare_impulse_response("float          (IEEE 754 binary32: 24-bit mantissa, 8-bit exp)",
+		                          f, sample_rate, cutoff_freq);
 	}
 
 	{
-		// Universal fixpnt<16,8>: 16-bit fixed point with 8 fractional bits
-		// Range: [-128, 127.996] with resolution 1/256 = 0.00390625
+		// cfloat<24,5>: 24-bit float with 5-bit exponent (18-bit mantissa)
+		using cf24 = sw::universal::cfloat<24, 5>;
+		SimpleFilter<iir::ButterworthLowPass<4, double, cf24, cf24>> f;
+		f.setup(4, sample_rate, cutoff_freq);
+		compare_impulse_response("cfloat<24,5>   (24-bit float: 18-bit mantissa, 5-bit exp)",
+		                          f, sample_rate, cutoff_freq);
+	}
+
+	{
+		// half: IEEE 754 binary16 (11-bit mantissa, 5-bit exponent)
+		using half = sw::universal::half;
+		SimpleFilter<iir::ButterworthLowPass<4, double, half, half>> f;
+		f.setup(4, sample_rate, cutoff_freq);
+		compare_impulse_response("half           (IEEE 754 binary16: 11-bit mantissa, 5-bit exp)",
+		                          f, sample_rate, cutoff_freq);
+	}
+
+	{
+		// fixpnt<16,14>: 16-bit fixed point with 14 fractional bits
+		// Range: [-2, 1.99994] with resolution 1/16384 ~ 6.1e-5
+		using fp16_14 = sw::universal::fixpnt<16, 14>;
+		SimpleFilter<iir::ButterworthLowPass<4, double, fp16_14, fp16_14>> f;
+		f.setup(4, sample_rate, cutoff_freq);
+		compare_impulse_response("fixpnt<16,14>  (16-bit fixed: 14 frac bits, range [-2, 2))",
+		                          f, sample_rate, cutoff_freq);
+	}
+
+	{
+		// fixpnt<16,8>: 16-bit fixed point with 8 fractional bits
+		// Range: [-128, 127.996] with resolution 1/256 ~ 3.9e-3
 		using fp16_8 = sw::universal::fixpnt<16, 8>;
-		SimpleFilter<iir::ButterworthLowPass<4, double, fp16_8, fp16_8>> filter_fixpnt;
-		filter_fixpnt.setup(4, sample_rate, cutoff_freq);
-		compare_impulse_response("fixpnt<16,8> state + samples (16-bit fixed, 8 frac bits)",
-		                          filter_fixpnt, sample_rate, cutoff_freq);
+		SimpleFilter<iir::ButterworthLowPass<4, double, fp16_8, fp16_8>> f;
+		f.setup(4, sample_rate, cutoff_freq);
+		compare_impulse_response("fixpnt<16,8>   (16-bit fixed: 8 frac bits, range [-128, 128))",
+		                          f, sample_rate, cutoff_freq);
 	}
 
 	// ================================================================
