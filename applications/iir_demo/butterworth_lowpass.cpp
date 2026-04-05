@@ -1,7 +1,8 @@
 // butterworth_lowpass.cpp: Butterworth lowpass filter demonstration
 //
-// Demonstrates filter design, coefficient inspection, frequency response,
-// pole-zero placement, impulse response, and signal filtering.
+// Demonstrates mixed-precision filter processing, filter design,
+// coefficient inspection, frequency response, pole-zero placement,
+// impulse response, and signal filtering.
 //
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
@@ -10,6 +11,8 @@
 #include <sw/dsp/filter/filter.hpp>
 #include <sw/dsp/signals/generators.hpp>
 #include <sw/dsp/viz/viz.hpp>
+
+#include <sw/universal/number/fixpnt/fixpnt.hpp>
 
 #include <array>
 #include <cmath>
@@ -40,6 +43,38 @@ void print_coefficients(const CascadeType& cascade) {
 	}
 }
 
+// Run impulse response comparison between double reference and a mixed-precision config
+template <typename MixedFilter>
+void compare_impulse_response(const std::string& label, MixedFilter& filter_mixed,
+                               double sample_rate, double cutoff_freq) {
+	using sample_t = typename MixedFilter::sample_scalar;
+
+	// Reference: pure double
+	SimpleFilter<iir::ButterworthLowPass<4, double, double, double>> filter_ref;
+	filter_ref.setup(4, sample_rate, cutoff_freq);
+	filter_mixed.reset();
+
+	constexpr int N = 100;
+	double max_err = 0.0;
+	double max_ref = 0.0;
+	for (int n = 0; n < N; ++n) {
+		double x_d = (n == 0) ? 1.0 : 0.0;
+		sample_t x = static_cast<sample_t>(x_d);
+		sample_t y_mixed = filter_mixed.process(x);
+		double y_ref = filter_ref.process(x_d);
+		double err = std::abs(static_cast<double>(y_mixed) - y_ref);
+		max_err = std::max(max_err, err);
+		max_ref = std::max(max_ref, std::abs(y_ref));
+	}
+
+	std::cout << "  " << label << ":\n";
+	std::cout << "    Max absolute error: " << std::scientific << std::setprecision(6) << max_err;
+	if (max_ref > 0) {
+		std::cout << "  (relative: " << std::scientific << max_err / max_ref << ")";
+	}
+	std::cout << "\n";
+}
+
 int main() {
 	constexpr double sample_rate = 44100.0;
 	constexpr double cutoff_freq = 2000.0;
@@ -49,7 +84,34 @@ int main() {
 	std::cout << "Cutoff frequency: " << cutoff_freq << " Hz\n";
 
 	// ================================================================
-	// 1. Design filters of orders 2, 4, 6, 8 and show coefficients
+	// 1. Mixed-precision demonstration
+	// ================================================================
+	print_separator("Mixed-Precision Impulse Response Comparison");
+
+	std::cout << "  4th order Butterworth LP at " << cutoff_freq << " Hz\n";
+	std::cout << "  Coefficients designed in double, processing in target type.\n";
+	std::cout << "  Reference: double coefficients, double state, double samples.\n\n";
+
+	{
+		// Native float: design in double, process in float
+		SimpleFilter<iir::ButterworthLowPass<4, double, float, float>> filter_float;
+		filter_float.setup(4, sample_rate, cutoff_freq);
+		compare_impulse_response("float state + float samples (IEEE 754 binary32)",
+		                          filter_float, sample_rate, cutoff_freq);
+	}
+
+	{
+		// Universal fixpnt<16,8>: 16-bit fixed point with 8 fractional bits
+		// Range: [-128, 127.996] with resolution 1/256 = 0.00390625
+		using fp16_8 = sw::universal::fixpnt<16, 8>;
+		SimpleFilter<iir::ButterworthLowPass<4, double, fp16_8, fp16_8>> filter_fixpnt;
+		filter_fixpnt.setup(4, sample_rate, cutoff_freq);
+		compare_impulse_response("fixpnt<16,8> state + samples (16-bit fixed, 8 frac bits)",
+		                          filter_fixpnt, sample_rate, cutoff_freq);
+	}
+
+	// ================================================================
+	// 2. Design filters of orders 2, 4, 6, 8 and show coefficients
 	// ================================================================
 	print_separator("Biquad Coefficients by Order");
 
@@ -63,7 +125,7 @@ int main() {
 	}
 
 	// ================================================================
-	// 2. Magnitude response comparison across orders
+	// 3. Magnitude response
 	// ================================================================
 	print_separator("Magnitude Response (4th order Butterworth LP at 2 kHz)");
 
@@ -112,7 +174,7 @@ int main() {
 	}
 
 	// ================================================================
-	// 3. Phase response
+	// 4. Phase response
 	// ================================================================
 	print_separator("Phase Response (4th order)");
 
@@ -129,7 +191,7 @@ int main() {
 	}
 
 	// ================================================================
-	// 4. Pole-zero plot
+	// 5. Pole-zero plot
 	// ================================================================
 	print_separator("Pole-Zero Plot (4th order)");
 
@@ -140,7 +202,7 @@ int main() {
 	}
 
 	// ================================================================
-	// 5. Impulse response
+	// 6. Impulse response
 	// ================================================================
 	print_separator("Impulse Response (4th order)");
 
@@ -163,7 +225,7 @@ int main() {
 	}
 
 	// ================================================================
-	// 6. Signal filtering demonstration
+	// 7. Signal filtering demonstration
 	// ================================================================
 	print_separator("Signal Filtering: 500 Hz + 5000 Hz -> LP at 2000 Hz");
 
@@ -215,36 +277,6 @@ int main() {
 			std::span<const double> s(output.data(), show);
 			viz::plot_line(std::cout, s, cfg);
 		}
-	}
-
-	// ================================================================
-	// 7. Mixed-precision demonstration
-	// ================================================================
-	print_separator("Mixed-Precision: design in double, process in float");
-
-	{
-		// Design in double, state in float, samples in float
-		SimpleFilter<iir::ButterworthLowPass<4, double, float, float>> filter_mixed;
-		filter_mixed.setup(4, sample_rate, cutoff_freq);
-
-		// Compare with pure double
-		SimpleFilter<iir::ButterworthLowPass<4, double, double, double>> filter_double;
-		filter_double.setup(4, sample_rate, cutoff_freq);
-
-		constexpr int N = 100;
-		double max_err = 0.0;
-		for (int n = 0; n < N; ++n) {
-			float x = (n == 0) ? 1.0f : 0.0f;
-			float y_mixed  = filter_mixed.process(x);
-			double y_double = filter_double.process(static_cast<double>(x));
-			double err = std::abs(static_cast<double>(y_mixed) - y_double);
-			max_err = std::max(max_err, err);
-		}
-
-		std::cout << "  Impulse response comparison (100 samples):\n";
-		std::cout << "    Max absolute error (double vs float state): "
-		          << std::scientific << std::setprecision(6) << max_err << "\n";
-		std::cout << "    (Expected: ~1e-7 due to float32 precision)\n";
 	}
 
 	std::cout << "\n";

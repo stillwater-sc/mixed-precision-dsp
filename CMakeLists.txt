@@ -52,8 +52,12 @@ else()
 	if(NOT universal_POPULATED)
 		FetchContent_Populate(universal)
 	endif()
+	# Universal headers use two include conventions:
+	#   - External: #include <sw/universal/...>  (needs include/)
+	#   - Internal: #include <universal/...>     (needs include/sw/)
 	target_include_directories(${PROJECT_NAME} INTERFACE
-		$<BUILD_INTERFACE:${universal_SOURCE_DIR}/include>)
+		$<BUILD_INTERFACE:${universal_SOURCE_DIR}/include>
+		$<BUILD_INTERFACE:${universal_SOURCE_DIR}/include/sw>)
 endif()
 
 # MTL5 linear algebra library (header-only)
