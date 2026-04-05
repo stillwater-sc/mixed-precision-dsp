@@ -82,22 +82,31 @@ PrecisionResult compare_impulse_response(const std::string& type_name,
 }
 
 void print_precision_table(const std::vector<PrecisionResult>& results) {
+	constexpr int col_type = 18;
+	constexpr int col_desc = 38;
+	constexpr int col_num  = 12;
+	constexpr int total    = col_type + col_desc + col_num + col_num;
+
 	// Header
-	std::cout << std::left
-	          << std::setw(18) << "Type"
-	          << std::setw(38) << "Description"
-	          << std::right
-	          << std::setw(12) << "Abs Error"
-	          << std::setw(12) << "Rel Error" << "\n";
-	std::cout << std::string(80, '-') << "\n";
+	std::cout << std::left  << std::setw(col_type) << "Type"
+	          << std::left  << std::setw(col_desc) << "Description"
+	          << std::right << std::setw(col_num)  << "Abs Error"
+	          << std::right << std::setw(col_num)  << "Rel Error" << "\n";
+	std::cout << std::string(total, '-') << "\n";
 
 	for (const auto& r : results) {
-		std::cout << std::left
-		          << std::setw(18) << r.type_name
-		          << std::setw(38) << r.description
+		// Build description string padded/truncated to exact width
+		std::string desc = r.description;
+		if (static_cast<int>(desc.size()) < col_desc)
+			desc.append(col_desc - desc.size(), ' ');
+		else
+			desc.resize(col_desc);
+
+		std::cout << std::left  << std::setw(col_type) << r.type_name
+		          << desc
 		          << std::right << std::scientific << std::setprecision(2)
-		          << std::setw(12) << r.max_abs_error
-		          << std::setw(12) << r.max_rel_error << "\n";
+		          << std::setw(col_num) << r.max_abs_error
+		          << std::setw(col_num) << r.max_rel_error << "\n";
 	}
 }
 
@@ -148,7 +157,7 @@ int main() {
 		SimpleFilter<iir::ButterworthLowPass<4, double, half, half>> f;
 		f.setup(4, sample_rate, cutoff_freq);
 		results.push_back(compare_impulse_response(
-			"half", "IEEE 754 binary16, 11b mantissa, w/ subs", f, sample_rate, cutoff_freq));
+			"half", "IEEE 754 binary16, 11b mant, w/ subs", f, sample_rate, cutoff_freq));
 	}
 
 	{
