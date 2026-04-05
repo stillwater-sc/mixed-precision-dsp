@@ -30,7 +30,8 @@ struct ComplexPair {
 		: first(c1), second(c2) {}
 
 	constexpr bool is_conjugate() const {
-		return second == std::conj(first);
+		using std::conj;
+		return second == conj(first);
 	}
 
 	constexpr bool is_real() const {
@@ -40,8 +41,9 @@ struct ComplexPair {
 	// Returns true if this is either a conjugate pair,
 	// or a pair of reals where neither is zero.
 	constexpr bool is_matched_pair() const {
+		using std::conj;
 		if (first.imag() != T{}) {
-			return second == std::conj(first);
+			return second == conj(first);
 		}
 		return second.imag() == T{} &&
 		       second.real() != T{} &&
@@ -49,8 +51,9 @@ struct ComplexPair {
 	}
 
 	constexpr bool is_nan() const {
-		return std::isnan(first.real()) || std::isnan(first.imag()) ||
-		       std::isnan(second.real()) || std::isnan(second.imag());
+		using std::isnan;
+		return isnan(first.real()) || isnan(first.imag()) ||
+		       isnan(second.real()) || isnan(second.imag());
 	}
 };
 

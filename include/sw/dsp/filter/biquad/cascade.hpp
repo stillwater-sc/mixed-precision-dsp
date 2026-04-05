@@ -113,7 +113,8 @@ private:
 		double f = w / (2.0 * pi);  // convert angular freq to normalized freq
 
 		auto current_response = response(f);
-		double mag = std::abs(current_response);
+		using std::abs;  // ADL for Universal complex types
+		double mag = static_cast<double>(abs(current_response));
 
 		if (mag < 1e-30) {
 			return CoeffScalar{1};  // avoid division by zero

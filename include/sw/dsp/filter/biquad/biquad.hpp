@@ -22,6 +22,8 @@ struct BiquadPoleState : PoleZeroPair<T> {
 	// Construct from biquad coefficients by extracting poles and zeros
 	explicit BiquadPoleState(const BiquadCoefficients<T>& c) {
 		using complex_t = complex_for_t<T>;
+		using std::sqrt;
+		using std::conj;
 
 		// Extract zeros from numerator: b0 + b1*z^-1 + b2*z^-2
 		// Roots of b0*z^2 + b1*z + b2 = 0
@@ -34,14 +36,14 @@ struct BiquadPoleState : PoleZeroPair<T> {
 		} else {
 			T disc_z = c.b1 * c.b1 - T{4} * c.b0 * c.b2;
 			if (disc_z >= T{}) {
-				T sq = std::sqrt(disc_z);
+				T sq = sqrt(disc_z);
 				this->zeros.first = complex_t((T{-1} * c.b1 + sq) / (T{2} * c.b0));
 				this->zeros.second = complex_t((T{-1} * c.b1 - sq) / (T{2} * c.b0));
 			} else {
-				T sq = std::sqrt(T{-1} * disc_z);
+				T sq = sqrt(T{-1} * disc_z);
 				this->zeros.first = complex_t(T{-1} * c.b1 / (T{2} * c.b0),
 				                              sq / (T{2} * c.b0));
-				this->zeros.second = std::conj(this->zeros.first);
+				this->zeros.second = conj(this->zeros.first);
 			}
 		}
 
@@ -53,13 +55,13 @@ struct BiquadPoleState : PoleZeroPair<T> {
 		} else {
 			T disc_p = c.a1 * c.a1 - T{4} * c.a2;
 			if (disc_p >= T{}) {
-				T sq = std::sqrt(disc_p);
+				T sq = sqrt(disc_p);
 				this->poles.first = complex_t((T{-1} * c.a1 + sq) / T{2});
 				this->poles.second = complex_t((T{-1} * c.a1 - sq) / T{2});
 			} else {
-				T sq = std::sqrt(T{-1} * disc_p);
+				T sq = sqrt(T{-1} * disc_p);
 				this->poles.first = complex_t(T{-1} * c.a1 / T{2}, sq / T{2});
-				this->poles.second = std::conj(this->poles.first);
+				this->poles.second = conj(this->poles.first);
 			}
 		}
 

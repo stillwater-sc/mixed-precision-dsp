@@ -50,12 +50,16 @@ public:
 		wc_ = wc2_ + ww;
 
 		// Clamp to valid range
+		using std::cos;
+		using std::tan;
+		using std::atan;
+		using std::sqrt;
 		const T eps = T{1e-8};
 		if (wc2_ < eps) wc2_ = eps;
 		if (wc_ > pi_v<T> - eps) wc_ = pi_v<T> - eps;
 
-		a_ = std::cos((wc_ + wc2_) * T{0.5}) / std::cos((wc_ - wc2_) * T{0.5});
-		b_ = T{1} / std::tan((wc_ - wc2_) * T{0.5});
+		a_ = cos((wc_ + wc2_) * T{0.5}) / cos((wc_ - wc2_) * T{0.5});
+		b_ = T{1} / tan((wc_ - wc2_) * T{0.5});
 		a2_ = a_ * a_;
 		b2_ = b_ * b_;
 		ab_ = a_ * b_;
@@ -81,8 +85,8 @@ public:
 
 		T wn = analog.normal_w();
 		digital.set_normal(
-			T{2} * std::atan(std::sqrt(
-				std::tan((wc_ + wn) * T{0.5}) * std::tan((wc2_ + wn) * T{0.5}))),
+			T{2} * atan(sqrt(
+				tan((wc_ + wn) * T{0.5}) * tan((wc2_ + wn) * T{0.5}))),
 			analog.normal_gain());
 	}
 
@@ -100,7 +104,8 @@ private:
 		v = v + complex_t(T{8} * (b2_ * (a2_ - T{1}) - T{1}));
 		v = v * c;
 		v = v + complex_t(T{4} * (b2_ * (a2_ - T{1}) + T{1}));
-		v = std::sqrt(v);
+		using std::sqrt;
+		v = sqrt(v);
 
 		complex_t u = T{-1} * v;
 		u = detail::addmul(u, ab_2_, c);
@@ -135,12 +140,15 @@ public:
 		wc2_ = two_pi_v<T> * fc - ww / T{2};
 		wc_ = wc2_ + ww;
 
+		using std::cos;
+		using std::tan;
+		using std::conj;
 		const T eps = T{1e-8};
 		if (wc2_ < eps) wc2_ = eps;
 		if (wc_ > pi_v<T> - eps) wc_ = pi_v<T> - eps;
 
-		a_ = std::cos((wc_ + wc2_) * T{0.5}) / std::cos((wc_ - wc2_) * T{0.5});
-		b_ = std::tan((wc_ - wc2_) * T{0.5});
+		a_ = cos((wc_ + wc2_) * T{0.5}) / cos((wc_ - wc2_) * T{0.5});
+		b_ = tan((wc_ - wc2_) * T{0.5});
 		a2_ = a_ * a_;
 		b2_ = b_ * b_;
 
@@ -154,7 +162,7 @@ public:
 
 			// Ensure conjugate symmetry
 			if (z.second == z.first) {
-				z.second = std::conj(z.first);
+				z.second = conj(z.first);
 			}
 
 			digital.add_conjugate_pairs(p.first, z.first);
@@ -189,7 +197,8 @@ private:
 		u = u + complex_t(T{8} * (b2_ - a2_ + T{1}));
 		u = u * c;
 		u = u + complex_t(T{4} * (a2_ + b2_ - T{1}));
-		u = std::sqrt(u);
+		using std::sqrt;
+		u = sqrt(u);
 
 		complex_t v = u * T{-0.5};
 		v = v + complex_t(a_);

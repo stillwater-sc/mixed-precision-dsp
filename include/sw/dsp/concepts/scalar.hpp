@@ -54,12 +54,18 @@ struct is_complex<std::complex<T>> : std::true_type {};
 template <typename T>
 constexpr bool is_complex_v = is_complex<T>::value;
 
+namespace detail {
+	// ADL-friendly conj for concept checking
+	using std::conj;
+	template <typename T>
+	concept has_conj = requires(T z) { { conj(z) } -> std::convertible_to<T>; };
+}
+
 template <typename T>
 concept ComplexType = requires(T z) {
 	{ z.real() };
 	{ z.imag() };
-	{ std::conj(z) } -> std::convertible_to<T>;
-};
+} && detail::has_conj<T>;
 
 // Trait to extract the real scalar type from a potentially complex type
 template <typename T>

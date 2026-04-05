@@ -62,8 +62,9 @@ public:
 		layout.reset();
 		layout.set_normal(pi_v<T>, T{1});
 
+		using std::pow;
 		const T n2 = static_cast<T>(num_poles) * T{2};
-		const T g = std::pow(std::pow(T{10}, gain_db / T{20}), T{1} / n2);
+		const T g = pow(pow(T{10}, gain_db / T{20}), T{1} / n2);
 		const T gp = T{-1} / g;
 		const T gz = T{-1} * g;
 
