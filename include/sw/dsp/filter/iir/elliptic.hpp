@@ -238,11 +238,15 @@ private:
 
 		T q = exp(T{-1} * pi_v<T> * Kprime / K);
 		T v = half_pi_v<T> * u / K;
+		// Convergence threshold: use T-scaled epsilon to avoid
+		// premature termination at high precision or excessive
+		// iterations at low precision
+		T tol = std::numeric_limits<T>::epsilon() * T{1000};
 		T sn = T{};
 		for (int j = 0; ; ++j) {
 			T w = pow(q, static_cast<T>(j) + T{0.5});
 			sn = sn + w * sin((T{2} * static_cast<T>(j) + T{1}) * v) / (T{1} - w * w);
-			if (static_cast<double>(w) < 1e-7) break;
+			if (w < tol) break;
 		}
 		return sn;
 	}
