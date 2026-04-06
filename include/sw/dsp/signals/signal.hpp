@@ -6,12 +6,13 @@
 //
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
+#include <mtl/vec/dense_vector.hpp>
+#include <sw/dsp/concepts/scalar.hpp>
 
 #include <cstddef>
 #include <span>
 #include <stdexcept>
-#include <mtl/vec/dense_vector.hpp>
-#include <sw/dsp/concepts/scalar.hpp>
+#include <utility>  // std::move
 
 namespace sw::dsp {
 
