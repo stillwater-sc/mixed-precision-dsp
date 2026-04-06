@@ -36,3 +36,6 @@ dsp_add_test(test_windows)
 
 # Quantization (Issue #3)
 dsp_add_test(test_quantization)
+
+# FIR filters (Issue #4)
+dsp_add_test(test_fir)
