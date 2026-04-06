@@ -45,3 +45,6 @@ dsp_add_test(test_fft)
 
 # Spectral analysis: Z-transform, Laplace, PSD, spectrogram (Issue #5)
 dsp_add_test(test_spectral)
+
+# Signal conditioning (Issue #6)
+dsp_add_test(test_conditioning)
