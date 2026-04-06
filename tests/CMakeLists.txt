@@ -39,3 +39,6 @@ dsp_add_test(test_quantization)
 
 # FIR filters (Issue #4)
 dsp_add_test(test_fir)
+
+# Spectral methods + TransferFunction (Issue #5)
+dsp_add_test(test_fft)
