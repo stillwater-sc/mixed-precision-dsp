@@ -33,3 +33,6 @@ dsp_add_test(test_elliptic)
 
 # Windows + Signal + Sampling (Issue #3)
 dsp_add_test(test_windows)
+
+# Quantization (Issue #3)
+dsp_add_test(test_quantization)
