@@ -30,3 +30,6 @@ dsp_add_test(test_bessel)
 
 # Elliptic (Issue #2)
 dsp_add_test(test_elliptic)
+
+# Windows + Signal + Sampling (Issue #3)
+dsp_add_test(test_windows)
