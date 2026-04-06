@@ -6,4 +6,7 @@
 
 #include <sw/dsp/spectral/dft.hpp>
 #include <sw/dsp/spectral/fft.hpp>
-// Future: ztransform.hpp, laplace.hpp, psd.hpp, spectrogram.hpp
+#include <sw/dsp/spectral/ztransform.hpp>
+#include <sw/dsp/spectral/laplace.hpp>
+#include <sw/dsp/spectral/psd.hpp>
+#include <sw/dsp/spectral/spectrogram.hpp>

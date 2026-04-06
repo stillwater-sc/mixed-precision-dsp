@@ -42,3 +42,6 @@ dsp_add_test(test_fir)
 
 # Spectral methods + TransferFunction (Issue #5)
 dsp_add_test(test_fft)
+
+# Spectral analysis: Z-transform, Laplace, PSD, spectrogram (Issue #5)
+dsp_add_test(test_spectral)
