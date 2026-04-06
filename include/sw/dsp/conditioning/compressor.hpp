@@ -17,6 +17,8 @@ namespace sw::dsp {
 
 // Dynamic range compressor.
 //
+// Note: T must be convertible to double for dB computation.
+//
 // Parameters:
 //   threshold_db: level above which compression starts
 //   ratio:        compression ratio (e.g., 4.0 = 4:1)
@@ -24,6 +26,7 @@ namespace sw::dsp {
 //   release_ms:   release time for level detector
 //   makeup_db:    output gain to compensate for compression
 template <DspField T>
+	requires ConvertibleToDouble<T>
 class Compressor {
 public:
 	Compressor() = default;

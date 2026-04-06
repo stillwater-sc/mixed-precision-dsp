@@ -40,9 +40,10 @@ public:
 	T process(T input) {
 		T level = rms_.process(input);
 
-		// Compute gain
+		// Compute gain (compare in T to avoid requiring double conversion)
 		T gain;
-		if (static_cast<double>(level) > 1e-10) {
+		T silence = static_cast<T>(1e-10);
+		if (level > silence) {
 			gain = target_ / level;
 			if (gain > max_gain_) gain = max_gain_;
 		} else {
