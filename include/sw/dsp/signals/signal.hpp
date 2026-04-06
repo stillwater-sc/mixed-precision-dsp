@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <span>
+#include <stdexcept>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 
@@ -20,10 +21,14 @@ public:
 	Signal() = default;
 
 	Signal(std::size_t length, double sample_rate)
-		: data_(length), sample_rate_(sample_rate) {}
+		: data_(length), sample_rate_(sample_rate) {
+		if (!(sample_rate > 0.0)) throw std::invalid_argument("Signal: sample_rate must be > 0");
+	}
 
 	Signal(mtl::vec::dense_vector<T> data, double sample_rate)
-		: data_(std::move(data)), sample_rate_(sample_rate) {}
+		: data_(std::move(data)), sample_rate_(sample_rate) {
+		if (!(sample_rate > 0.0)) throw std::invalid_argument("Signal: sample_rate must be > 0");
+	}
 
 	// Access
 	T& operator[](std::size_t i) { return data_[i]; }

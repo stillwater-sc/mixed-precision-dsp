@@ -9,6 +9,7 @@
 // SPDX-License-Identifier: MIT
 
 #include <cstddef>
+#include <stdexcept>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 
@@ -19,7 +20,8 @@ namespace sw::dsp {
 // Note: this is zero-insertion only. Apply a lowpass filter after to
 // interpolate (see conditioning/interpolator.hpp).
 template <DspField T>
-mtl::vec::dense_vector<T> upsample(const mtl::vec::dense_vector<T>& input, int factor) {
+mtl::vec::dense_vector<T> upsample(const mtl::vec::dense_vector<T>& input, std::size_t factor) {
+	if (factor == 0) throw std::invalid_argument("upsample: factor must be > 0");
 	std::size_t out_len = input.size() * factor;
 	mtl::vec::dense_vector<T> output(out_len, T{});
 	for (std::size_t i = 0; i < input.size(); ++i) {
@@ -33,7 +35,8 @@ mtl::vec::dense_vector<T> upsample(const mtl::vec::dense_vector<T>& input, int f
 // Note: apply a lowpass anti-aliasing filter before downsampling
 // to avoid aliasing (see conditioning/decimator.hpp).
 template <DspField T>
-mtl::vec::dense_vector<T> downsample(const mtl::vec::dense_vector<T>& input, int factor) {
+mtl::vec::dense_vector<T> downsample(const mtl::vec::dense_vector<T>& input, std::size_t factor) {
+	if (factor == 0) throw std::invalid_argument("downsample: factor must be > 0");
 	std::size_t out_len = input.size() / factor;
 	mtl::vec::dense_vector<T> output(out_len);
 	for (std::size_t i = 0; i < out_len; ++i) {
