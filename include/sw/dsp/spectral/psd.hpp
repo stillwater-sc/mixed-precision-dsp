@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/math/constants.hpp>
@@ -52,6 +53,13 @@ mtl::vec::dense_vector<double> welch(
 		std::size_t overlap,
 		const mtl::vec::dense_vector<T>& window) {
 	using std::abs;
+
+	if (segment_size == 0)
+		throw std::invalid_argument("welch: segment_size must be > 0");
+	if (overlap >= segment_size)
+		throw std::invalid_argument("welch: overlap must be < segment_size");
+	if (window.size() != segment_size)
+		throw std::invalid_argument("welch: window.size() must equal segment_size");
 
 	std::size_t half = segment_size / 2 + 1;
 	mtl::vec::dense_vector<double> psd(half, 0.0);

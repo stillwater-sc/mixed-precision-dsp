@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
 #include <vector>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
@@ -48,11 +49,17 @@ SpectrogramResult<T> spectrogram(
 	using complex_t = complex_for_t<T>;
 
 	std::size_t win_size = window.size();
+	if (win_size == 0)
+		throw std::invalid_argument("spectrogram: window must be non-empty");
+	if (hop_size == 0)
+		throw std::invalid_argument("spectrogram: hop_size must be > 0");
 	if (fft_size == 0) {
 		// Default: next power of 2 >= window_size
 		fft_size = 1;
 		while (fft_size < win_size) fft_size <<= 1;
 	}
+	if (fft_size < win_size)
+		throw std::invalid_argument("spectrogram: fft_size must be >= window.size()");
 
 	SpectrogramResult<T> result;
 	result.fft_size = fft_size;
