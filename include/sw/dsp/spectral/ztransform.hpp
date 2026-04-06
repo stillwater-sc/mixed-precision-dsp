@@ -47,6 +47,7 @@ mtl::vec::dense_vector<complex_for_t<T>> evaluate_at(
 template <DspField T>
 mtl::vec::dense_vector<double> group_delay(
 		const TransferFunction<T>& tf, std::size_t num_points = 512) {
+	using std::arg;  // ADL for Universal complex types
 	mtl::vec::dense_vector<double> gd(num_points);
 	double df = 0.5 / static_cast<double>(num_points);
 
@@ -56,8 +57,8 @@ mtl::vec::dense_vector<double> group_delay(
 		double f_prev = f - df * 0.01;
 		if (f_prev < 0) f_prev = 0;
 
-		double phase_next = std::arg(tf.frequency_response(f_next));
-		double phase_prev = std::arg(tf.frequency_response(f_prev));
+		double phase_next = static_cast<double>(arg(tf.frequency_response(f_next)));
+		double phase_prev = static_cast<double>(arg(tf.frequency_response(f_prev)));
 
 		// Unwrap phase difference
 		double dp = phase_next - phase_prev;

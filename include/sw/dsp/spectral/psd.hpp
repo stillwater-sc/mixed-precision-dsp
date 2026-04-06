@@ -16,20 +16,24 @@
 
 namespace sw::dsp::spectral {
 
-// Periodogram: |FFT(x)|^2 / N, returns one-sided PSD (N/2+1 bins).
+// Periodogram: |FFT(x)|^2 / M, returns one-sided PSD.
+// Normalization uses the original sample count M, not the FFT length
+// (which may be zero-padded to a power of 2).
 template <DspField T>
 mtl::vec::dense_vector<double> periodogram(const mtl::vec::dense_vector<T>& x) {
+	using std::abs;  // ADL
+	std::size_t M = x.size();
 	auto X = fft(x);
-	std::size_t N = X.size();
-	std::size_t half = N / 2 + 1;
-	double inv_N = 1.0 / static_cast<double>(N);
+	std::size_t N_fft = X.size();
+	std::size_t half = M / 2 + 1;
+	double inv_M = 1.0 / static_cast<double>(M);
 
 	mtl::vec::dense_vector<double> psd(half);
 	for (std::size_t k = 0; k < half; ++k) {
-		double mag = static_cast<double>(std::abs(X[k]));
-		psd[k] = mag * mag * inv_N;
+		double mag = static_cast<double>(abs(X[k]));
+		psd[k] = mag * mag * inv_M;
 		// Double non-DC, non-Nyquist bins for one-sided
-		if (k > 0 && k < N / 2) psd[k] *= 2.0;
+		if (k > 0 && k < M / 2) psd[k] *= 2.0;
 	}
 	return psd;
 }
