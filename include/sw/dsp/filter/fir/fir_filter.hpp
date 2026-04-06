@@ -26,8 +26,6 @@ public:
 	using state_scalar  = StateScalar;
 	using sample_scalar = SampleScalar;
 
-	FIRFilter() = default;
-
 	explicit FIRFilter(const mtl::vec::dense_vector<CoeffScalar>& taps)
 		: taps_(taps), delay_(taps.size(), StateScalar{}), write_pos_(0) {
 		if (taps.size() == 0)

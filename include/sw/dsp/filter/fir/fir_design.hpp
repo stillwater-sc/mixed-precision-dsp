@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/math/constants.hpp>
@@ -26,6 +27,8 @@ namespace sw::dsp {
 template <DspField T>
 mtl::vec::dense_vector<T> design_fir_lowpass(std::size_t num_taps, T cutoff,
                                               const mtl::vec::dense_vector<T>& window) {
+	if (window.size() != num_taps)
+		throw std::invalid_argument("design_fir_lowpass: window size must equal num_taps");
 	mtl::vec::dense_vector<T> taps(num_taps);
 	int M = static_cast<int>(num_taps - 1);
 	double fc = static_cast<double>(cutoff);

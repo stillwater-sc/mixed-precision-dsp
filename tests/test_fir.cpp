@@ -150,6 +150,8 @@ void test_design_lowpass() {
 	// DC response: sum of taps
 	double dc_sum = 0;
 	for (std::size_t i = 0; i < taps.size(); ++i) dc_sum += static_cast<double>(taps[i]);
+	if (!(std::abs(dc_sum) > 1e-15))
+		throw std::runtime_error("test failed: lowpass DC gain is effectively zero");
 	double dc_db = 20.0 * std::log10(std::abs(dc_sum));
 	if (!(near(dc_db, 0.0, 1.0)))
 		throw std::runtime_error("test failed: lowpass DC gain not ~0 dB");
