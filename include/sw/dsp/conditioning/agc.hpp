@@ -25,7 +25,7 @@ namespace sw::dsp {
 //   target_level: desired RMS output level (linear, e.g., 0.5)
 //   window_ms:    RMS averaging window in milliseconds
 //   max_gain:     maximum gain to apply (prevents boosting silence)
-template <DspField T>
+template <DspOrderedField T>
 class AGC {
 public:
 	AGC() = default;
