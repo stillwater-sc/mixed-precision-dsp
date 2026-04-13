@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
 #include <mtl/mat/dense2D.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/image/image.hpp>
@@ -103,6 +104,8 @@ mtl::mat::dense2D<T> gradient_magnitude(const mtl::mat::dense2D<T>& gx,
                                         const mtl::mat::dense2D<T>& gy) {
 	std::size_t rows = gx.num_rows();
 	std::size_t cols = gx.num_cols();
+	if (rows != gy.num_rows() || cols != gy.num_cols())
+		throw std::invalid_argument("gradient_magnitude: gx and gy must have same dimensions");
 	mtl::mat::dense2D<T> mag(rows, cols);
 	for (std::size_t r = 0; r < rows; ++r) {
 		for (std::size_t c = 0; c < cols; ++c) {

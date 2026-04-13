@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <stdexcept>
 #include <mtl/mat/dense2D.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/image/image.hpp>
@@ -61,12 +62,25 @@ inline mtl::mat::dense2D<bool> make_ellipse_element(std::size_t size) {
 	return elem;
 }
 
+// Validate that a structuring element has at least one active pixel.
+inline void validate_element(const mtl::mat::dense2D<bool>& element) {
+	if (element.num_rows() == 0 || element.num_cols() == 0)
+		throw std::invalid_argument("morphology: structuring element must not be empty");
+	bool has_true = false;
+	for (std::size_t r = 0; r < element.num_rows() && !has_true; ++r)
+		for (std::size_t c = 0; c < element.num_cols() && !has_true; ++c)
+			if (element(r, c)) has_true = true;
+	if (!has_true)
+		throw std::invalid_argument("morphology: structuring element must have at least one active pixel");
+}
+
 // ---------- Basic morphological operations ----------
 
 // Dilation: each output pixel is the maximum over the structuring element neighborhood.
 template <DspOrderedField T>
 mtl::mat::dense2D<T> dilate(const mtl::mat::dense2D<T>& image,
                             const mtl::mat::dense2D<bool>& element) {
+	validate_element(element);
 	std::size_t rows = image.num_rows();
 	std::size_t cols = image.num_cols();
 	std::size_t erows = element.num_rows();
@@ -99,6 +113,7 @@ mtl::mat::dense2D<T> dilate(const mtl::mat::dense2D<T>& image,
 template <DspOrderedField T>
 mtl::mat::dense2D<T> erode(const mtl::mat::dense2D<T>& image,
                            const mtl::mat::dense2D<bool>& element) {
+	validate_element(element);
 	std::size_t rows = image.num_rows();
 	std::size_t cols = image.num_cols();
 	std::size_t erows = element.num_rows();

@@ -164,9 +164,10 @@ template <DspField T, DspField K = double>
 dense2D<T> sobel_x(const dense2D<T>& image, int ksize = 3);
 
 template <DspField T>
-dense2D<bool> canny(const dense2D<T>& image,
-                    double low_threshold, double high_threshold,
-                    int aperture = 3);
+    requires ConvertibleToDouble<T>
+dense2D<T> canny(const dense2D<T>& image,
+                 double low_threshold, double high_threshold,
+                 double sigma = 1.0);
 ```
 
 A convenience helper applies any function across all channels:
