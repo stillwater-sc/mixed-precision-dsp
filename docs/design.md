@@ -217,11 +217,25 @@ State estimation and adaptive filtering:
 ### analysis/
 Numerical quality tools for mixed-precision research:
 
-- **sensitivity.hpp**: coefficient sensitivity analysis — partial derivatives
-  of pole positions with respect to biquad coefficients.
-- **condition.hpp**: condition number estimation of coefficient matrices.
-- **stability.hpp**: check that all poles lie within the unit circle;
-  compute stability margin.
+- **stability.hpp**: extract poles from biquad sections (solve `z^2 + a1*z + a2 = 0`),
+  check stability (`is_stable()`), compute `max_pole_radius()` and `stability_margin()`,
+  collect `all_poles()` from a cascade.
+- **sensitivity.hpp**: coefficient sensitivity via finite differences
+  (`coefficient_sensitivity()`, `worst_case_sensitivity()`), plus
+  `pole_displacement()` measuring how poles shift when coefficients are
+  quantized from type T to type Q.
+- **condition.hpp**: `biquad_condition_number()` and `cascade_condition_number()`
+  — frequency response sensitivity to coefficient perturbations.
+- **analysis.hpp**: umbrella.
+
+### concepts/
+- **scalar.hpp**: `DspScalar`, `DspField`, `DspOrderedField`, `ComplexType`,
+  `ConvertibleToDouble`, `complex_for_t<T>`.
+- **signal.hpp**: `SignalContainer`, `MutableSignalContainer`, `ContiguousSignalContainer`.
+- **filter.hpp**: `FilterDesign`, `DesignableLowPass`, `DesignableBandPass`, `Processable`.
+
+### Umbrella
+- **dsp.hpp**: single header that includes the entire library.
 
 ## Hot Path Design: No Virtual Dispatch
 

@@ -56,6 +56,27 @@ if (!(value > 0)) throw std::runtime_error("test failed: value > 0");
 Every test `main()` should be wrapped in `try/catch` to report exceptions
 cleanly.
 
+## Umbrella Header
+
+`#include <sw/dsp/dsp.hpp>` brings in the entire library. For faster
+compile times, include individual module headers instead (e.g.,
+`<sw/dsp/filter/iir/butterworth.hpp>`).
+
+## Analysis Module
+
+`analysis/stability.hpp` extracts poles from biquad coefficients by solving
+`z^2 + a1*z + a2 = 0` directly. `analysis/sensitivity.hpp` measures how
+pole positions shift under coefficient perturbation (finite differences).
+`analysis/condition.hpp` estimates frequency response sensitivity to
+coefficient errors. All analysis functions require `ConvertibleToDouble<T>`
+since they convert to `double` for numerical computation.
+
+## Filter Concepts
+
+`concepts/filter.hpp` defines `FilterDesign`, `DesignableLowPass`,
+`DesignableBandPass`, and `Processable`. These formalize the interface
+that `SimpleFilter` and generic algorithms rely on.
+
 ## Coding Conventions
 
 - No raw pointers for aggregates — use references, `std::array`, `std::span`

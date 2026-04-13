@@ -71,6 +71,8 @@ required to drive mixed-precision optimization across the DSP domain.
 ## Quick Start
 
 ```cpp
+// Include everything: #include <sw/dsp/dsp.hpp>
+// Or include individual modules for faster compilation:
 #include <sw/dsp/filter/iir/butterworth.hpp>
 #include <sw/dsp/filter/filter.hpp>
 
@@ -114,6 +116,8 @@ The library covers the full DSP domain, organized into focused modules:
 | **estimation** | Kalman filters (linear, extended, unscented), LMS and RLS adaptive filters. |
 | **image** | 2D convolution, separable filters, morphological operations, edge detection (Sobel, Prewitt, Canny). |
 | **analysis** | Coefficient sensitivity, condition number estimation, stability margin checking. Numerical quality tools for mixed-precision research. |
+| **io** | WAV, CSV, and raw binary file I/O for signals. |
+| **viz** | Console text visualization: magnitude/phase plots, pole-zero diagrams. |
 
 ## Design Principles
 
