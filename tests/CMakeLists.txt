@@ -57,3 +57,6 @@ dsp_add_test(test_image)
 
 # Numerical analysis (Issue #9)
 dsp_add_test(test_analysis)
+
+# Image generators (Issue #12)
+dsp_add_test(test_image_generators)
