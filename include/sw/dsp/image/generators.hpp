@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstddef>
 #include <random>
+#include <stdexcept>
 #include <mtl/mat/dense2D.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 
@@ -31,6 +32,8 @@ template <DspField T>
 mtl::mat::dense2D<T> checkerboard(std::size_t rows, std::size_t cols,
                                    std::size_t block_size,
                                    T low = T{}, T high = static_cast<T>(1)) {
+	if (block_size == 0)
+		throw std::invalid_argument("checkerboard: block_size must be > 0");
 	mtl::mat::dense2D<T> img(rows, cols);
 	for (std::size_t r = 0; r < rows; ++r)
 		for (std::size_t c = 0; c < cols; ++c)
@@ -43,6 +46,8 @@ template <DspField T>
 mtl::mat::dense2D<T> stripes_horizontal(std::size_t rows, std::size_t cols,
                                          std::size_t stripe_width,
                                          T low = T{}, T high = static_cast<T>(1)) {
+	if (stripe_width == 0)
+		throw std::invalid_argument("stripes_horizontal: stripe_width must be > 0");
 	mtl::mat::dense2D<T> img(rows, cols);
 	for (std::size_t r = 0; r < rows; ++r)
 		for (std::size_t c = 0; c < cols; ++c)
@@ -55,6 +60,8 @@ template <DspField T>
 mtl::mat::dense2D<T> stripes_vertical(std::size_t rows, std::size_t cols,
                                        std::size_t stripe_width,
                                        T low = T{}, T high = static_cast<T>(1)) {
+	if (stripe_width == 0)
+		throw std::invalid_argument("stripes_vertical: stripe_width must be > 0");
 	mtl::mat::dense2D<T> img(rows, cols);
 	for (std::size_t r = 0; r < rows; ++r)
 		for (std::size_t c = 0; c < cols; ++c)
@@ -67,6 +74,8 @@ template <DspField T>
 mtl::mat::dense2D<T> grid(std::size_t rows, std::size_t cols,
                            std::size_t spacing,
                            T background = T{}, T line = static_cast<T>(1)) {
+	if (spacing == 0)
+		throw std::invalid_argument("grid: spacing must be > 0");
 	mtl::mat::dense2D<T> img(rows, cols);
 	for (std::size_t r = 0; r < rows; ++r)
 		for (std::size_t c = 0; c < cols; ++c)
@@ -146,6 +155,8 @@ template <DspField T>
 mtl::mat::dense2D<T> gaussian_blob(std::size_t rows, std::size_t cols,
                                     double sigma,
                                     T amplitude = static_cast<T>(1)) {
+	if (sigma <= 0.0)
+		throw std::invalid_argument("gaussian_blob: sigma must be > 0");
 	mtl::mat::dense2D<T> img(rows, cols);
 	double cy = static_cast<double>(rows - 1) * 0.5;
 	double cx = static_cast<double>(cols - 1) * 0.5;
