@@ -3,10 +3,9 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
-#include <sw/dsp/analysis/analysis.hpp>
-#include <sw/dsp/filter/iir/butterworth.hpp>
-#include <sw/dsp/filter/filter.hpp>
-#include <sw/dsp/concepts/filter.hpp>
+// Include the umbrella header — this test validates that dsp.hpp
+// compiles and brings in all modules correctly.
+#include <sw/dsp/dsp.hpp>
 
 #include <cmath>
 #include <iostream>
