@@ -19,7 +19,7 @@ add_subdirectory(iir_demo)
 # add_subdirectory(estimation_demo)
 
 # Phase 10: Image processing
-# add_subdirectory(image_demo)
+add_subdirectory(image_demo)
 
 # Phase 8: Signal conditioning
 # add_subdirectory(conditioning_demo)

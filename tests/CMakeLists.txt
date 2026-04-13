@@ -51,3 +51,6 @@ dsp_add_test(test_conditioning)
 
 # Estimation: Kalman, LMS, RLS (Issue #7)
 dsp_add_test(test_kalman)
+
+# Image processing (Issue #8)
+dsp_add_test(test_image)
