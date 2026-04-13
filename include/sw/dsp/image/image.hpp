@@ -163,3 +163,4 @@ mtl::mat::dense2D<T> rgb_to_gray(const Image<T, 3>& rgb) {
 #include <sw/dsp/image/separable.hpp>
 #include <sw/dsp/image/morphology.hpp>
 #include <sw/dsp/image/edge.hpp>
+#include <sw/dsp/image/generators.hpp>
