@@ -60,3 +60,6 @@ dsp_add_test(test_analysis)
 
 # Image generators (Issue #12)
 dsp_add_test(test_image_generators)
+
+# Image file I/O (Issue #13)
+dsp_add_test(test_image_io)
