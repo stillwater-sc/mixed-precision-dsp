@@ -13,6 +13,8 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -23,10 +25,16 @@ bool near(double a, double b, double eps = 1e-4) {
 	return std::abs(a - b) < eps;
 }
 
+// Platform-portable temp directory
+inline std::string temp_dir() {
+	auto p = std::filesystem::temp_directory_path();
+	return p.string();
+}
+
 // RAII temp file that deletes on destruction
 struct TempFile {
 	std::string path;
-	TempFile(const std::string& name) : path("/tmp/dsp_test_" + name) {}
+	TempFile(const std::string& name) : path(temp_dir() + "/dsp_test_" + name) {}
 	~TempFile() { std::remove(path.c_str()); }
 };
 
@@ -101,7 +109,7 @@ void test_pgm_validation() {
 	auto img = checkerboard<float>(4, 4, 2);
 
 	bool caught = false;
-	try { io::write_pgm("/tmp/dsp_test_bad.pgm", img, 0); }
+	try { io::write_pgm((temp_dir() + "/dsp_test_bad.pgm").c_str(), img, 0); }
 	catch (const std::invalid_argument&) { caught = true; }
 	if (!caught) throw std::runtime_error("test failed: write_pgm should reject max_val=0");
 
@@ -151,7 +159,7 @@ void test_ppm_validation() {
 	auto b = checkerboard<float>(3, 4, 2);  // wrong size
 
 	bool caught = false;
-	try { io::write_ppm("/tmp/dsp_test_bad.ppm", r, g, b); }
+	try { io::write_ppm((temp_dir() + "/dsp_test_bad.ppm").c_str(), r, g, b); }
 	catch (const std::invalid_argument&) { caught = true; }
 	if (!caught) throw std::runtime_error("test failed: write_ppm should reject mismatched channels");
 
