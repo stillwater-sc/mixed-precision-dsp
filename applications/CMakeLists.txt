@@ -21,5 +21,8 @@ add_subdirectory(iir_demo)
 # Phase 10: Image processing
 add_subdirectory(image_demo)
 
+# Mixed-precision comparison (Epic #22)
+add_subdirectory(mp_comparison)
+
 # Phase 8: Signal conditioning
 # add_subdirectory(conditioning_demo)
