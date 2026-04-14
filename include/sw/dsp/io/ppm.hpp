@@ -95,16 +95,23 @@ PpmData<T> read_ppm(const std::string& path) {
 	};
 
 	skip_comments();
-	int width, height, max_val;
+	int width = 0, height = 0, max_val = 0;
 	ifs >> width >> height;
+	if (!ifs.good())
+		throw std::runtime_error("read_ppm: failed to read dimensions");
 	skip_comments();
 	ifs >> max_val;
+	if (!ifs.good())
+		throw std::runtime_error("read_ppm: failed to read max_val");
 
 	if (width <= 0 || height <= 0 || max_val <= 0)
 		throw std::runtime_error("read_ppm: invalid dimensions or max_val");
+	if (max_val > 65535)
+		throw std::runtime_error("read_ppm: max_val exceeds 65535");
 
 	if (binary) ifs.get();
 
+	bool wide = (max_val > 255);  // 16-bit samples
 	std::size_t rows = static_cast<std::size_t>(height);
 	std::size_t cols = static_cast<std::size_t>(width);
 	double inv_max = 1.0 / static_cast<double>(max_val);
@@ -118,11 +125,26 @@ PpmData<T> read_ppm(const std::string& path) {
 		for (std::size_t c = 0; c < cols; ++c) {
 			int rv, gv, bv;
 			if (binary) {
-				uint8_t rgb[3];
-				ifs.read(reinterpret_cast<char*>(rgb), 3);
-				rv = rgb[0]; gv = rgb[1]; bv = rgb[2];
+				if (wide) {
+					// 16-bit: 2 bytes per channel, big-endian per PNM spec
+					uint8_t buf[6];
+					ifs.read(reinterpret_cast<char*>(buf), 6);
+					if (!ifs.good())
+						throw std::runtime_error("read_ppm: truncated pixel data");
+					rv = (static_cast<int>(buf[0]) << 8) | buf[1];
+					gv = (static_cast<int>(buf[2]) << 8) | buf[3];
+					bv = (static_cast<int>(buf[4]) << 8) | buf[5];
+				} else {
+					uint8_t rgb[3];
+					ifs.read(reinterpret_cast<char*>(rgb), 3);
+					if (!ifs.good())
+						throw std::runtime_error("read_ppm: truncated pixel data");
+					rv = rgb[0]; gv = rgb[1]; bv = rgb[2];
+				}
 			} else {
 				ifs >> rv >> gv >> bv;
+				if (!ifs.good())
+					throw std::runtime_error("read_ppm: failed to read pixel values");
 			}
 			data.r(r, c) = static_cast<T>(rv * inv_max);
 			data.g(r, c) = static_cast<T>(gv * inv_max);

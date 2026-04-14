@@ -91,10 +91,14 @@ mtl::mat::dense2D<T> read_pgm(const std::string& path) {
 	};
 
 	skip_comments();
-	int width, height, max_val;
+	int width = 0, height = 0, max_val = 0;
 	ifs >> width >> height;
+	if (!ifs.good())
+		throw std::runtime_error("read_pgm: failed to read dimensions");
 	skip_comments();
 	ifs >> max_val;
+	if (!ifs.good())
+		throw std::runtime_error("read_pgm: failed to read max_val");
 
 	if (width <= 0 || height <= 0 || max_val <= 0)
 		throw std::runtime_error("read_pgm: invalid dimensions or max_val");

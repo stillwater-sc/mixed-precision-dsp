@@ -11,6 +11,7 @@
 #include <sw/dsp/io/bmp.hpp>
 #include <sw/dsp/image/generators.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
