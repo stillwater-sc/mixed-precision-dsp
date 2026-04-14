@@ -72,6 +72,26 @@ struct MetricRow {
 	double      stability_margin_val;
 };
 
+struct FreqResponseRow {
+	std::string filter_family;
+	std::string arith_type;
+	double      freq_hz;
+	double      magnitude_db;
+	double      phase_deg;
+};
+
+struct PoleRow {
+	std::string filter_family;
+	std::string arith_type;
+	int         pole_index;
+	double      real_part;
+	double      imag_part;
+};
+
+// Global collectors for CSV export
+std::vector<FreqResponseRow> g_freq_rows;
+std::vector<PoleRow> g_pole_rows;
+
 // ============================================================================
 // Measurement functions
 // ============================================================================
@@ -131,12 +151,30 @@ MetricRow compare_filter(const std::string& family, const std::string& type_name
 	auto sig_mix = filter_test_signal(mixed_filter);
 	double sqnr = compute_sqnr(sig_ref, sig_mix);
 
-	// Pole displacement: project ref coefficients to the mixed filter's
-	// coefficient type and compare. Since all filters here use double
-	// coefficients, displacement is 0. The SQNR captures state/sample
-	// quantization effects.
 	double disp = pole_displacement(ref_filter.cascade(), mixed_filter.cascade());
 	double margin = sw::dsp::stability_margin(mixed_filter.cascade());
+
+	// Collect frequency response data for CSV
+	constexpr int NUM_FREQS = 200;
+	for (int k = 0; k < NUM_FREQS; ++k) {
+		double f = static_cast<double>(k) / NUM_FREQS * 0.5;  // normalized [0, 0.5)
+		double freq_hz = f * SAMPLE_RATE;
+		auto resp = mixed_filter.cascade().response(f);
+		double mag = std::abs(std::complex<double>(
+			static_cast<double>(resp.real()), static_cast<double>(resp.imag())));
+		double mag_db = (mag > 1e-20) ? 20.0 * std::log10(mag) : -400.0;
+		double phase = std::atan2(static_cast<double>(resp.imag()),
+		                          static_cast<double>(resp.real()));
+		double phase_deg = phase * 180.0 / 3.14159265358979;
+		g_freq_rows.push_back({ family, type_name, freq_hz, mag_db, phase_deg });
+	}
+
+	// Collect pole positions for CSV
+	auto poles = all_poles(mixed_filter.cascade());
+	for (std::size_t i = 0; i < poles.size(); ++i) {
+		g_pole_rows.push_back({ family, type_name, static_cast<int>(i),
+		                        poles[i].real(), poles[i].imag() });
+	}
 
 	return { family, type_name, bits, max_abs, max_rel, sqnr, disp, margin };
 }
@@ -300,6 +338,28 @@ void print_table(const std::string& family, const std::vector<MetricRow>& rows) 
 	}
 }
 
+void write_freq_csv(const std::string& path) {
+	std::ofstream ofs(path);
+	if (!ofs) { std::cerr << "WARNING: cannot open " << path << "\n"; return; }
+	ofs << "filter_family,arith_type,freq_hz,magnitude_db,phase_deg\n";
+	ofs << std::setprecision(10);
+	for (const auto& r : g_freq_rows) {
+		ofs << r.filter_family << "," << r.arith_type << ","
+		    << r.freq_hz << "," << r.magnitude_db << "," << r.phase_deg << "\n";
+	}
+}
+
+void write_pole_csv(const std::string& path) {
+	std::ofstream ofs(path);
+	if (!ofs) { std::cerr << "WARNING: cannot open " << path << "\n"; return; }
+	ofs << "filter_family,arith_type,pole_index,real,imag\n";
+	ofs << std::setprecision(15);
+	for (const auto& r : g_pole_rows) {
+		ofs << r.filter_family << "," << r.arith_type << ","
+		    << r.pole_index << "," << r.real_part << "," << r.imag_part << "\n";
+	}
+}
+
 void write_csv(const std::string& path, const std::vector<MetricRow>& all_rows) {
 	std::ofstream ofs(path);
 	if (!ofs) {
@@ -327,8 +387,11 @@ void write_csv(const std::string& path, const std::vector<MetricRow>& all_rows) 
 // Main
 // ============================================================================
 
-int main() {
+int main(int argc, char* argv[]) {
   try {
+	// Optional output directory argument
+	std::string outdir = ".";
+	if (argc > 1) outdir = argv[1];
 	std::cout << std::string(100, '=') << "\n";
 	std::cout << "  Mixed-Precision IIR Filter Comparison\n";
 	std::cout << "  5 filter families x 6 arithmetic types\n";
@@ -352,13 +415,19 @@ int main() {
 	run("Bessel",                 sweep_bessel);
 	run("Legendre",               sweep_legendre);
 
-	// Write CSV
-	write_csv("iir_precision_sweep.csv", all_rows);
+	// Write CSV files
+	std::string sep = "/";
+	write_csv(outdir + sep + "iir_precision_sweep.csv", all_rows);
+	write_freq_csv(outdir + sep + "frequency_response.csv");
+	write_pole_csv(outdir + sep + "pole_positions.csv");
 
 	std::cout << "\n" << std::string(100, '=') << "\n";
 	std::cout << "  Summary: " << all_rows.size() << " measurements ("
 	          << "5 families x 6 types)\n";
-	std::cout << "  CSV: iir_precision_sweep.csv\n";
+	std::cout << "  CSV files in: " << outdir << "/\n";
+	std::cout << "    iir_precision_sweep.csv  (" << all_rows.size() << " rows)\n";
+	std::cout << "    frequency_response.csv   (" << g_freq_rows.size() << " rows)\n";
+	std::cout << "    pole_positions.csv       (" << g_pole_rows.size() << " rows)\n";
 	std::cout << std::string(100, '=') << "\n";
 
 	return 0;
