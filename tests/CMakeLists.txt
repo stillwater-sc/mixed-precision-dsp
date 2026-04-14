@@ -63,3 +63,6 @@ dsp_add_test(test_image_generators)
 
 # Image file I/O (Issue #13)
 dsp_add_test(test_image_io)
+
+# Type projection/embedding
+dsp_add_test(test_projection)

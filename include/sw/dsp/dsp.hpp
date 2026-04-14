@@ -21,6 +21,7 @@
 #include <sw/dsp/types/biquad_coefficients.hpp>
 #include <sw/dsp/types/transfer_function.hpp>
 #include <sw/dsp/types/filter_kind.hpp>
+#include <sw/dsp/types/projection.hpp>
 
 // Math utilities
 #include <sw/dsp/math/constants.hpp>
