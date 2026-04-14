@@ -1,6 +1,6 @@
 // iir_precision_sweep.cpp: mixed-precision IIR filter comparison
 //
-// Sweeps 6 IIR filter families across 8 arithmetic types, measuring:
+// Sweeps 5 IIR filter families across 6 arithmetic types, measuring:
 //   - Impulse response error (max absolute and relative)
 //   - SQNR when filtering a test signal
 //   - Pole displacement from double reference
@@ -357,7 +357,7 @@ int main() {
 
 	std::cout << "\n" << std::string(100, '=') << "\n";
 	std::cout << "  Summary: " << all_rows.size() << " measurements ("
-	          << "6 families x 8 types)\n";
+	          << "5 families x 6 types)\n";
 	std::cout << "  CSV: iir_precision_sweep.csv\n";
 	std::cout << std::string(100, '=') << "\n";
 
