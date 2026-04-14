@@ -57,6 +57,7 @@ void print_stats(const mtl::mat::dense2D<T>& img, const std::string& label) {
 }
 
 int main() {
+  try {
 	constexpr std::size_t W = 256;
 	constexpr std::size_t H = 256;
 
@@ -164,7 +165,8 @@ int main() {
 	auto gx2 = sobel_x(denoised);
 	auto gy2 = sobel_y(denoised);
 	auto mag2 = gradient_magnitude(gx2, gy2);
-	auto binary = threshold(mag2, 0.15f * gmax);
+	float thresh_val = (gmax > 0.0f) ? 0.15f * gmax : 0.5f;
+	auto binary = threshold(mag2, thresh_val);
 	print_stats(binary, "binary edge mask");
 	io::write_pgm("07_threshold.pgm", binary);
 	std::cout << "  -> 07_threshold.pgm\n";
@@ -227,4 +229,8 @@ int main() {
 	std::cout << "             gimp 04_gradient.pgm\n";
 
 	return 0;
+  } catch (const std::exception& e) {
+	std::cerr << "ERROR: " << e.what() << '\n';
+	return 1;
+  }
 }

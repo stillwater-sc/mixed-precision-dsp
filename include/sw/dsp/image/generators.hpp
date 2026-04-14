@@ -294,10 +294,12 @@ mtl::mat::dense2D<T> zone_plate(std::size_t rows, std::size_t cols,
 	double cy = static_cast<double>(rows - 1) * 0.5;
 	double cx = static_cast<double>(cols - 1) * 0.5;
 
-	// Default: set max_freq so the corner hits Nyquist
+	// Default: set max_freq so the corner hits half-Nyquist (pi/2)
+	// to avoid aliasing in the canonical test pattern.
 	if (max_freq <= 0.0) {
 		double max_r2 = cy * cy + cx * cx;
-		max_freq = 3.14159265358979323846 / std::sqrt(max_r2);
+		if (max_r2 < 1e-20) max_r2 = 1.0;  // degenerate 1x1 image
+		max_freq = 3.14159265358979323846 * 0.5 / std::sqrt(max_r2);
 	}
 
 	for (std::size_t r = 0; r < rows; ++r) {
@@ -333,9 +335,17 @@ template <DspField T>
 	requires ConvertibleToDouble<T>
 mtl::mat::dense2D<T> add_noise(const mtl::mat::dense2D<T>& image,
                                 double stddev, unsigned seed = 42) {
+	if (stddev < 0.0)
+		throw std::invalid_argument("add_noise: stddev must be >= 0");
 	std::size_t rows = image.num_rows();
 	std::size_t cols = image.num_cols();
 	mtl::mat::dense2D<T> result(rows, cols);
+	if (stddev == 0.0) {
+		for (std::size_t r = 0; r < rows; ++r)
+			for (std::size_t c = 0; c < cols; ++c)
+				result(r, c) = image(r, c);
+		return result;
+	}
 	std::mt19937 gen(seed);
 	std::normal_distribution<double> dist(0.0, stddev);
 	for (std::size_t r = 0; r < rows; ++r) {
