@@ -78,6 +78,8 @@ struct FreqResponseRow {
 	double      freq_hz;
 	double      magnitude_db;
 	double      phase_deg;
+	double      ref_magnitude_db;
+	double      ref_phase_deg;
 };
 
 struct PoleRow {
@@ -86,7 +88,22 @@ struct PoleRow {
 	int         pole_index;
 	double      real_part;
 	double      imag_part;
+	double      ref_real;
+	double      ref_imag;
+	double      displacement;
 };
+
+// Quote a CSV field if it contains commas, quotes, or newlines.
+std::string csv_quote(const std::string& s) {
+	if (s.find_first_of(",\"\n") == std::string::npos) return s;
+	std::string quoted = "\"";
+	for (char c : s) {
+		if (c == '"') quoted += "\"\"";
+		else quoted += c;
+	}
+	quoted += '"';
+	return quoted;
+}
 
 // Global collectors for CSV export
 std::vector<FreqResponseRow> g_freq_rows;
@@ -154,26 +171,42 @@ MetricRow compare_filter(const std::string& family, const std::string& type_name
 	double disp = pole_displacement(ref_filter.cascade(), mixed_filter.cascade());
 	double margin = sw::dsp::stability_margin(mixed_filter.cascade());
 
-	// Collect frequency response data for CSV
+	// Collect frequency response data for CSV (mixed and reference)
 	constexpr int NUM_FREQS = 200;
 	for (int k = 0; k < NUM_FREQS; ++k) {
-		double f = static_cast<double>(k) / NUM_FREQS * 0.5;  // normalized [0, 0.5)
+		double f = static_cast<double>(k) / NUM_FREQS * 0.5;
 		double freq_hz = f * SAMPLE_RATE;
-		auto resp = mixed_filter.cascade().response(f);
-		double mag = std::abs(std::complex<double>(
-			static_cast<double>(resp.real()), static_cast<double>(resp.imag())));
-		double mag_db = (mag > 1e-20) ? 20.0 * std::log10(mag) : -400.0;
-		double phase = std::atan2(static_cast<double>(resp.imag()),
-		                          static_cast<double>(resp.real()));
-		double phase_deg = phase * 180.0 / 3.14159265358979;
-		g_freq_rows.push_back({ family, type_name, freq_hz, mag_db, phase_deg });
+
+		auto resp_mix = mixed_filter.cascade().response(f);
+		double mag_mix = std::abs(std::complex<double>(
+			static_cast<double>(resp_mix.real()), static_cast<double>(resp_mix.imag())));
+		double mag_mix_db = (mag_mix > 1e-20) ? 20.0 * std::log10(mag_mix) : -400.0;
+		double phase_mix = std::atan2(static_cast<double>(resp_mix.imag()),
+		                              static_cast<double>(resp_mix.real()));
+		double phase_mix_deg = phase_mix * 180.0 / 3.14159265358979;
+
+		auto resp_ref = ref_filter.cascade().response(f);
+		double mag_ref = std::abs(std::complex<double>(
+			static_cast<double>(resp_ref.real()), static_cast<double>(resp_ref.imag())));
+		double mag_ref_db = (mag_ref > 1e-20) ? 20.0 * std::log10(mag_ref) : -400.0;
+		double phase_ref = std::atan2(static_cast<double>(resp_ref.imag()),
+		                              static_cast<double>(resp_ref.real()));
+		double phase_ref_deg = phase_ref * 180.0 / 3.14159265358979;
+
+		g_freq_rows.push_back({ family, type_name, freq_hz,
+		                        mag_mix_db, phase_mix_deg, mag_ref_db, phase_ref_deg });
 	}
 
-	// Collect pole positions for CSV
-	auto poles = all_poles(mixed_filter.cascade());
-	for (std::size_t i = 0; i < poles.size(); ++i) {
+	// Collect pole positions with reference comparison
+	auto poles_mix = all_poles(mixed_filter.cascade());
+	auto poles_ref = all_poles(ref_filter.cascade());
+	for (std::size_t i = 0; i < poles_mix.size(); ++i) {
+		double ref_r = (i < poles_ref.size()) ? poles_ref[i].real() : 0.0;
+		double ref_i = (i < poles_ref.size()) ? poles_ref[i].imag() : 0.0;
+		double d = (i < poles_ref.size()) ? std::abs(poles_mix[i] - poles_ref[i]) : 0.0;
 		g_pole_rows.push_back({ family, type_name, static_cast<int>(i),
-		                        poles[i].real(), poles[i].imag() });
+		                        poles_mix[i].real(), poles_mix[i].imag(),
+		                        ref_r, ref_i, d });
 	}
 
 	return { family, type_name, bits, max_abs, max_rel, sqnr, disp, margin };
@@ -341,22 +374,26 @@ void print_table(const std::string& family, const std::vector<MetricRow>& rows) 
 void write_freq_csv(const std::string& path) {
 	std::ofstream ofs(path);
 	if (!ofs) { std::cerr << "WARNING: cannot open " << path << "\n"; return; }
-	ofs << "filter_family,arith_type,freq_hz,magnitude_db,phase_deg\n";
+	ofs << "filter_family,arith_type,freq_hz,magnitude_db,phase_deg,"
+	    << "ref_magnitude_db,ref_phase_deg\n";
 	ofs << std::setprecision(10);
 	for (const auto& r : g_freq_rows) {
-		ofs << r.filter_family << "," << r.arith_type << ","
-		    << r.freq_hz << "," << r.magnitude_db << "," << r.phase_deg << "\n";
+		ofs << csv_quote(r.filter_family) << "," << csv_quote(r.arith_type) << ","
+		    << r.freq_hz << "," << r.magnitude_db << "," << r.phase_deg << ","
+		    << r.ref_magnitude_db << "," << r.ref_phase_deg << "\n";
 	}
 }
 
 void write_pole_csv(const std::string& path) {
 	std::ofstream ofs(path);
 	if (!ofs) { std::cerr << "WARNING: cannot open " << path << "\n"; return; }
-	ofs << "filter_family,arith_type,pole_index,real,imag\n";
+	ofs << "filter_family,arith_type,pole_index,real,imag,"
+	    << "ref_real,ref_imag,displacement\n";
 	ofs << std::setprecision(15);
 	for (const auto& r : g_pole_rows) {
-		ofs << r.filter_family << "," << r.arith_type << ","
-		    << r.pole_index << "," << r.real_part << "," << r.imag_part << "\n";
+		ofs << csv_quote(r.filter_family) << "," << csv_quote(r.arith_type) << ","
+		    << r.pole_index << "," << r.real_part << "," << r.imag_part << ","
+		    << r.ref_real << "," << r.ref_imag << "," << r.displacement << "\n";
 	}
 }
 
@@ -372,8 +409,8 @@ void write_csv(const std::string& path, const std::vector<MetricRow>& all_rows) 
 	ofs << std::setprecision(15);
 
 	for (const auto& r : all_rows) {
-		ofs << r.filter_family << ","
-		    << r.arith_type << ","
+		ofs << csv_quote(r.filter_family) << ","
+		    << csv_quote(r.arith_type) << ","
 		    << r.bits << ","
 		    << r.max_abs_error << ","
 		    << r.max_rel_error << ","
