@@ -1,6 +1,6 @@
 // iir_precision_sweep.cpp: mixed-precision IIR filter comparison
 //
-// Sweeps 5 IIR filter families across 6 arithmetic types, measuring:
+// Sweeps 6 IIR filter families across 6 arithmetic types, measuring:
 //   - Impulse response error (max absolute and relative)
 //   - SQNR when filtering a test signal
 //   - Pole displacement from double reference
@@ -49,13 +49,16 @@ using namespace sw::universal;
 // Test parameters
 // ============================================================================
 
-constexpr int    ORDER       = 4;
-constexpr double SAMPLE_RATE = 44100.0;
-constexpr double CUTOFF      = 2000.0;
-constexpr double RIPPLE_DB   = 1.0;
-constexpr double STOPBAND_DB = 40.0;
-constexpr int    IMPULSE_LEN = 200;
-constexpr int    SIGNAL_LEN  = 2000;
+constexpr int    ORDER           = 4;
+constexpr double SAMPLE_RATE     = 44100.0;
+constexpr double CUTOFF          = 2000.0;
+constexpr double RIPPLE_DB       = 1.0;
+constexpr double STOPBAND_DB     = 40.0;
+// Elliptic uses a DSPFilters-style selectivity parameter, not stopband dB.
+// Valid range is [0.1, 5.0]; see elliptic.hpp.
+constexpr double ELLIPTIC_ROLLOFF = 1.0;
+constexpr int    IMPULSE_LEN     = 200;
+constexpr int    SIGNAL_LEN      = 2000;
 
 // ============================================================================
 // Result structure
@@ -302,13 +305,13 @@ std::vector<MetricRow> sweep_cheby2(const std::string& fam) {
 	return rows;
 }
 
-// Helper: generate sweep for Elliptic (ripple + stopband)
+// Helper: generate sweep for Elliptic (ripple + rolloff selectivity)
 template <template <int, typename, typename, typename> class LP>
 std::vector<MetricRow> sweep_elliptic_family(const std::string& fam) {
 	std::vector<MetricRow> rows;
 	SimpleFilter<LP<ORDER, double, double, double>> ref;
-	ref.setup(ORDER, SAMPLE_RATE, CUTOFF, RIPPLE_DB, STOPBAND_DB);
-	auto s = [](auto& f) { f.setup(ORDER, SAMPLE_RATE, CUTOFF, RIPPLE_DB, STOPBAND_DB); };
+	ref.setup(ORDER, SAMPLE_RATE, CUTOFF, RIPPLE_DB, ELLIPTIC_ROLLOFF);
+	auto s = [](auto& f) { f.setup(ORDER, SAMPLE_RATE, CUTOFF, RIPPLE_DB, ELLIPTIC_ROLLOFF); };
 
 	sweep_type<LP<ORDER, double, double, double>>(fam, "double",         64, ref, rows, s);
 	sweep_type<LP<ORDER, double, float,  float>> (fam, "float",          32, ref, rows, s);
@@ -431,7 +434,7 @@ int main(int argc, char* argv[]) {
 	if (argc > 1) outdir = argv[1];
 	std::cout << std::string(100, '=') << "\n";
 	std::cout << "  Mixed-Precision IIR Filter Comparison\n";
-	std::cout << "  5 filter families x 6 arithmetic types\n";
+	std::cout << "  6 filter families x 6 arithmetic types\n";
 	std::cout << "  Order=" << ORDER << ", fs=" << SAMPLE_RATE
 	          << " Hz, fc=" << CUTOFF << " Hz\n";
 	std::cout << std::string(100, '=') << "\n";
@@ -447,8 +450,7 @@ int main(int argc, char* argv[]) {
 	run("Butterworth",            sweep_butterworth);
 	run("Chebyshev I (1dB)",      sweep_chebyshev1);
 	run("Chebyshev II (40dB)",    sweep_chebyshev2);
-	// Elliptic produces NaN — known issue, excluded until fixed
-	// run("Elliptic (1dB/40dB)",    sweep_elliptic);
+	run("Elliptic (1dB, rolloff=1.0)", sweep_elliptic);
 	run("Bessel",                 sweep_bessel);
 	run("Legendre",               sweep_legendre);
 
@@ -460,7 +462,7 @@ int main(int argc, char* argv[]) {
 
 	std::cout << "\n" << std::string(100, '=') << "\n";
 	std::cout << "  Summary: " << all_rows.size() << " measurements ("
-	          << "5 families x 6 types)\n";
+	          << "6 families x 6 types)\n";
 	std::cout << "  CSV files in: " << outdir << "/\n";
 	std::cout << "    iir_precision_sweep.csv  (" << all_rows.size() << " rows)\n";
 	std::cout << "    frequency_response.csv   (" << g_freq_rows.size() << " rows)\n";

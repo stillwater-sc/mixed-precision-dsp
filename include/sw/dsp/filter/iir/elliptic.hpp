@@ -5,6 +5,13 @@
 // and rolloff. Has the steepest transition of any classical IIR filter
 // for a given order, at the cost of ripple in both bands.
 //
+// NOTE on `rolloff`: this is a DSPFilters-style selectivity parameter,
+// NOT a stopband attenuation in dB. Internally the elliptic modulus is
+// k = 1/xi with xi = 5*exp(rolloff-1)+1. Typical usable range is
+// [0.1, 5.0]; values outside this range produce a degenerate modulus
+// and are rejected. For Matlab/scipy-style (Ap, As) control, a Cauer-
+// Darlington design variant would be needed (not implemented).
+//
 // All arithmetic parameterized on T. Uses std::array for temporaries.
 // ADL-friendly math calls throughout.
 //
@@ -42,6 +49,15 @@ public:
 			throw std::invalid_argument("elliptic: num_poles must be > 0");
 		if (num_poles > MaxOrder)
 			throw std::out_of_range("elliptic: num_poles exceeds MaxOrder");
+		// rolloff is a selectivity parameter, NOT stopband dB. Values outside
+		// [0.1, 5.0] drive the elliptic modulus k = 1/xi = 1/(5*exp(r-1)+1)
+		// to degenerate regimes and produce NaN coefficients.
+		if (!(rolloff >= T{0.1} && rolloff <= T{5}))
+			throw std::invalid_argument(
+				"elliptic: rolloff must be in [0.1, 5.0] (selectivity "
+				"parameter, not stopband dB)");
+		if (!(ripple_db > T{0}))
+			throw std::invalid_argument("elliptic: ripple_db must be > 0");
 
 		using std::sqrt;
 		using std::exp;

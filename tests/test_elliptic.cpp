@@ -149,6 +149,51 @@ void test_elliptic_simple_filter() {
 	std::cout << "  elliptic_simple_filter: passed\n";
 }
 
+// Regression for issue #50: passing stopband-dB-style value (e.g. 40.0)
+// as rolloff used to silently produce NaN. It must now throw.
+void test_elliptic_rejects_rolloff_out_of_range() {
+	iir::EllipticLowPass<4> f;
+
+	bool threw_high = false;
+	try {
+		f.setup(4, 44100.0, 2000.0, 1.0, 40.0);
+	} catch (const std::invalid_argument&) {
+		threw_high = true;
+	}
+	if (!threw_high)
+		throw std::runtime_error("test failed: rolloff=40.0 must throw invalid_argument");
+
+	bool threw_low = false;
+	try {
+		f.setup(4, 44100.0, 2000.0, 1.0, 0.0);
+	} catch (const std::invalid_argument&) {
+		threw_low = true;
+	}
+	if (!threw_low)
+		throw std::runtime_error("test failed: rolloff=0.0 must throw invalid_argument");
+
+	std::cout << "  elliptic_rejects_rolloff_out_of_range: passed\n";
+}
+
+// Regression for issue #50: impulse response at the issue's fs/fc/order
+// must be finite with a valid rolloff.
+void test_elliptic_issue50_impulse_finite() {
+	SimpleFilter<iir::EllipticLowPass<4>> f;
+	f.setup(4, 44100.0, 2000.0, 1.0, 1.0);
+
+	double y = f.process(1.0);
+	if (!std::isfinite(y))
+		throw std::runtime_error("test failed: issue #50 impulse head is NaN");
+	for (int i = 0; i < 199; ++i) {
+		double s = f.process(0.0);
+		if (!std::isfinite(s))
+			throw std::runtime_error(
+				"test failed: issue #50 impulse sample " + std::to_string(i + 1) + " is NaN");
+	}
+
+	std::cout << "  elliptic_issue50_impulse_finite: passed\n";
+}
+
 int main() {
 	try {
 		std::cout << "Elliptic Filter Tests\n";
@@ -162,6 +207,8 @@ int main() {
 		test_elliptic_orders();
 		test_elliptic_steeper_than_butterworth();
 		test_elliptic_simple_filter();
+		test_elliptic_rejects_rolloff_out_of_range();
+		test_elliptic_issue50_impulse_finite();
 
 		std::cout << "All Elliptic filter tests passed.\n";
 		return 0;
