@@ -6,4 +6,5 @@
 
 #include <sw/dsp/filter/fir/fir_filter.hpp>
 #include <sw/dsp/filter/fir/fir_design.hpp>
-// Future: polyphase.hpp, overlap.hpp
+#include <sw/dsp/filter/fir/polyphase.hpp>
+#include <sw/dsp/filter/fir/overlap.hpp>

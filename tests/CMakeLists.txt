@@ -40,6 +40,9 @@ dsp_add_test(test_quantization)
 # FIR filters (Issue #4)
 dsp_add_test(test_fir)
 
+# FIR polyphase + overlap-add/save (Issue #33)
+dsp_add_test(test_fir_multirate)
+
 # Spectral methods + TransferFunction (Issue #5)
 dsp_add_test(test_fft)
 

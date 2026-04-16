@@ -7,7 +7,7 @@
 add_subdirectory(iir_demo)
 
 # Phase 6: FIR filters
-# add_subdirectory(fir_demo)
+add_subdirectory(fir_demo)
 
 # Phase 7: Spectral methods
 # add_subdirectory(spectral_demo)
