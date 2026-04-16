@@ -97,6 +97,214 @@ void test_kalman_validation() {
 	std::cout << "  kalman_validation: passed\n";
 }
 
+// ========== EKF Tests ==========
+
+void test_ekf_construction() {
+	ExtendedKalmanFilter<double> ekf(4, 2);
+	if (!(ekf.state_dim() == 4)) throw std::runtime_error("test failed: ekf state_dim");
+	if (!(ekf.meas_dim() == 2))  throw std::runtime_error("test failed: ekf meas_dim");
+	if (!(ekf.state().size() == 4)) throw std::runtime_error("test failed: ekf state size");
+
+	std::cout << "  ekf_construction: passed\n";
+}
+
+void test_ekf_linear_equivalence() {
+	// For a linear system, the EKF must produce the same results as the
+	// standard KF. This verifies the Jacobian pathway is wired correctly.
+	KalmanFilter<double> kf(2, 1);
+	ExtendedKalmanFilter<double> ekf(2, 1);
+
+	using vec = mtl::vec::dense_vector<double>;
+	using mat = mtl::mat::dense2D<double>;
+
+	// 1D constant-velocity: F = [[1,1],[0,1]], H = [[1,0]]
+	kf.F()(0, 0) = 1.0; kf.F()(0, 1) = 1.0;
+	kf.F()(1, 0) = 0.0; kf.F()(1, 1) = 1.0;
+	kf.H()(0, 0) = 1.0; kf.H()(0, 1) = 0.0;
+	kf.Q()(0, 0) = 0.001; kf.Q()(0, 1) = 0.0;
+	kf.Q()(1, 0) = 0.0;   kf.Q()(1, 1) = 0.001;
+	kf.R()(0, 0) = 0.5;
+	kf.P()(0, 0) = 100.0; kf.P()(0, 1) = 0.0;
+	kf.P()(1, 0) = 0.0;   kf.P()(1, 1) = 100.0;
+
+	// Set EKF to identical system via function callbacks.
+	mat F_mat(2, 2);
+	F_mat(0, 0) = 1.0; F_mat(0, 1) = 1.0;
+	F_mat(1, 0) = 0.0; F_mat(1, 1) = 1.0;
+	mat H_mat(1, 2);
+	H_mat(0, 0) = 1.0; H_mat(0, 1) = 0.0;
+
+	ekf.set_state_function(
+		[&](const vec& x) -> vec { return F_mat * x; },
+		[&](const vec&)   -> mat { return F_mat; }
+	);
+	ekf.set_observation_function(
+		[&](const vec& x) -> vec { return H_mat * x; },
+		[&](const vec&)   -> mat { return H_mat; }
+	);
+	ekf.Q()(0, 0) = 0.001; ekf.Q()(0, 1) = 0.0;
+	ekf.Q()(1, 0) = 0.0;   ekf.Q()(1, 1) = 0.001;
+	ekf.R()(0, 0) = 0.5;
+	ekf.P()(0, 0) = 100.0; ekf.P()(0, 1) = 0.0;
+	ekf.P()(1, 0) = 0.0;   ekf.P()(1, 1) = 100.0;
+
+	std::mt19937 gen(42);
+	std::normal_distribution<double> noise(0.0, 0.5);
+
+	vec z(1);
+	for (int t = 0; t < 50; ++t) {
+		double true_pos = static_cast<double>(t);
+		z[0] = true_pos + noise(gen);
+		kf.predict();  kf.update(z);
+		ekf.predict(); ekf.update(z);
+	}
+
+	if (!near(kf.state()[0], ekf.state()[0], 1e-10))
+		throw std::runtime_error("test failed: EKF vs KF position diverged");
+	if (!near(kf.state()[1], ekf.state()[1], 1e-10))
+		throw std::runtime_error("test failed: EKF vs KF velocity diverged");
+
+	std::cout << "  ekf_linear_equivalence: passed (pos diff="
+	          << std::abs(kf.state()[0] - ekf.state()[0]) << ")\n";
+}
+
+void test_ekf_bearing_range_tracking() {
+	// 2D target tracking with nonlinear observation model.
+	// State: [x, y, vx, vy]  (position + velocity in 2D)
+	// Observation: h(x) = [range, bearing] = [sqrt(x^2+y^2), atan2(y,x)]
+	//
+	// True trajectory: constant velocity from (100, 0) heading (0, 10).
+
+	using vec = mtl::vec::dense_vector<double>;
+	using mat = mtl::mat::dense2D<double>;
+	constexpr double dt = 1.0;
+
+	ExtendedKalmanFilter<double> ekf(4, 2);
+
+	// State transition: constant velocity (linear, but we use EKF form).
+	ekf.set_state_function(
+		[](const vec& s) -> vec {
+			constexpr double dt = 1.0;
+			vec s_new(4);
+			s_new[0] = s[0] + dt * s[2];  // x += vx*dt
+			s_new[1] = s[1] + dt * s[3];  // y += vy*dt
+			s_new[2] = s[2];              // vx constant
+			s_new[3] = s[3];              // vy constant
+			return s_new;
+		},
+		[](const vec&) -> mat {
+			constexpr double dt = 1.0;
+			mat F(4, 4);
+			for (std::size_t i = 0; i < 4; ++i)
+				for (std::size_t j = 0; j < 4; ++j)
+					F(i, j) = (i == j) ? 1.0 : 0.0;
+			F(0, 2) = dt;
+			F(1, 3) = dt;
+			return F;
+		}
+	);
+
+	// Observation: range and bearing.
+	ekf.set_observation_function(
+		[](const vec& s) -> vec {
+			vec z(2);
+			z[0] = std::sqrt(s[0] * s[0] + s[1] * s[1]);  // range
+			z[1] = std::atan2(s[1], s[0]);                  // bearing
+			return z;
+		},
+		[](const vec& s) -> mat {
+			double x = s[0], y = s[1];
+			double r = std::sqrt(x * x + y * y);
+			double r2 = r * r;
+			mat H(2, 4);
+			for (std::size_t i = 0; i < 2; ++i)
+				for (std::size_t j = 0; j < 4; ++j)
+					H(i, j) = 0.0;
+			if (r > 1e-12) {
+				H(0, 0) = x / r;   H(0, 1) = y / r;     // d(range)/d(x,y)
+				H(1, 0) = -y / r2; H(1, 1) = x / r2;    // d(bearing)/d(x,y)
+			}
+			return H;
+		}
+	);
+
+	// Noise parameters
+	ekf.Q()(0, 0) = 0.1;  ekf.Q()(1, 1) = 0.1;
+	ekf.Q()(2, 2) = 0.01; ekf.Q()(3, 3) = 0.01;
+	ekf.R()(0, 0) = 1.0;   // range noise variance (m^2)
+	ekf.R()(1, 1) = 0.001; // bearing noise variance (rad^2)
+
+	// Initial estimate: roughly correct position, unknown velocity.
+	ekf.state()[0] = 95.0;  // x
+	ekf.state()[1] = 5.0;   // y
+	ekf.state()[2] = 0.0;   // vx (unknown)
+	ekf.state()[3] = 0.0;   // vy (unknown)
+	ekf.P()(0, 0) = 100.0; ekf.P()(1, 1) = 100.0;
+	ekf.P()(2, 2) = 10.0;  ekf.P()(3, 3) = 10.0;
+
+	// Simulate true trajectory and noisy measurements.
+	std::mt19937 gen(123);
+	std::normal_distribution<double> range_noise(0.0, 1.0);
+	std::normal_distribution<double> bearing_noise(0.0, std::sqrt(0.001));
+
+	double true_x = 100.0, true_y = 0.0;
+	double true_vx = 0.0,  true_vy = 10.0;
+
+	vec z(2);
+	for (int t = 0; t < 50; ++t) {
+		true_x += true_vx * dt;
+		true_y += true_vy * dt;
+
+		double true_range   = std::sqrt(true_x * true_x + true_y * true_y);
+		double true_bearing = std::atan2(true_y, true_x);
+		z[0] = true_range   + range_noise(gen);
+		z[1] = true_bearing + bearing_noise(gen);
+
+		ekf.predict();
+		ekf.update(z);
+	}
+
+	double est_x  = ekf.state()[0], est_y  = ekf.state()[1];
+	double est_vx = ekf.state()[2], est_vy = ekf.state()[3];
+
+	// After 50 steps the estimate should converge near the truth.
+	if (!near(est_x, true_x, 5.0))
+		throw std::runtime_error("test failed: EKF bearing-range x estimate off by "
+			+ std::to_string(std::abs(est_x - true_x)));
+	if (!near(est_y, true_y, 5.0))
+		throw std::runtime_error("test failed: EKF bearing-range y estimate off by "
+			+ std::to_string(std::abs(est_y - true_y)));
+	if (!near(est_vx, true_vx, 2.0))
+		throw std::runtime_error("test failed: EKF bearing-range vx estimate");
+	if (!near(est_vy, true_vy, 2.0))
+		throw std::runtime_error("test failed: EKF bearing-range vy estimate");
+
+	std::cout << "  ekf_bearing_range_tracking: passed (pos=[" << est_x << ", " << est_y
+	          << "], vel=[" << est_vx << ", " << est_vy << "])\n";
+}
+
+void test_ekf_validation() {
+	bool caught = false;
+	try { ExtendedKalmanFilter<double> ekf(0, 1); }
+	catch (const std::invalid_argument&) { caught = true; }
+	if (!caught) throw std::runtime_error("test failed: ekf should reject state_dim=0");
+
+	caught = false;
+	try { ExtendedKalmanFilter<double> ekf(2, 0); }
+	catch (const std::invalid_argument&) { caught = true; }
+	if (!caught) throw std::runtime_error("test failed: ekf should reject meas_dim=0");
+
+	// Predict without setting functions should throw logic_error.
+	caught = false;
+	try {
+		ExtendedKalmanFilter<double> ekf(2, 1);
+		ekf.predict();
+	} catch (const std::logic_error&) { caught = true; }
+	if (!caught) throw std::runtime_error("test failed: ekf predict without functions should throw");
+
+	std::cout << "  ekf_validation: passed\n";
+}
+
 // ========== LMS Tests ==========
 
 void test_lms_converges_to_known_filter() {
@@ -218,6 +426,10 @@ int main() {
 		test_kalman_construction();
 		test_kalman_constant_velocity();
 		test_kalman_validation();
+		test_ekf_construction();
+		test_ekf_linear_equivalence();
+		test_ekf_bearing_range_tracking();
+		test_ekf_validation();
 		test_lms_converges_to_known_filter();
 		test_lms_reset();
 		test_nlms();
