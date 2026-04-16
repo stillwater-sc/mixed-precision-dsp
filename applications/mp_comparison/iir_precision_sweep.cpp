@@ -1,6 +1,6 @@
 // iir_precision_sweep.cpp: mixed-precision IIR filter comparison
 //
-// Sweeps 6 IIR filter families across 6 arithmetic types, measuring:
+// Sweeps 6 IIR filter families across 8 arithmetic types, measuring:
 //   - Impulse response error (max absolute and relative)
 //   - SQNR when filtering a test signal
 //   - Pole displacement from double reference
@@ -236,8 +236,13 @@ void sweep_type(const std::string& family, const std::string& type_name,
 
 using cf24  = cfloat<24, 5, uint32_t, true, false, false>;
 using half_ = cfloat<16, 5, uint16_t, true, false, false>;
-using fp32  = fixpnt<32, 16>;
-using fp16  = fixpnt<16, 8>;
+// NOTE: avoid the names fp32/fp16 here. `using namespace sw::universal`
+// above pulls in sw::universal::fp32 (== single) and sw::universal::fp16
+// (== half) from cfloat.hpp. A local `using fp32 = ...` would collide
+// and make the name ambiguous inside template-argument contexts, which
+// GCC reports as the cryptic "template argument is invalid" (issue #51).
+using fxp32 = fixpnt<32, 16>;
+using fxp16 = fixpnt<16, 8>;
 using p32   = posit<32, 2>;
 using p16   = posit<16, 1>;
 
@@ -255,9 +260,8 @@ std::vector<MetricRow> sweep_lp(const std::string& fam) {
 	sweep_type<LP<ORDER, double, half_,  half_>> (fam, "half",           16, ref, rows, s);
 	sweep_type<LP<ORDER, double, p32,    p32>>   (fam, "posit<32,2>",    32, ref, rows, s);
 	sweep_type<LP<ORDER, double, p16,    p16>>   (fam, "posit<16,1>",    16, ref, rows, s);
-	// fixpnt types require explicit arithmetic template parameter
-	// sweep_type<LP<ORDER, double, fp32, fp32>>(fam, "fixpnt<32,16>", 32, ref, rows, s);
-	// sweep_type<LP<ORDER, double, fp16, fp16>>(fam, "fixpnt<16,8>",  16, ref, rows, s);
+	sweep_type<LP<ORDER, double, fxp32,  fxp32>> (fam, "fixpnt<32,16>",  32, ref, rows, s);
+	sweep_type<LP<ORDER, double, fxp16,  fxp16>> (fam, "fixpnt<16,8>",   16, ref, rows, s);
 	return rows;
 }
 
@@ -279,9 +283,8 @@ std::vector<MetricRow> sweep_cheby1(const std::string& fam) {
 	sweep_type<LP<ORDER, double, half_,  half_>> (fam, "half",           16, ref, rows, s);
 	sweep_type<LP<ORDER, double, p32,    p32>>   (fam, "posit<32,2>",    32, ref, rows, s);
 	sweep_type<LP<ORDER, double, p16,    p16>>   (fam, "posit<16,1>",    16, ref, rows, s);
-	// fixpnt types require explicit arithmetic template parameter
-	// sweep_type<LP<ORDER, double, fp32, fp32>>(fam, "fixpnt<32,16>", 32, ref, rows, s);
-	// sweep_type<LP<ORDER, double, fp16, fp16>>(fam, "fixpnt<16,8>",  16, ref, rows, s);
+	sweep_type<LP<ORDER, double, fxp32,  fxp32>> (fam, "fixpnt<32,16>",  32, ref, rows, s);
+	sweep_type<LP<ORDER, double, fxp16,  fxp16>> (fam, "fixpnt<16,8>",   16, ref, rows, s);
 	return rows;
 }
 
@@ -299,9 +302,8 @@ std::vector<MetricRow> sweep_cheby2(const std::string& fam) {
 	sweep_type<LP<ORDER, double, half_,  half_>> (fam, "half",           16, ref, rows, s);
 	sweep_type<LP<ORDER, double, p32,    p32>>   (fam, "posit<32,2>",    32, ref, rows, s);
 	sweep_type<LP<ORDER, double, p16,    p16>>   (fam, "posit<16,1>",    16, ref, rows, s);
-	// fixpnt types require explicit arithmetic template parameter
-	// sweep_type<LP<ORDER, double, fp32, fp32>>(fam, "fixpnt<32,16>", 32, ref, rows, s);
-	// sweep_type<LP<ORDER, double, fp16, fp16>>(fam, "fixpnt<16,8>",  16, ref, rows, s);
+	sweep_type<LP<ORDER, double, fxp32,  fxp32>> (fam, "fixpnt<32,16>",  32, ref, rows, s);
+	sweep_type<LP<ORDER, double, fxp16,  fxp16>> (fam, "fixpnt<16,8>",   16, ref, rows, s);
 	return rows;
 }
 
@@ -319,9 +321,8 @@ std::vector<MetricRow> sweep_elliptic_family(const std::string& fam) {
 	sweep_type<LP<ORDER, double, half_,  half_>> (fam, "half",           16, ref, rows, s);
 	sweep_type<LP<ORDER, double, p32,    p32>>   (fam, "posit<32,2>",    32, ref, rows, s);
 	sweep_type<LP<ORDER, double, p16,    p16>>   (fam, "posit<16,1>",    16, ref, rows, s);
-	// fixpnt types require explicit arithmetic template parameter
-	// sweep_type<LP<ORDER, double, fp32, fp32>>(fam, "fixpnt<32,16>", 32, ref, rows, s);
-	// sweep_type<LP<ORDER, double, fp16, fp16>>(fam, "fixpnt<16,8>",  16, ref, rows, s);
+	sweep_type<LP<ORDER, double, fxp32,  fxp32>> (fam, "fixpnt<32,16>",  32, ref, rows, s);
+	sweep_type<LP<ORDER, double, fxp16,  fxp16>> (fam, "fixpnt<16,8>",   16, ref, rows, s);
 	return rows;
 }
 
@@ -434,7 +435,7 @@ int main(int argc, char* argv[]) {
 	if (argc > 1) outdir = argv[1];
 	std::cout << std::string(100, '=') << "\n";
 	std::cout << "  Mixed-Precision IIR Filter Comparison\n";
-	std::cout << "  6 filter families x 6 arithmetic types\n";
+	std::cout << "  6 filter families x 8 arithmetic types\n";
 	std::cout << "  Order=" << ORDER << ", fs=" << SAMPLE_RATE
 	          << " Hz, fc=" << CUTOFF << " Hz\n";
 	std::cout << std::string(100, '=') << "\n";
@@ -462,7 +463,7 @@ int main(int argc, char* argv[]) {
 
 	std::cout << "\n" << std::string(100, '=') << "\n";
 	std::cout << "  Summary: " << all_rows.size() << " measurements ("
-	          << "6 families x 6 types)\n";
+	          << "6 families x 8 types)\n";
 	std::cout << "  CSV files in: " << outdir << "/\n";
 	std::cout << "    iir_precision_sweep.csv  (" << all_rows.size() << " rows)\n";
 	std::cout << "    frequency_response.csv   (" << g_freq_rows.size() << " rows)\n";
