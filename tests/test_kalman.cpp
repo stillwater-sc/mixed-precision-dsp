@@ -305,6 +305,137 @@ void test_ekf_validation() {
 	std::cout << "  ekf_validation: passed\n";
 }
 
+// ========== UKF Tests ==========
+
+void test_ukf_construction() {
+	UnscentedKalmanFilter<double> ukf(4, 2);
+	if (!(ukf.state_dim() == 4)) throw std::runtime_error("test failed: ukf state_dim");
+	if (!(ukf.meas_dim() == 2))  throw std::runtime_error("test failed: ukf meas_dim");
+	if (!(ukf.state().size() == 4)) throw std::runtime_error("test failed: ukf state size");
+
+	std::cout << "  ukf_construction: passed\n";
+}
+
+void test_ukf_sigma_identity() {
+	// For the identity function f(x) = x, predict should leave
+	// mean unchanged and covariance = P + Q.
+	UnscentedKalmanFilter<double> ukf(2, 1);
+
+	using vec = mtl::vec::dense_vector<double>;
+	ukf.set_state_function([](const vec& x) -> vec { return x; });
+	ukf.set_observation_function([](const vec& x) -> vec {
+		vec z(1); z[0] = x[0]; return z;
+	});
+
+	ukf.state()[0] = 5.0;
+	ukf.state()[1] = -3.0;
+	ukf.P()(0, 0) = 4.0; ukf.P()(0, 1) = 0.0;
+	ukf.P()(1, 0) = 0.0; ukf.P()(1, 1) = 9.0;
+	ukf.Q()(0, 0) = 0.01; ukf.Q()(0, 1) = 0.0;
+	ukf.Q()(1, 0) = 0.0;  ukf.Q()(1, 1) = 0.01;
+
+	ukf.predict();
+
+	if (!near(ukf.state()[0], 5.0, 1e-10))
+		throw std::runtime_error("test failed: ukf identity mean[0]");
+	if (!near(ukf.state()[1], -3.0, 1e-10))
+		throw std::runtime_error("test failed: ukf identity mean[1]");
+	// P should be original P + Q
+	if (!near(ukf.P()(0, 0), 4.01, 0.05))
+		throw std::runtime_error("test failed: ukf identity P(0,0)");
+	if (!near(ukf.P()(1, 1), 9.01, 0.05))
+		throw std::runtime_error("test failed: ukf identity P(1,1)");
+
+	std::cout << "  ukf_sigma_identity: passed\n";
+}
+
+void test_ukf_bearing_range_tracking() {
+	// Same 2D bearing-range tracking as the EKF test, for comparison.
+	using vec = mtl::vec::dense_vector<double>;
+	constexpr double dt = 1.0;
+
+	UnscentedKalmanFilter<double> ukf(4, 2);
+
+	ukf.set_state_function([](const vec& s) -> vec {
+		constexpr double dt = 1.0;
+		vec s_new(4);
+		s_new[0] = s[0] + dt * s[2];
+		s_new[1] = s[1] + dt * s[3];
+		s_new[2] = s[2];
+		s_new[3] = s[3];
+		return s_new;
+	});
+
+	ukf.set_observation_function([](const vec& s) -> vec {
+		vec z(2);
+		z[0] = std::sqrt(s[0] * s[0] + s[1] * s[1]);
+		z[1] = std::atan2(s[1], s[0]);
+		return z;
+	});
+
+	ukf.Q()(0, 0) = 0.1;  ukf.Q()(1, 1) = 0.1;
+	ukf.Q()(2, 2) = 0.01; ukf.Q()(3, 3) = 0.01;
+	ukf.R()(0, 0) = 1.0;
+	ukf.R()(1, 1) = 0.001;
+
+	ukf.state()[0] = 95.0;
+	ukf.state()[1] = 5.0;
+	ukf.state()[2] = 0.0;
+	ukf.state()[3] = 0.0;
+	ukf.P()(0, 0) = 100.0; ukf.P()(1, 1) = 100.0;
+	ukf.P()(2, 2) = 10.0;  ukf.P()(3, 3) = 10.0;
+
+	std::mt19937 gen(123);
+	std::normal_distribution<double> range_noise(0.0, 1.0);
+	std::normal_distribution<double> bearing_noise(0.0, std::sqrt(0.001));
+
+	double true_x = 100.0, true_y = 0.0;
+	double true_vx = 0.0,  true_vy = 10.0;
+
+	vec z(2);
+	for (int t = 0; t < 50; ++t) {
+		true_x += true_vx * dt;
+		true_y += true_vy * dt;
+		z[0] = std::sqrt(true_x * true_x + true_y * true_y) + range_noise(gen);
+		z[1] = std::atan2(true_y, true_x) + bearing_noise(gen);
+		ukf.predict();
+		ukf.update(z);
+	}
+
+	double est_x = ukf.state()[0], est_y = ukf.state()[1];
+	double est_vx = ukf.state()[2], est_vy = ukf.state()[3];
+
+	if (!near(est_x, true_x, 5.0))
+		throw std::runtime_error("test failed: UKF bearing-range x off by "
+			+ std::to_string(std::abs(est_x - true_x)));
+	if (!near(est_y, true_y, 5.0))
+		throw std::runtime_error("test failed: UKF bearing-range y off by "
+			+ std::to_string(std::abs(est_y - true_y)));
+	if (!near(est_vx, true_vx, 2.0))
+		throw std::runtime_error("test failed: UKF bearing-range vx");
+	if (!near(est_vy, true_vy, 2.0))
+		throw std::runtime_error("test failed: UKF bearing-range vy");
+
+	std::cout << "  ukf_bearing_range_tracking: passed (pos=[" << est_x << ", " << est_y
+	          << "], vel=[" << est_vx << ", " << est_vy << "])\n";
+}
+
+void test_ukf_validation() {
+	bool caught = false;
+	try { UnscentedKalmanFilter<double> ukf(0, 1); }
+	catch (const std::invalid_argument&) { caught = true; }
+	if (!caught) throw std::runtime_error("test failed: ukf should reject state_dim=0");
+
+	caught = false;
+	try {
+		UnscentedKalmanFilter<double> ukf(2, 1);
+		ukf.predict();
+	} catch (const std::logic_error&) { caught = true; }
+	if (!caught) throw std::runtime_error("test failed: ukf predict without function should throw");
+
+	std::cout << "  ukf_validation: passed\n";
+}
+
 // ========== LMS Tests ==========
 
 void test_lms_converges_to_known_filter() {
@@ -430,6 +561,10 @@ int main() {
 		test_ekf_linear_equivalence();
 		test_ekf_bearing_range_tracking();
 		test_ekf_validation();
+		test_ukf_construction();
+		test_ukf_sigma_identity();
+		test_ukf_bearing_range_tracking();
+		test_ukf_validation();
 		test_lms_converges_to_known_filter();
 		test_lms_reset();
 		test_nlms();
