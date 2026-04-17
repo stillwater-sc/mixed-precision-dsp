@@ -115,6 +115,11 @@ TypeResult run_type(const std::string& name, int bits,
 	mtl::mat::dense2D<T> mag(r, c);
 	for (std::size_t i = 0; i < r; ++i)
 		for (std::size_t j = 0; j < c; ++j) {
+			// Cast gradient components to double for sqrt, then back to T.
+			// This models pixel-storage precision: quantization happens on gx/gy
+			// outputs (computed in T) and on the final magnitude store.
+			// The sqrt itself is kept in double to avoid range/NaN issues for
+			// narrow integer types that cannot represent fractional magnitudes.
 			double dx = static_cast<double>(gx(i, j));
 			double dy = static_cast<double>(gy(i, j));
 			mag(i, j) = static_cast<T>(std::sqrt(dx * dx + dy * dy));

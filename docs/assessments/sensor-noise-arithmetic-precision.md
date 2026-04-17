@@ -42,7 +42,9 @@ Canny edge detection using 8 arithmetic types, comparing against a double
 | half | 16 | 60.4 | 60.3 | 65.1 |
 | bfloat16 | 16 | 53.5 | 62.7 | 48.4 |
 | posit<8,2> | 8 | 26.9 | 40.6 | 27.9 |
-| integer<N> | 6-12 | 0.0 | 0.0 | 0.0 |
+| integer<12> | 12 | 0.0 | 0.0 | 0.0 |
+| integer<8> | 8 | 0.0 | 0.0 | 0.0 |
+| integer<6> | 6 | 0.0 | 0.0 | 0.0 |
 
 ### Canny edge agreement (%)
 
@@ -92,6 +94,12 @@ image filtering requires at minimum floating-point kernel coefficients.
 The convolve2d function supports mixed T/K types for exactly this purpose.
 
 ## Energy and area implications for hardware designers
+
+Area and energy ratios are order-of-magnitude estimates derived from the
+well-known quadratic scaling of integer multiplier area with operand width
+(Weste & Harris, "CMOS VLSI Design", 4th ed.) and corroborated by published
+MAC array measurements in ISSCC/VLSI-T survey papers. Actual synthesis results
+will vary by technology node and microarchitecture.
 
 | Configuration | Area | Energy | Quality loss |
 |--------------|------|--------|-------------|
