@@ -1,16 +1,19 @@
 #pragma once
 // elliptic.hpp: Elliptic (Cauer) IIR filter design
 //
-// Equiripple passband AND stopband. Specified by order, passband ripple,
-// and rolloff. Has the steepest transition of any classical IIR filter
-// for a given order, at the cost of ripple in both bands.
+// Two design interfaces:
 //
-// NOTE on `rolloff`: this is a DSPFilters-style selectivity parameter,
-// NOT a stopband attenuation in dB. Internally the elliptic modulus is
-// k = 1/xi with xi = 5*exp(rolloff-1)+1. Typical usable range is
-// [0.1, 5.0]; values outside this range produce a degenerate modulus
-// and are rejected. For Matlab/scipy-style (Ap, As) control, a Cauer-
-// Darlington design variant would be needed (not implemented).
+// 1. DSPFilters-style: setup(order, fs, fc, ripple_db, rolloff)
+//    `rolloff` is a selectivity parameter in [0.1, 5.0]. Internally the
+//    elliptic modulus is k = 1/xi with xi = 5*exp(rolloff-1)+1.
+//    Classes: EllipticLowPass, EllipticHighPass, EllipticBandPass, EllipticBandStop
+//
+// 2. Matlab/scipy-style (Cauer-Darlington): setup(order, fs, fp, fs_stop, ripple_db, stopband_db)
+//    Explicit passband ripple Ap (dB) and stopband attenuation As (dB),
+//    with both passband and stopband edge frequencies. Solves for the
+//    selectivity modulus k = fp/fs_stop via the Cauer-Darlington relations.
+//    Classes: EllipticLowPassSpec, EllipticHighPassSpec, EllipticBandPassSpec, EllipticBandStopSpec
+//    Free function: elliptic_minimum_order(ripple_db, stopband_db, fp, fs_stop, sample_rate)
 //
 // All arithmetic parameterized on T. Uses std::array for temporaries.
 // ADL-friendly math calls throughout.
@@ -43,19 +46,38 @@ class EllipticAnalogPrototype {
 	static constexpr int N = 2 * MaxOrder + 4;
 
 public:
+	// DSPFilters-style: rolloff is a selectivity parameter in [0.1, 5.0].
+	// Internally maps to xi = 5*exp(rolloff-1)+1, then k = 1/xi.
 	void design(int num_poles, T ripple_db, T rolloff,
 	            PoleZeroLayout<T, MaxOrder>& layout) {
-		if (num_poles <= 0)
-			throw std::invalid_argument("elliptic: num_poles must be > 0");
-		if (num_poles > MaxOrder)
-			throw std::out_of_range("elliptic: num_poles exceeds MaxOrder");
-		// rolloff is a selectivity parameter, NOT stopband dB. Values outside
-		// [0.1, 5.0] drive the elliptic modulus k = 1/xi = 1/(5*exp(r-1)+1)
-		// to degenerate regimes and produce NaN coefficients.
 		if (!(rolloff >= T{0.1} && rolloff <= T{5}))
 			throw std::invalid_argument(
 				"elliptic: rolloff must be in [0.1, 5.0] (selectivity "
 				"parameter, not stopband dB)");
+
+		using std::exp;
+		T xi = T{5} * exp(rolloff - T{1}) + T{1};
+		design_core(num_poles, ripple_db, xi, layout);
+	}
+
+	// Cauer-Darlington: specify the selectivity modulus k = fp/fs directly.
+	// xi = 1/k. The modulus k must be in (0, 1).
+	void design_from_modulus(int num_poles, T ripple_db, T selectivity_k,
+	                         PoleZeroLayout<T, MaxOrder>& layout) {
+		if (!(selectivity_k > T{0} && selectivity_k < T{1}))
+			throw std::invalid_argument(
+				"elliptic: selectivity_k must be in (0, 1)");
+		T xi = T{1} / selectivity_k;
+		design_core(num_poles, ripple_db, xi, layout);
+	}
+
+private:
+	void design_core(int num_poles, T ripple_db, T xi,
+	                 PoleZeroLayout<T, MaxOrder>& layout) {
+		if (num_poles <= 0)
+			throw std::invalid_argument("elliptic: num_poles must be > 0");
+		if (num_poles > MaxOrder)
+			throw std::out_of_range("elliptic: num_poles exceeds MaxOrder");
 		if (!(ripple_db > T{0}))
 			throw std::invalid_argument("elliptic: ripple_db must be > 0");
 
@@ -69,7 +91,6 @@ public:
 
 		const int n = num_poles;
 		T e2 = pow(T{10}, ripple_db / T{10}) - T{1};
-		T xi = T{5} * exp(rolloff - T{1}) + T{1};
 
 		T K = elliptic_K(T{1} / xi);
 		T Kprime = elliptic_K(sqrt(T{1} - T{1} / (xi * xi)));
@@ -181,7 +202,6 @@ public:
 			(num_poles & 1) ? T{1} : static_cast<T>(pow(T{10}, T{-1} * ripple_db / T{20})));
 	}
 
-private:
 	// Product of (z + s1[i]) for i = 1..sn, stored in b1
 	static void prodpoly(int sn, std::array<T, N>& s1,
 	                     std::array<T, N>& b1, std::array<T, N>& a1) {
@@ -373,6 +393,261 @@ public:
 		EllipticAnalogPrototype<CoeffScalar, MaxOrder> proto;
 		proto.design(order, static_cast<CoeffScalar>(ripple_db),
 		             static_cast<CoeffScalar>(rolloff), analog_);
+		BandStopTransform<CoeffScalar>(
+			static_cast<CoeffScalar>(center_freq / sample_rate),
+			static_cast<CoeffScalar>(width_freq / sample_rate), digital_, analog_);
+		cascade_.set_layout(digital_);
+	}
+
+	const Cascade<CoeffScalar, max_stages>& cascade() const { return cascade_; }
+
+private:
+	PoleZeroLayout<CoeffScalar, MaxOrder> analog_;
+	PoleZeroLayout<CoeffScalar, MaxOrder * 2> digital_;
+	Cascade<CoeffScalar, max_stages> cascade_;
+};
+
+// ============================================================================
+// Cauer-Darlington (Matlab/scipy-style) design: (Ap, As, fp, fs_stop)
+// ============================================================================
+
+// Validation helpers
+inline void validate_lowpass(double passband_freq, double stopband_freq,
+                             double sample_rate, double ripple_db, double stopband_db) {
+	if (ripple_db <= 0 || stopband_db <= 0)
+		throw std::invalid_argument("elliptic: ripple_db and stopband_db must be > 0");
+	if (passband_freq <= 0 || stopband_freq <= 0)
+		throw std::invalid_argument("elliptic: frequencies must be > 0");
+	if (passband_freq >= stopband_freq)
+		throw std::invalid_argument("elliptic: passband_freq must be < stopband_freq");
+	if (stopband_freq >= sample_rate / 2.0)
+		throw std::invalid_argument("elliptic: stopband_freq must be < Nyquist");
+}
+
+inline void validate_highpass(double passband_freq, double stopband_freq,
+                              double sample_rate, double ripple_db, double stopband_db) {
+	if (ripple_db <= 0 || stopband_db <= 0)
+		throw std::invalid_argument("elliptic: ripple_db and stopband_db must be > 0");
+	if (passband_freq <= 0 || stopband_freq <= 0)
+		throw std::invalid_argument("elliptic: frequencies must be > 0");
+	if (stopband_freq >= passband_freq)
+		throw std::invalid_argument("elliptic highpass: stopband_freq must be < passband_freq");
+	if (passband_freq >= sample_rate / 2.0)
+		throw std::invalid_argument("elliptic highpass: passband_freq must be < Nyquist");
+}
+
+// Minimum filter order needed to meet both passband and stopband specs.
+// Returns the smallest integer n such that the elliptic filter achieves
+// at least stopband_db attenuation with at most ripple_db passband ripple.
+//
+// passband_freq and stopband_freq are in Hz; sample_rate in Hz.
+// passband_freq < stopband_freq (lowpass orientation).
+inline int elliptic_minimum_order(double ripple_db, double stopband_db,
+                                  double passband_freq, double stopband_freq,
+                                  double sample_rate) {
+	if (ripple_db <= 0)
+		throw std::invalid_argument("elliptic_minimum_order: ripple_db must be > 0");
+	if (stopband_db <= 0)
+		throw std::invalid_argument("elliptic_minimum_order: stopband_db must be > 0");
+	if (passband_freq <= 0 || stopband_freq <= 0)
+		throw std::invalid_argument("elliptic_minimum_order: frequencies must be > 0");
+	if (passband_freq >= stopband_freq)
+		throw std::invalid_argument("elliptic_minimum_order: passband_freq must be < stopband_freq");
+	if (stopband_freq >= sample_rate / 2.0)
+		throw std::invalid_argument("elliptic_minimum_order: stopband_freq must be < Nyquist");
+
+	double wp = std::tan(sw::dsp::pi * passband_freq / sample_rate);
+	double ws = std::tan(sw::dsp::pi * stopband_freq / sample_rate);
+	double k = wp / ws;
+	double kp = std::sqrt(1.0 - k * k);
+
+	double eps_p = std::sqrt(std::pow(10.0, ripple_db / 10.0) - 1.0);
+	double eps_s = std::sqrt(std::pow(10.0, stopband_db / 10.0) - 1.0);
+	double k1 = eps_p / eps_s;
+	double k1p = std::sqrt(1.0 - k1 * k1);
+
+	double Kk = sw::dsp::elliptic_K(k);
+	double Kkp = sw::dsp::elliptic_K(kp);
+	double Kk1 = sw::dsp::elliptic_K(k1);
+	double Kk1p = sw::dsp::elliptic_K(k1p);
+
+	double n_exact = (Kk * Kk1p) / (Kkp * Kk1);
+	return static_cast<int>(std::ceil(n_exact));
+}
+
+// Lowpass with explicit passband/stopband specification.
+// setup(order, sample_rate, passband_freq, stopband_freq, ripple_db, stopband_db)
+template <int MaxOrder,
+          DspField CoeffScalar = double,
+          DspField StateScalar = CoeffScalar,
+          DspScalar SampleScalar = StateScalar>
+class EllipticLowPassSpec {
+public:
+	using coeff_scalar  = CoeffScalar;
+	using state_scalar  = StateScalar;
+	using sample_scalar = SampleScalar;
+	static constexpr int max_stages = (MaxOrder + 1) / 2;
+
+	void setup(int order, double sample_rate, double passband_freq,
+	           double stopband_freq, double ripple_db, double stopband_db) {
+		validate_lowpass(passband_freq, stopband_freq, sample_rate, ripple_db, stopband_db);
+
+		double wp = std::tan(sw::dsp::pi * passband_freq / sample_rate);
+		double ws = std::tan(sw::dsp::pi * stopband_freq / sample_rate);
+		double k = wp / ws;
+
+		EllipticAnalogPrototype<CoeffScalar, MaxOrder> proto;
+		proto.design_from_modulus(order, static_cast<CoeffScalar>(ripple_db),
+		                         static_cast<CoeffScalar>(k), analog_);
+		LowPassTransform<CoeffScalar>(
+			static_cast<CoeffScalar>(passband_freq / sample_rate), digital_, analog_);
+		cascade_.set_layout(digital_);
+	}
+
+	const Cascade<CoeffScalar, max_stages>& cascade() const { return cascade_; }
+
+private:
+	PoleZeroLayout<CoeffScalar, MaxOrder> analog_;
+	PoleZeroLayout<CoeffScalar, MaxOrder> digital_;
+	Cascade<CoeffScalar, max_stages> cascade_;
+};
+
+// Highpass with explicit passband/stopband specification.
+// setup(order, sample_rate, passband_freq, stopband_freq, ripple_db, stopband_db)
+// passband_freq > stopband_freq (highpass: passband is above stopband edge).
+template <int MaxOrder,
+          DspField CoeffScalar = double,
+          DspField StateScalar = CoeffScalar,
+          DspScalar SampleScalar = StateScalar>
+class EllipticHighPassSpec {
+public:
+	using coeff_scalar  = CoeffScalar;
+	using state_scalar  = StateScalar;
+	using sample_scalar = SampleScalar;
+	static constexpr int max_stages = (MaxOrder + 1) / 2;
+
+	void setup(int order, double sample_rate, double passband_freq,
+	           double stopband_freq, double ripple_db, double stopband_db) {
+		validate_highpass(passband_freq, stopband_freq, sample_rate, ripple_db, stopband_db);
+
+		double wp = std::tan(sw::dsp::pi * passband_freq / sample_rate);
+		double ws = std::tan(sw::dsp::pi * stopband_freq / sample_rate);
+		double k = ws / wp;
+
+		EllipticAnalogPrototype<CoeffScalar, MaxOrder> proto;
+		proto.design_from_modulus(order, static_cast<CoeffScalar>(ripple_db),
+		                         static_cast<CoeffScalar>(k), analog_);
+		HighPassTransform<CoeffScalar>(
+			static_cast<CoeffScalar>(passband_freq / sample_rate), digital_, analog_);
+		cascade_.set_layout(digital_);
+	}
+
+	const Cascade<CoeffScalar, max_stages>& cascade() const { return cascade_; }
+
+private:
+	PoleZeroLayout<CoeffScalar, MaxOrder> analog_;
+	PoleZeroLayout<CoeffScalar, MaxOrder> digital_;
+	Cascade<CoeffScalar, max_stages> cascade_;
+};
+
+// Bandpass with explicit passband/stopband specification.
+// setup(order, sample_rate, pass_low, pass_high, stop_low, stop_high, ripple_db, stopband_db)
+template <int MaxOrder,
+          DspField CoeffScalar = double,
+          DspField StateScalar = CoeffScalar,
+          DspScalar SampleScalar = StateScalar>
+class EllipticBandPassSpec {
+public:
+	using coeff_scalar  = CoeffScalar;
+	using state_scalar  = StateScalar;
+	using sample_scalar = SampleScalar;
+	static constexpr int max_stages = MaxOrder;
+
+	void setup(int order, double sample_rate,
+	           double pass_low, double pass_high,
+	           double stop_low, double stop_high,
+	           double ripple_db, double stopband_db) {
+		if (ripple_db <= 0 || stopband_db <= 0)
+			throw std::invalid_argument("elliptic bandpass: ripple and stopband must be > 0");
+		if (!(stop_low < pass_low && pass_low < pass_high && pass_high < stop_high))
+			throw std::invalid_argument("elliptic bandpass: need stop_low < pass_low < pass_high < stop_high");
+		if (stop_high >= sample_rate / 2.0)
+			throw std::invalid_argument("elliptic bandpass: stop_high must be < Nyquist");
+
+		double wpl = std::tan(sw::dsp::pi * pass_low / sample_rate);
+		double wph = std::tan(sw::dsp::pi * pass_high / sample_rate);
+		double wsl = std::tan(sw::dsp::pi * stop_low / sample_rate);
+		double wsh = std::tan(sw::dsp::pi * stop_high / sample_rate);
+
+		double w0_sq = wpl * wph;
+		double bw = wph - wpl;
+		double kl = std::abs((wsl * wsl - w0_sq) / (wsl * bw));
+		double kh = std::abs((wsh * wsh - w0_sq) / (wsh * bw));
+		double k = 1.0 / std::min(kl, kh);
+
+		double center_freq = (pass_low + pass_high) / 2.0;
+		double width_freq = pass_high - pass_low;
+
+		EllipticAnalogPrototype<CoeffScalar, MaxOrder> proto;
+		proto.design_from_modulus(order, static_cast<CoeffScalar>(ripple_db),
+		                         static_cast<CoeffScalar>(k), analog_);
+		BandPassTransform<CoeffScalar>(
+			static_cast<CoeffScalar>(center_freq / sample_rate),
+			static_cast<CoeffScalar>(width_freq / sample_rate), digital_, analog_);
+		cascade_.set_layout(digital_);
+	}
+
+	const Cascade<CoeffScalar, max_stages>& cascade() const { return cascade_; }
+
+private:
+	PoleZeroLayout<CoeffScalar, MaxOrder> analog_;
+	PoleZeroLayout<CoeffScalar, MaxOrder * 2> digital_;
+	Cascade<CoeffScalar, max_stages> cascade_;
+};
+
+// Bandstop with explicit passband/stopband specification.
+// setup(order, sample_rate, stop_low, stop_high, pass_low, pass_high, ripple_db, stopband_db)
+template <int MaxOrder,
+          DspField CoeffScalar = double,
+          DspField StateScalar = CoeffScalar,
+          DspScalar SampleScalar = StateScalar>
+class EllipticBandStopSpec {
+public:
+	using coeff_scalar  = CoeffScalar;
+	using state_scalar  = StateScalar;
+	using sample_scalar = SampleScalar;
+	static constexpr int max_stages = MaxOrder;
+
+	void setup(int order, double sample_rate,
+	           double stop_low, double stop_high,
+	           double pass_low, double pass_high,
+	           double ripple_db, double stopband_db) {
+		if (ripple_db <= 0 || stopband_db <= 0)
+			throw std::invalid_argument("elliptic bandstop: ripple and stopband must be > 0");
+		if (!(pass_low < stop_low && stop_low < stop_high && stop_high < pass_high))
+			throw std::invalid_argument("elliptic bandstop: need pass_low < stop_low < stop_high < pass_high");
+		if (pass_high >= sample_rate / 2.0)
+			throw std::invalid_argument("elliptic bandstop: pass_high must be < Nyquist");
+
+		double wpl = std::tan(sw::dsp::pi * pass_low / sample_rate);
+		double wph = std::tan(sw::dsp::pi * pass_high / sample_rate);
+		double wsl = std::tan(sw::dsp::pi * stop_low / sample_rate);
+		double wsh = std::tan(sw::dsp::pi * stop_high / sample_rate);
+
+		// Bandstop selectivity: for each passband edge, compute its
+		// equivalent lowpass prototype frequency, then take the tightest.
+		double w0_sq = wsl * wsh;
+		double bw = wsh - wsl;
+		double kl = std::abs((wpl * wpl - w0_sq) / (wpl * bw));
+		double kh = std::abs((wph * wph - w0_sq) / (wph * bw));
+		double k = 1.0 / std::max(kl, kh);
+
+		double center_freq = (stop_low + stop_high) / 2.0;
+		double width_freq = stop_high - stop_low;
+
+		EllipticAnalogPrototype<CoeffScalar, MaxOrder> proto;
+		proto.design_from_modulus(order, static_cast<CoeffScalar>(ripple_db),
+		                         static_cast<CoeffScalar>(k), analog_);
 		BandStopTransform<CoeffScalar>(
 			static_cast<CoeffScalar>(center_freq / sample_rate),
 			static_cast<CoeffScalar>(width_freq / sample_rate), digital_, analog_);
