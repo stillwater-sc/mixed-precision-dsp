@@ -77,6 +77,7 @@ public:
 	const matrix_t& H() const { return H_; }
 	const matrix_t& Q() const { return Q_; }
 	const matrix_t& R() const { return R_; }
+	const matrix_t& B() const { return B_; }
 	const matrix_t& P() const { return P_; }
 	const vector_t& state() const { return x_; }
 
