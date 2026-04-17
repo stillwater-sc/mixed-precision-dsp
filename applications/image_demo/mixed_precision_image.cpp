@@ -19,9 +19,11 @@
 #include <sw/universal/number/cfloat/cfloat.hpp>
 #include <sw/universal/number/posit/posit.hpp>
 
-// Universal's integer<N> uses std::bit_cast internally, which is unavailable
-// on some MSVC configurations. Guard the include so CI passes everywhere.
-#if defined(__cpp_lib_bit_cast) || !defined(_MSC_VER)
+// Universal's integer<N> pulls in utility/bit_cast.hpp which uses
+// std::bit_cast unconditionally. MSVC fails even when it advertises
+// __cpp_lib_bit_cast, because Universal's header doesn't include <bit>
+// first. Skip integer types on MSVC until universal#710 is fixed.
+#ifndef _MSC_VER
 #include <sw/universal/number/integer/integer.hpp>
 #define HAS_UNIVERSAL_INTEGER 1
 #else
