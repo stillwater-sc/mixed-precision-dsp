@@ -75,26 +75,26 @@ public:
 		T error = desired - output;
 		last_error_ = error;
 
-		// pi = P * x
-		vector_t pi(num_taps_, T{});
+		// p_vec = P * x
+		vector_t p_vec(num_taps_, T{});
 		for (std::size_t i = 0; i < num_taps_; ++i) {
 			T sum{};
 			for (std::size_t j = 0; j < num_taps_; ++j) {
 				sum = sum + P_(i, j) * delay_[j];
 			}
-			pi[i] = sum;
+			p_vec[i] = sum;
 		}
 
-		// gamma = lambda + x^T * pi
+		// gamma = lambda + x^T * p_vec
 		T gamma = lambda_;
 		for (std::size_t i = 0; i < num_taps_; ++i) {
-			gamma = gamma + delay_[i] * pi[i];
+			gamma = gamma + delay_[i] * p_vec[i];
 		}
 
-		// gain k = pi / gamma
+		// gain k = p_vec / gamma
 		vector_t gain(num_taps_, T{});
 		for (std::size_t i = 0; i < num_taps_; ++i) {
-			gain[i] = pi[i] / gamma;
+			gain[i] = p_vec[i] / gamma;
 		}
 
 		// Update weights: w = w + k * error
@@ -102,12 +102,11 @@ public:
 			weights_[i] = weights_[i] + gain[i] * error;
 		}
 
-		// Update P: P = (P - k * pi^T) / lambda
-		// Note: pi = P * x, so k * pi^T = (P*x*x^T*P) / (lambda + x^T*P*x)
+		// Update P: P = (P - k * p_vec^T) / lambda
 		T inv_lambda = T{1} / lambda_;
 		for (std::size_t i = 0; i < num_taps_; ++i) {
 			for (std::size_t j = 0; j < num_taps_; ++j) {
-				P_(i, j) = (P_(i, j) - gain[i] * pi[j]) * inv_lambda;
+				P_(i, j) = (P_(i, j) - gain[i] * p_vec[j]) * inv_lambda;
 			}
 		}
 

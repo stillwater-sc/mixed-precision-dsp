@@ -44,7 +44,7 @@ else()
 	message(STATUS "Universal not found via find_package, fetching headers from GitHub")
 	FetchContent_Declare(universal
 		GIT_REPOSITORY https://github.com/stillwater-sc/universal.git
-		GIT_TAG        main
+		GIT_TAG        v4.6.9
 		GIT_SHALLOW    TRUE
 	)
 	# Header-only: fetch source but do NOT add_subdirectory (avoids building Universal's targets)
