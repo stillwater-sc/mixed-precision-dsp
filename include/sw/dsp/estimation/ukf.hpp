@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 #include <mtl/mat/dense2D.hpp>
@@ -46,10 +47,12 @@ public:
 
 	// alpha: spread of sigma points around the mean (0 < alpha <= 1).
 	// beta:  prior knowledge of distribution (2 is optimal for Gaussian).
-	// kappa: secondary scaling parameter (3-n is the Julier convention).
+	// kappa: secondary scaling parameter. Default (nullopt) uses 3-n
+	//        (Julier convention). Passing 0 explicitly is valid and gives
+	//        the original non-scaled unscented transform.
 	UnscentedKalmanFilter(std::size_t state_dim, std::size_t meas_dim,
 	                      T alpha = T{0.5}, T beta = T{2},
-	                      T kappa = T{})
+	                      std::optional<T> kappa = std::nullopt)
 		: n_(state_dim), m_(meas_dim),
 		  alpha_(alpha), beta_(beta),
 		  x_(state_dim, T{}),
@@ -62,11 +65,7 @@ public:
 		if (meas_dim == 0)
 			throw std::invalid_argument("UnscentedKalmanFilter: meas_dim must be > 0");
 
-		// Default kappa = 3 - n (Julier convention)
-		if (kappa == T{})
-			kappa_ = T{3} - static_cast<T>(state_dim);
-		else
-			kappa_ = kappa;
+		kappa_ = kappa.value_or(T{3} - static_cast<T>(state_dim));
 
 		compute_weights();
 		identity_matrix(P_);
@@ -195,6 +194,11 @@ private:
 		using std::sqrt;
 		matrix_t S(n_, n_);
 		for (std::size_t j = 0; j < n_; ++j) {
+			if (!(A(j, j) > T{}))
+				throw std::runtime_error(
+					"UnscentedKalmanFilter: non-positive diagonal D["
+					+ std::to_string(j) + "] in LDL^T "
+					"-- covariance not positive definite");
 			T sj = sqrt(A(j, j));  // sqrt(D[j])
 			S(j, j) = sj;          // L has unit diagonal
 			for (std::size_t i = j + 1; i < n_; ++i) {
