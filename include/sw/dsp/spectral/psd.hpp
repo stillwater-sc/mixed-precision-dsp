@@ -25,7 +25,6 @@ mtl::vec::dense_vector<double> periodogram(const mtl::vec::dense_vector<T>& x) {
 	using std::abs;  // ADL
 	std::size_t M = x.size();
 	auto X = fft(x);
-	std::size_t N_fft = X.size();
 	std::size_t half = M / 2 + 1;
 	double inv_M = 1.0 / static_cast<double>(M);
 
