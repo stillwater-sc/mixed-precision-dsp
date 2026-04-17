@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: MIT
 
 #include <sw/dsp/estimation/kalman.hpp>
+#include <sw/dsp/estimation/ekf.hpp>
 #include <sw/dsp/estimation/lms.hpp>
 #include <sw/dsp/estimation/rls.hpp>
-// Future: ekf.hpp, ukf.hpp
+// Future: ukf.hpp

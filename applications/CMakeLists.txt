@@ -16,7 +16,7 @@ add_subdirectory(fir_demo)
 # add_subdirectory(quantization_demo)
 
 # Phase 9: Estimation
-# add_subdirectory(estimation_demo)
+add_subdirectory(estimation_demo)
 
 # Phase 10: Image processing
 add_subdirectory(image_demo)
