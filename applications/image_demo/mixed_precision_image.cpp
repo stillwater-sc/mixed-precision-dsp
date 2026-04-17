@@ -18,7 +18,15 @@
 
 #include <sw/universal/number/cfloat/cfloat.hpp>
 #include <sw/universal/number/posit/posit.hpp>
+
+// Universal's integer<N> uses std::bit_cast internally, which is unavailable
+// on some MSVC configurations. Guard the include so CI passes everywhere.
+#if defined(__cpp_lib_bit_cast) || !defined(_MSC_VER)
 #include <sw/universal/number/integer/integer.hpp>
+#define HAS_UNIVERSAL_INTEGER 1
+#else
+#define HAS_UNIVERSAL_INTEGER 0
+#endif
 
 #include <cmath>
 #include <iomanip>
@@ -33,9 +41,11 @@ using namespace sw::universal;
 using bf16   = cfloat<16, 8, uint16_t, true, false, false>;
 using half_t = cfloat<16, 5, uint16_t, true, false, false>;
 using p8     = posit<8, 2>;
+#if HAS_UNIVERSAL_INTEGER
 using int12  = integer<12>;
 using int8   = integer<8>;
 using int6   = integer<6>;
+#endif
 
 // ============================================================================
 // Helpers
@@ -195,9 +205,11 @@ int main() {
 		results.push_back(run_type<float> ("float",        32, pat.img, mag_ref, gauss_ref, canny_ref));
 		results.push_back(run_type<bf16>  ("bfloat16",     16, pat.img, mag_ref, gauss_ref, canny_ref));
 		results.push_back(run_type<half_t>("half",         16, pat.img, mag_ref, gauss_ref, canny_ref));
+#if HAS_UNIVERSAL_INTEGER
 		results.push_back(run_type<int12> ("integer<12>",  12, pat.img, mag_ref, gauss_ref, canny_ref));
 		results.push_back(run_type<int8>  ("integer<8>",    8, pat.img, mag_ref, gauss_ref, canny_ref));
 		results.push_back(run_type<int6>  ("integer<6>",    6, pat.img, mag_ref, gauss_ref, canny_ref));
+#endif
 		results.push_back(run_type<p8>    ("posit<8,2>",    8, pat.img, mag_ref, gauss_ref, canny_ref));
 
 		std::cout << std::left  << std::setw(16) << "Type"
