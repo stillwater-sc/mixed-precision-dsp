@@ -1,0 +1,53 @@
+---
+title: Mixed-Precision DSP
+description: Header-only C++20 library for mixed-precision digital signal processing
+template: splash
+hero:
+  tagline: Explore how arithmetic type selection impacts DSP algorithm quality, performance, and energy efficiency.
+  actions:
+    - text: Get Started
+      link: /getting-started/installation/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/stillwater-sc/mixed-precision-dsp
+      icon: external
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why Mixed-Precision DSP?
+
+Every DSP algorithm has three arithmetic roles: **coefficients** define the filter,
+**state** accumulates intermediate results, and **samples** stream through the pipeline.
+These roles have different precision requirements — and matching arithmetic types to each
+role unlocks significant performance and energy savings without sacrificing quality.
+
+<CardGrid>
+  <Card title="Three-Scalar Model" icon="setting">
+    Every algorithm is parameterized on `CoeffScalar`, `StateScalar`, and `SampleScalar` independently.
+  </Card>
+  <Card title="Universal Number Types" icon="puzzle">
+    Plug in IEEE 754, posit, fixed-point, or any Universal arithmetic type as a drop-in replacement.
+  </Card>
+  <Card title="Classical DSP" icon="seti:audio">
+    Complete IIR/FIR filter design, spectral analysis, windowing, signal conditioning, and state estimation.
+  </Card>
+  <Card title="Quantization Analysis" icon="bars">
+    Built-in SQNR measurement, sensitivity analysis, and stability margin computation for precision-aware design.
+  </Card>
+</CardGrid>
+
+## Library at a Glance
+
+| Module | What it provides |
+|--------|-----------------|
+| **signals** | Signal containers, generators (sine, chirp, noise), sampling utilities |
+| **windows** | Hamming, Hanning, Blackman, Kaiser, flat-top window functions |
+| **conditioning** | Envelope detection, dynamic range compression, AGC |
+| **spectral** | DFT, FFT, PSD (Welch), spectrograms, Z-transform |
+| **filter** | Butterworth, Chebyshev I/II, Elliptic, Bessel, Legendre IIR; windowed/equiripple FIR; polyphase multirate |
+| **estimation** | Kalman, Extended Kalman, Unscented Kalman, LMS, RLS adaptive filters |
+| **image** | 2D convolution, Sobel/Canny edge detection, morphological operations |
+| **analysis** | Stability margins, coefficient sensitivity, condition numbers |
+| **quantization** | ADC/DAC modeling, dithering, noise shaping, SQNR |
