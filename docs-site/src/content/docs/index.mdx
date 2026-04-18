@@ -3,7 +3,7 @@ title: Mixed-Precision DSP
 description: Header-only C++20 library for mixed-precision digital signal processing
 template: splash
 hero:
-  tagline: Explore how arithmetic type selection impacts DSP algorithm quality, performance, and energy efficiency.
+  tagline: "v0.4.1 — Explore how arithmetic type selection impacts DSP algorithm quality, performance, and energy efficiency."
   actions:
     - text: Get Started
       link: /mixed-precision-dsp/getting-started/installation/
@@ -16,12 +16,36 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Why Mixed-Precision DSP?
+## The Problem
 
-Every DSP algorithm has three arithmetic roles: **coefficients** define the filter,
-**state** accumulates intermediate results, and **samples** stream through the pipeline.
-These roles have different precision requirements — and matching arithmetic types to each
-role unlocks significant performance and energy savings without sacrificing quality.
+High-performance and energy-efficient digital signal processing demands careful
+attention to numerical precision. In embedded systems, edge AI, software-defined
+radio, and real-time audio, every bit of precision carries a cost in **silicon area**,
+**memory bandwidth**, **power consumption**, and **latency**.
+
+Consider the classical IIR filter pipeline: analog prototype design, frequency
+transformation, bilinear transform, cascade realization, and sample processing.
+Each stage has fundamentally different numerical requirements. Pole placement and
+coefficient calculation need high precision to preserve filter characteristics.
+State accumulators need sufficient dynamic range to avoid overflow and enough
+precision to suppress quantization noise. Input/output sample streams may tolerate
+substantially lower precision for throughput or power savings.
+
+Yet traditional DSP libraries hardcode `double` throughout their implementations —
+the coefficients are `double`, the state variables are `double`, the sample buffers
+are `double`. This uniformity simplifies implementation but leaves significant
+performance and efficiency gains on the table, and entirely forecloses research
+into mixed-precision algorithm optimization.
+
+## The Solution
+
+`sw::dsp` treats **arithmetic type parameterization** as a first-order design concern.
+Every algorithm is templated on up to three independent scalar types — `CoeffScalar`,
+`StateScalar`, and `SampleScalar` — enabling configurations like designing coefficients
+in `double`, accumulating state in `posit<32,2>`, and streaming samples in `posit<16,1>`.
+The library provides the quantization analysis tools to evaluate these configurations:
+SQNR measurement, coefficient sensitivity analysis, stability margin computation,
+and noise shaping.
 
 <CardGrid>
   <Card title="Three-Scalar Model" icon="setting">
