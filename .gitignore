@@ -1,5 +1,7 @@
 build*/
 .cache/
+.astro/
+node_modules/
 CMakeUserPresets.json
 *.swp
 *.swo
