@@ -1,0 +1,110 @@
+name: Release
+
+# Triggered when a version tag is pushed: git tag v0.4.1 && git push --tags
+# CI runs separately via cmake.yml (which also triggers on v* tags).
+# This workflow only creates the GitHub Release — no duplicate builds.
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release: $TAG (version $VERSION)"
+
+      - name: Verify CMake version matches tag
+        run: |
+          MAJOR=$(grep 'set(DSP_MAJOR' CMakeLists.txt | grep -oP '\d+')
+          MINOR=$(grep 'set(DSP_MINOR' CMakeLists.txt | grep -oP '\d+')
+          PATCH=$(grep 'set(DSP_PATCH' CMakeLists.txt | grep -oP '\d+')
+          CMAKE_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          echo "CMake version: $CMAKE_VERSION"
+          echo "Tag version: $TAG_VERSION"
+          if [ "$CMAKE_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::CMake version ($CMAKE_VERSION) does not match tag ($TAG_VERSION). Update CMakeLists.txt and include/sw/dsp/version.hpp before tagging."
+            exit 1
+          fi
+
+      - name: Generate release notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            echo "Changes since $PREV_TAG:"
+            RANGE="${PREV_TAG}..HEAD"
+          else
+            echo "Initial release"
+            RANGE="HEAD"
+          fi
+
+          {
+            echo "## What's Changed"
+            echo ""
+
+            FEATS=$(git log "$RANGE" --pretty=format:"%s" 2>/dev/null | grep "^feat" | sed 's/^feat[^:]*: /- /' || true)
+            if [ -n "$FEATS" ]; then
+              echo "### Features"
+              echo "$FEATS"
+              echo ""
+            fi
+
+            FIXES=$(git log "$RANGE" --pretty=format:"%s" 2>/dev/null | grep "^fix" | sed 's/^fix[^:]*: /- /' || true)
+            if [ -n "$FIXES" ]; then
+              echo "### Bug Fixes"
+              echo "$FIXES"
+              echo ""
+            fi
+
+            TESTS=$(git log "$RANGE" --pretty=format:"%s" 2>/dev/null | grep "^test" | sed 's/^test[^:]*: /- /' || true)
+            if [ -n "$TESTS" ]; then
+              echo "### Tests"
+              echo "$TESTS"
+              echo ""
+            fi
+
+            DOCS=$(git log "$RANGE" --pretty=format:"%s" 2>/dev/null | grep "^docs\|^doc" | sed 's/^docs\?[^:]*: /- /' || true)
+            if [ -n "$DOCS" ]; then
+              echo "### Documentation"
+              echo "$DOCS"
+              echo ""
+            fi
+
+            OTHER=$(git log "$RANGE" --pretty=format:"%s" 2>/dev/null | grep -v "^feat\|^fix\|^test\|^docs\|^doc\|^ci\|^chore\|^Merge" | sed 's/^[^:]*: /- /' || true)
+            if [ -n "$OTHER" ]; then
+              echo "### Other Changes"
+              echo "$OTHER"
+              echo ""
+            fi
+
+            echo "---"
+            echo ""
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG:-v0.0.0}...${{ steps.version.outputs.tag }}"
+          } > release_notes.md
+
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Mixed-Precision DSP ${{ steps.version.outputs.tag }}"
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          generate_release_notes: false
