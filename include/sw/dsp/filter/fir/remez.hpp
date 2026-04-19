@@ -230,8 +230,26 @@ mtl::vec::dense_vector<T> remez(
 		throw std::invalid_argument("remez: desired must have same size as bands");
 	if (weights.size() * 2 != bands.size())
 		throw std::invalid_argument("remez: weights must have one entry per band");
+	if (max_iterations <= 0)
+		throw std::invalid_argument("remez: max_iterations must be > 0");
+	if (grid_density <= 0)
+		throw std::invalid_argument("remez: grid_density must be > 0");
+	for (std::size_t i = 0; i < bands.size(); ++i) {
+		if (bands[i] < T{0} || bands[i] > T(0.5))
+			throw std::invalid_argument("remez: band edges must be in [0, 0.5]");
+		if (i > 0 && bands[i] < bands[i - 1])
+			throw std::invalid_argument("remez: band edges must be nondecreasing");
+	}
+	for (const auto& w : weights) {
+		if (!(w > T{0}))
+			throw std::invalid_argument("remez: weights must be > 0");
+	}
 
-	// Convert inputs to double for internal computation
+	// The Remez exchange is a design-time computation requiring high
+	// dynamic range for the barycentric interpolation. Internal math
+	// uses double; output taps are projected to T.
+	// (See v0.5.0-implementation-plan.md: "must be implemented in
+	// double internally")
 	std::vector<double> d_bands(bands.size()), d_desired(desired.size()), d_weights(weights.size());
 	for (std::size_t i = 0; i < bands.size(); ++i) d_bands[i] = static_cast<double>(bands[i]);
 	for (std::size_t i = 0; i < desired.size(); ++i) d_desired[i] = static_cast<double>(desired[i]);
@@ -338,32 +356,38 @@ mtl::vec::dense_vector<T> remez(
 				new_extremals.push_back(last);
 		}
 
-		// Select the n_extremals largest-magnitude extrema with alternating sign
+		// Select n_extremals extrema with alternating sign, sorted by frequency.
+		// The standard Remez approach: keep all local extrema sorted by
+		// frequency, then trim from the ends or interior to get exactly
+		// n_extremals with alternating signs.
 		if (new_extremals.size() >= n_extremals) {
-			// Sort by error magnitude (descending)
-			std::sort(new_extremals.begin(), new_extremals.end(),
-			          [&error](std::size_t a, std::size_t b) {
-				          return std::abs(error[a]) > std::abs(error[b]);
-			          });
+			// Already sorted by frequency (grid index)
+			// Ensure alternating sign: walk through and remove violations
+			std::vector<std::size_t> alt;
+			alt.reserve(new_extremals.size());
+			alt.push_back(new_extremals[0]);
 
-			// Greedy selection: pick alternating-sign extremals
-			std::vector<std::size_t> selected;
-			selected.reserve(n_extremals);
-
-			// Start with the largest
-			selected.push_back(new_extremals[0]);
-
-			// Try to fill from sorted list, maintaining alternating sign
-			for (std::size_t i = 1; i < new_extremals.size() && selected.size() < n_extremals; ++i) {
-				// Just collect enough, we'll sort by frequency and fix sign later
-				selected.push_back(new_extremals[i]);
+			for (std::size_t i = 1; i < new_extremals.size(); ++i) {
+				bool same_sign = (error[new_extremals[i]] > 0) == (error[alt.back()] > 0);
+				if (same_sign) {
+					// Keep the larger-magnitude one
+					if (std::abs(error[new_extremals[i]]) > std::abs(error[alt.back()]))
+						alt.back() = new_extremals[i];
+				} else {
+					alt.push_back(new_extremals[i]);
+				}
 			}
 
-			if (selected.size() >= n_extremals) {
-				selected.resize(n_extremals);
-				// Sort by frequency (grid index)
-				std::sort(selected.begin(), selected.end());
-				extremal_idx = selected;
+			// If we have more than n_extremals, trim the smallest from ends
+			while (alt.size() > n_extremals) {
+				if (std::abs(error[alt.front()]) < std::abs(error[alt.back()]))
+					alt.erase(alt.begin());
+				else
+					alt.pop_back();
+			}
+
+			if (alt.size() >= n_extremals) {
+				extremal_idx = alt;
 			}
 		}
 

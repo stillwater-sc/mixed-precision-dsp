@@ -242,6 +242,91 @@ void test_validation() {
 	std::cout << "  validation: passed\n";
 }
 
+// Test 11: Hilbert transformer — antisymmetric taps, DC gain = 0
+void test_hilbert() {
+	std::size_t N = 31;
+	std::vector<double> bands    = {0.05, 0.45};
+	std::vector<double> desired  = {1.0, 1.0};
+	std::vector<double> weights  = {1.0};
+
+	auto taps = remez<double>(N, bands, desired, weights, RemezBandType::hilbert);
+	check(taps.size() == N, "hilbert tap count");
+
+	// Antisymmetric: h[n] = -h[N-1-n]
+	std::size_t L = (N - 1) / 2;
+	for (std::size_t i = 0; i < L; ++i) {
+		check(near(taps[i], -taps[N - 1 - i], 1e-8),
+		      "hilbert antisymmetry at " + std::to_string(i));
+	}
+	// Center tap should be 0 for odd-length Type III
+	check(near(taps[L], 0.0, 1e-10), "hilbert center tap = " + std::to_string(taps[L]));
+
+	// DC gain should be 0 (antisymmetric taps cancel)
+	double dc = 0.0;
+	for (std::size_t i = 0; i < N; ++i) dc += taps[i];
+	check(near(dc, 0.0, 1e-8), "hilbert DC gain = " + std::to_string(dc));
+
+	std::cout << "  hilbert: passed (antisymmetric, DC=" << dc << ")\n";
+}
+
+// Test 12: Differentiator — antisymmetric taps, DC gain = 0
+void test_differentiator() {
+	std::size_t N = 31;
+	std::vector<double> bands    = {0.01, 0.45};
+	std::vector<double> desired  = {0.01, 0.45};  // linear ramp
+	std::vector<double> weights  = {1.0};
+
+	auto taps = remez<double>(N, bands, desired, weights, RemezBandType::differentiator);
+	check(taps.size() == N, "differentiator tap count");
+
+	// Antisymmetric: h[n] = -h[N-1-n]
+	std::size_t L = (N - 1) / 2;
+	for (std::size_t i = 0; i < L; ++i) {
+		check(near(taps[i], -taps[N - 1 - i], 1e-8),
+		      "differentiator antisymmetry at " + std::to_string(i));
+	}
+
+	// DC gain should be 0
+	double dc = 0.0;
+	for (std::size_t i = 0; i < N; ++i) dc += taps[i];
+	check(near(dc, 0.0, 1e-8), "differentiator DC gain = " + std::to_string(dc));
+
+	std::cout << "  differentiator: passed (antisymmetric, DC=" << dc << ")\n";
+}
+
+// Test 13: Extended validation
+void test_extended_validation() {
+	bool caught = false;
+
+	// Negative weight
+	try {
+		remez<double>(31, {0.0, 0.2, 0.3, 0.5}, {1.0, 1.0, 0.0, 0.0}, {-1.0, 1.0});
+	} catch (const std::invalid_argument&) {
+		caught = true;
+	}
+	check(caught, "negative weight should throw");
+
+	// Band edge out of range
+	caught = false;
+	try {
+		remez<double>(31, {0.0, 0.6, 0.7, 0.9}, {1.0, 1.0, 0.0, 0.0}, {1.0, 1.0});
+	} catch (const std::invalid_argument&) {
+		caught = true;
+	}
+	check(caught, "band edge > 0.5 should throw");
+
+	// Non-monotonic bands
+	caught = false;
+	try {
+		remez<double>(31, {0.3, 0.2, 0.1, 0.5}, {1.0, 1.0, 0.0, 0.0}, {1.0, 1.0});
+	} catch (const std::invalid_argument&) {
+		caught = true;
+	}
+	check(caught, "non-monotonic bands should throw");
+
+	std::cout << "  extended_validation: passed\n";
+}
+
 int main() {
 	try {
 		std::cout << "Parks-McClellan (Remez) equiripple FIR design tests\n";
@@ -256,6 +341,9 @@ int main() {
 		test_convenience_bandpass();
 		test_fir_integration();
 		test_validation();
+		test_hilbert();
+		test_differentiator();
+		test_extended_validation();
 
 		std::cout << "All Remez tests passed.\n";
 		return 0;
