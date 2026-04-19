@@ -76,5 +76,8 @@ dsp_add_test(test_remez)
 # Bluestein chirp-z arbitrary-length DFT (Issue #68)
 dsp_add_test(test_bluestein)
 
+# Higher-order noise shaping (Issue #70)
+dsp_add_test(test_noise_shaping)
+
 # Type projection/embedding
 dsp_add_test(test_projection)
