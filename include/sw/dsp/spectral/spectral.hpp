@@ -6,6 +6,7 @@
 
 #include <sw/dsp/spectral/dft.hpp>
 #include <sw/dsp/spectral/fft.hpp>
+#include <sw/dsp/spectral/bluestein.hpp>
 #include <sw/dsp/spectral/ztransform.hpp>
 #include <sw/dsp/spectral/laplace.hpp>
 #include <sw/dsp/spectral/psd.hpp>
