@@ -73,5 +73,8 @@ dsp_add_test(test_filtfilt)
 # Parks-McClellan equiripple FIR design (Issue #67)
 dsp_add_test(test_remez)
 
+# Bluestein chirp-z arbitrary-length DFT (Issue #68)
+dsp_add_test(test_bluestein)
+
 # Type projection/embedding
 dsp_add_test(test_projection)
