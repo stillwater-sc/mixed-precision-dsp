@@ -9,6 +9,7 @@
 // SPDX-License-Identifier: MIT
 
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <limits>
 #include <stdexcept>
@@ -38,6 +39,7 @@ inline std::size_t next_power_of_2(std::size_t n) {
 // Input: complex vector of length N.
 // Output: complex vector of length N (the DFT).
 template <DspField T>
+requires (!std::integral<T>)
 mtl::vec::dense_vector<complex_for_t<T>> bluestein_forward(
 		const mtl::vec::dense_vector<complex_for_t<T>>& x) {
 	using complex_t = complex_for_t<T>;
@@ -96,6 +98,7 @@ mtl::vec::dense_vector<complex_for_t<T>> bluestein_forward(
 // Bluestein inverse DFT for arbitrary length N.
 // Conjugate-transform-conjugate-scale approach.
 template <DspField T>
+requires (!std::integral<T>)
 mtl::vec::dense_vector<complex_for_t<T>> bluestein_inverse(
 		const mtl::vec::dense_vector<complex_for_t<T>>& X) {
 	using complex_t = complex_for_t<T>;
@@ -120,6 +123,7 @@ mtl::vec::dense_vector<complex_for_t<T>> bluestein_inverse(
 // Auto-dispatching forward DFT: uses radix-2 FFT for power-of-2,
 // Bluestein for arbitrary lengths.
 template <DspField T>
+requires (!std::integral<T>)
 mtl::vec::dense_vector<complex_for_t<T>> dft_forward(
 		const mtl::vec::dense_vector<complex_for_t<T>>& x) {
 	if (detail::is_power_of_2(x.size())) {
@@ -133,6 +137,7 @@ mtl::vec::dense_vector<complex_for_t<T>> dft_forward(
 // Auto-dispatching inverse DFT: uses radix-2 FFT for power-of-2,
 // Bluestein for arbitrary lengths.
 template <DspField T>
+requires (!std::integral<T>)
 mtl::vec::dense_vector<complex_for_t<T>> dft_inverse(
 		const mtl::vec::dense_vector<complex_for_t<T>>& x) {
 	if (detail::is_power_of_2(x.size())) {
