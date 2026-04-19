@@ -67,5 +67,8 @@ dsp_add_test(test_image_generators)
 # Image file I/O (Issue #13)
 dsp_add_test(test_image_io)
 
+# Zero-phase filtering (Issue #66)
+dsp_add_test(test_filtfilt)
+
 # Type projection/embedding
 dsp_add_test(test_projection)
