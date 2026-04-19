@@ -42,6 +42,7 @@
 
 // Filters (IIR + FIR)
 #include <sw/dsp/filter/filter.hpp>
+#include <sw/dsp/filter/filtfilt.hpp>
 #include <sw/dsp/filter/iir/iir.hpp>
 #include <sw/dsp/filter/fir/fir.hpp>
 
