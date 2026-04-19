@@ -70,5 +70,8 @@ dsp_add_test(test_image_io)
 # Zero-phase filtering (Issue #66)
 dsp_add_test(test_filtfilt)
 
+# Parks-McClellan equiripple FIR design (Issue #67)
+dsp_add_test(test_remez)
+
 # Type projection/embedding
 dsp_add_test(test_projection)
