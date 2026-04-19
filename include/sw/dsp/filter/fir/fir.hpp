@@ -6,5 +6,6 @@
 
 #include <sw/dsp/filter/fir/fir_filter.hpp>
 #include <sw/dsp/filter/fir/fir_design.hpp>
+#include <sw/dsp/filter/fir/remez.hpp>
 #include <sw/dsp/filter/fir/polyphase.hpp>
 #include <sw/dsp/filter/fir/overlap.hpp>
