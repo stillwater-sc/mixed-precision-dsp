@@ -232,6 +232,8 @@ void test_auto_dispatch() {
 		for (std::size_t i = 0; i < N; ++i) {
 			check(near(y[i].real(), x[i].real(), 1e-10),
 			      "dispatch_pow2 real[" + std::to_string(i) + "]");
+			check(near(y[i].imag(), x[i].imag(), 1e-10),
+			      "dispatch_pow2 imag[" + std::to_string(i) + "]");
 		}
 	}
 
@@ -248,6 +250,8 @@ void test_auto_dispatch() {
 		for (std::size_t i = 0; i < N; ++i) {
 			check(near(y[i].real(), x[i].real(), 1e-8),
 			      "dispatch_prime real[" + std::to_string(i) + "]");
+			check(near(y[i].imag(), x[i].imag(), 1e-8),
+			      "dispatch_prime imag[" + std::to_string(i) + "]");
 		}
 	}
 

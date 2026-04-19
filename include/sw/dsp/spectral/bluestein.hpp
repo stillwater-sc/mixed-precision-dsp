@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <stdexcept>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
@@ -21,6 +22,11 @@ namespace sw::dsp::spectral {
 namespace detail {
 
 inline std::size_t next_power_of_2(std::size_t n) {
+	if (n <= 1) return 1;
+	constexpr std::size_t max_pow2 =
+		std::size_t{1} << (std::numeric_limits<std::size_t>::digits - 1);
+	if (n > max_pow2)
+		throw std::length_error("bluestein: convolution length too large");
 	std::size_t m = 1;
 	while (m < n) m <<= 1;
 	return m;
@@ -35,34 +41,36 @@ template <DspField T>
 mtl::vec::dense_vector<complex_for_t<T>> bluestein_forward(
 		const mtl::vec::dense_vector<complex_for_t<T>>& x) {
 	using complex_t = complex_for_t<T>;
+	using std::conj;
+	using std::cos;
+	using std::sin;
 	const std::size_t N = x.size();
 	if (N == 0) return {};
 	if (N == 1) return mtl::vec::dense_vector<complex_t>({x[0]});
 
+	if (N > (std::numeric_limits<std::size_t>::max() - 1) / 2)
+		throw std::length_error("bluestein: input length too large");
 	const std::size_t M = detail::next_power_of_2(2 * N - 1);
 
 	// Chirp sequence: w[n] = exp(-j * pi * n^2 / N)
 	mtl::vec::dense_vector<complex_t> chirp(N);
 	for (std::size_t n = 0; n < N; ++n) {
-		double angle = -pi * static_cast<double>(n) * static_cast<double>(n)
-		               / static_cast<double>(N);
-		chirp[n] = complex_t(static_cast<T>(std::cos(angle)),
-		                     static_cast<T>(std::sin(angle)));
+		T angle = -pi_v<T> * static_cast<T>(n) * static_cast<T>(n)
+		          / static_cast<T>(N);
+		chirp[n] = complex_t(cos(angle), sin(angle));
 	}
 
 	// a[n] = x[n] * chirp[n], zero-padded to length M
 	mtl::vec::dense_vector<complex_t> a(M, complex_t{});
 	for (std::size_t n = 0; n < N; ++n) {
-		a[n] = complex_t(
-			x[n].real() * chirp[n].real() - x[n].imag() * chirp[n].imag(),
-			x[n].real() * chirp[n].imag() + x[n].imag() * chirp[n].real());
+		a[n] = x[n] * chirp[n];
 	}
 
 	// b[n] = conj(chirp[n]) with wrap-around for circular convolution
 	mtl::vec::dense_vector<complex_t> b(M, complex_t{});
-	b[0] = complex_t(chirp[0].real(), T{} - chirp[0].imag());
+	b[0] = conj(chirp[0]);
 	for (std::size_t n = 1; n < N; ++n) {
-		complex_t cj(chirp[n].real(), T{} - chirp[n].imag());
+		complex_t cj = conj(chirp[n]);
 		b[n] = cj;
 		b[M - n] = cj;
 	}
@@ -72,10 +80,7 @@ mtl::vec::dense_vector<complex_for_t<T>> bluestein_forward(
 	fft_forward<T>(b);
 
 	for (std::size_t i = 0; i < M; ++i) {
-		complex_t prod(
-			a[i].real() * b[i].real() - a[i].imag() * b[i].imag(),
-			a[i].real() * b[i].imag() + a[i].imag() * b[i].real());
-		a[i] = prod;
+		a[i] = a[i] * b[i];
 	}
 
 	fft_inverse<T>(a);
@@ -83,9 +88,7 @@ mtl::vec::dense_vector<complex_for_t<T>> bluestein_forward(
 	// X[k] = chirp[k] * C[k]
 	mtl::vec::dense_vector<complex_t> X(N);
 	for (std::size_t k = 0; k < N; ++k) {
-		X[k] = complex_t(
-			a[k].real() * chirp[k].real() - a[k].imag() * chirp[k].imag(),
-			a[k].real() * chirp[k].imag() + a[k].imag() * chirp[k].real());
+		X[k] = chirp[k] * a[k];
 	}
 	return X;
 }
@@ -96,22 +99,20 @@ template <DspField T>
 mtl::vec::dense_vector<complex_for_t<T>> bluestein_inverse(
 		const mtl::vec::dense_vector<complex_for_t<T>>& X) {
 	using complex_t = complex_for_t<T>;
+	using std::conj;
 	const std::size_t N = X.size();
 	if (N == 0) return {};
 
-	// Conjugate input
 	mtl::vec::dense_vector<complex_t> conj_X(N);
 	for (std::size_t i = 0; i < N; ++i) {
-		conj_X[i] = complex_t(X[i].real(), T{} - X[i].imag());
+		conj_X[i] = conj(X[i]);
 	}
 
 	auto result = bluestein_forward<T>(conj_X);
 
-	// Conjugate and scale by 1/N
 	T inv_N = T{1} / static_cast<T>(N);
 	for (std::size_t i = 0; i < N; ++i) {
-		result[i] = complex_t(result[i].real() * inv_N,
-		                      (T{} - result[i].imag()) * inv_N);
+		result[i] = conj(result[i]) * inv_N;
 	}
 	return result;
 }
