@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <numbers>
 #include <stdexcept>
 #include <vector>
 
@@ -239,7 +240,7 @@ void test_posit_combination() {
 	std::size_t N = 512;
 	mtl::vec::dense_vector<HighPrec> sig(N);
 	for (std::size_t i = 0; i < N; ++i) {
-		sig[i] = HighPrec(std::sin(2.0 * M_PI * 440.0 * static_cast<double>(i) / 44100.0));
+		sig[i] = HighPrec(std::sin(2.0 * std::numbers::pi * 440.0 * static_cast<double>(i) / 44100.0));
 	}
 
 	FirstOrderNoiseShaper<HighPrec, LowPrec> shaper1;
@@ -263,7 +264,7 @@ void test_fixpnt_combination() {
 	std::size_t N = 512;
 	mtl::vec::dense_vector<double> sig(N);
 	for (std::size_t i = 0; i < N; ++i) {
-		sig[i] = 0.5 * std::sin(2.0 * M_PI * 440.0 * static_cast<double>(i) / 44100.0);
+		sig[i] = 0.5 * std::sin(2.0 * std::numbers::pi * 440.0 * static_cast<double>(i) / 44100.0);
 	}
 
 	FirstOrderNoiseShaper<double, LowPrec> shaper1;
