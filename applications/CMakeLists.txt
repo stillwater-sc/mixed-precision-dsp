@@ -24,5 +24,8 @@ add_subdirectory(image_demo)
 # Mixed-precision comparison (Epic #22)
 add_subdirectory(mp_comparison)
 
+# Flagship precision sweep tool (Issue #69)
+add_subdirectory(precision_sweep)
+
 # Phase 8: Signal conditioning
 # add_subdirectory(conditioning_demo)
