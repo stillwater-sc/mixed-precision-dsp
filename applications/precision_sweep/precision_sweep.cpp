@@ -78,9 +78,6 @@ using p16e1 = posit<16, 1>;
 using p8e1  = posit<8,  1>;
 
 // Fixed-point (Q-format)
-using q8_24  = fixpnt<32, 24>;   // Q8.24 — coefficient precision
-using q4_20  = fixpnt<24, 20>;   // Q4.20 — coefficient precision
-using q2_14  = fixpnt<16, 14>;   // Q2.14 — coefficient precision
 using q31    = fixpnt<32, 31>;   // Q31   — accumulator/state
 using q9_31  = fixpnt<40, 31>;   // Q9.31 — wide accumulator
 using q15    = fixpnt<16, 15>;   // Q15   — sample precision
@@ -134,8 +131,9 @@ std::vector<double> filter_test_signal(FilterType& filter) {
 	std::vector<double> result(SIGNAL_LEN);
 	for (int n = 0; n < SIGNAL_LEN; ++n) {
 		double t = static_cast<double>(n) / SAMPLE_RATE;
-		double x_d = std::sin(two_pi * 500.0 * t)
-		           + std::sin(two_pi * 5000.0 * t);
+		// Peak amplitude ±1.0: half-scale to stay within Q-format [-1,1) range
+		double x_d = 0.5 * (std::sin(two_pi * 500.0 * t)
+		                   + std::sin(two_pi * 5000.0 * t));
 		sample_t x = static_cast<sample_t>(x_d);
 		result[static_cast<std::size_t>(n)] = static_cast<double>(filter.process(x));
 	}
@@ -236,7 +234,8 @@ MetricRow measure_config(const std::string& pipeline, const std::string& config_
 
 // Coefficient design always uses double for numerical accuracy (constexpr
 // constants like pi_v<T> require std::frexp which is non-constexpr for
-// Universal types). "Uniform" means the same type for state and samples.
+// Universal types). "Uniform" here means state and sample types are identical
+// (state == sample), while coefficients remain double.
 std::vector<MetricRow> sweep_uniform(RefFilter& ref) {
 	std::vector<MetricRow> rows;
 	auto m = [&](auto tag, const std::string& name,
@@ -420,46 +419,48 @@ void write_sweep_csv(const std::string& path, const std::vector<MetricRow>& rows
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-  try {
-	std::string outdir = ".";
-	if (argc > 1) outdir = argv[1];
+	try {
+		std::string outdir = ".";
+		if (argc > 1) outdir = argv[1];
+		if (!outdir.empty() && outdir.back() == '/') outdir.pop_back();
 
-	std::cout << std::string(120, '=') << "\n";
-	std::cout << "  Mixed-Precision Pipeline Sweep\n";
-	std::cout << "  5 number systems x 6 pipeline configurations\n";
-	std::cout << "  Filter: Butterworth lowpass, order=" << ORDER
-	          << ", fs=" << SAMPLE_RATE << " Hz, fc=" << CUTOFF << " Hz\n";
-	std::cout << "  Metrics: SQNR, coeff error, pole displacement, stability margin,\n";
-	std::cout << "           passband ripple, stopband attenuation, condition number\n";
-	std::cout << std::string(120, '=') << "\n";
+		std::cout << std::string(120, '=') << "\n";
+		std::cout << "  Mixed-Precision Pipeline Sweep\n";
+		std::cout << "  5 number systems x 6 pipeline configurations\n";
+		std::cout << "  Filter: Butterworth lowpass, order=" << ORDER
+		          << ", fs=" << SAMPLE_RATE << " Hz, fc=" << CUTOFF << " Hz\n";
+		std::cout << "  Metrics: SQNR, coeff error, pole displacement, stability margin,\n";
+		std::cout << "           passband ripple, stopband attenuation, condition number\n";
+		std::cout << std::string(120, '=') << "\n";
 
-	RefFilter ref;
-	std::vector<MetricRow> all_rows;
+		RefFilter ref;
+		std::vector<MetricRow> all_rows;
 
-	auto run = [&](const std::string& name, auto sweep_fn) {
-		std::cout << "\n  Running " << name << "..." << std::flush;
-		auto rows = sweep_fn(ref);
-		print_pipeline(name, rows);
-		all_rows.insert(all_rows.end(), rows.begin(), rows.end());
-	};
+		auto run = [&](const std::string& name, auto sweep_fn) {
+			std::cout << "\n  Running " << name << "..." << std::flush;
+			auto rows = sweep_fn(ref);
+			print_pipeline(name, rows);
+			all_rows.insert(all_rows.end(), rows.begin(), rows.end());
+		};
 
-	run("Uniform",        sweep_uniform);
-	run("Classic mixed",  sweep_classic_mixed);
-	run("Posit pipeline", sweep_posit_pipeline);
-	run("Fixed-point",    sweep_fixedpoint_pipeline);
-	run("Cross-system",   sweep_cross_system);
-	run("LNS experiment", sweep_lns_experiment);
+		run("Uniform",        sweep_uniform);
+		run("Classic mixed",  sweep_classic_mixed);
+		run("Posit pipeline", sweep_posit_pipeline);
+		run("Fixed-point",    sweep_fixedpoint_pipeline);
+		run("Cross-system",   sweep_cross_system);
+		run("LNS experiment", sweep_lns_experiment);
 
-	write_sweep_csv(outdir + "/precision_sweep.csv", all_rows);
+		std::string csv_path = outdir + "/precision_sweep.csv";
+		write_sweep_csv(csv_path, all_rows);
 
-	std::cout << "\n" << std::string(120, '=') << "\n";
-	std::cout << "  Summary: " << all_rows.size() << " configurations measured\n";
-	std::cout << "  CSV: " << outdir << "/precision_sweep.csv\n";
-	std::cout << std::string(120, '=') << "\n";
+		std::cout << "\n" << std::string(120, '=') << "\n";
+		std::cout << "  Summary: " << all_rows.size() << " configurations measured\n";
+		std::cout << "  CSV: " << csv_path << "\n";
+		std::cout << std::string(120, '=') << "\n";
 
-	return 0;
-  } catch (const std::exception& e) {
-	std::cerr << "ERROR: " << e.what() << '\n';
-	return 1;
-  }
+		return 0;
+	} catch (const std::exception& e) {
+		std::cerr << "ERROR: " << e.what() << '\n';
+		return 1;
+	}
 }
