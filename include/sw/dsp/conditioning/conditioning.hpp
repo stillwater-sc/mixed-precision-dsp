@@ -7,4 +7,5 @@
 #include <sw/dsp/conditioning/envelope.hpp>
 #include <sw/dsp/conditioning/compressor.hpp>
 #include <sw/dsp/conditioning/agc.hpp>
-// Future: interpolator.hpp, decimator.hpp, resampler.hpp (depends on #33)
+// Rational sample-rate conversion (Issue #71)
+#include <sw/dsp/conditioning/src.hpp>

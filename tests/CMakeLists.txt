@@ -79,5 +79,8 @@ dsp_add_test(test_bluestein)
 # Higher-order noise shaping (Issue #70)
 dsp_add_test(test_noise_shaping)
 
+# Rational sample-rate conversion (Issue #71)
+dsp_add_test(test_src)
+
 # Type projection/embedding
 dsp_add_test(test_projection)
