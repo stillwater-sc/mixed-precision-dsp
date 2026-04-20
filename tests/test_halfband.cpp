@@ -134,7 +134,7 @@ void test_impulse_response() {
 		output.push_back(hb.process(0.0));
 	}
 
-	// Output should match taps in reverse (convolution)
+	// Output should match taps: y[n] = h[n] for unit impulse at n=0
 	for (std::size_t i = 0; i < 11; ++i) {
 		if (!near(output[i], static_cast<double>(taps[i]), 1e-12))
 			throw std::runtime_error("test failed: impulse y[" +

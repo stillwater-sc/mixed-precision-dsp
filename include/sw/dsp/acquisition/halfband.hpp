@@ -24,6 +24,7 @@
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/filter/fir/remez.hpp>
 #include <sw/dsp/math/constants.hpp>
+#include <sw/dsp/math/denormal.hpp>
 
 namespace sw::dsp {
 
@@ -143,14 +144,16 @@ public:
 		delay_[write_pos_] = static_cast<StateScalar>(in);
 
 		std::size_t ci = (write_pos_ + N - center_) % N;
-		StateScalar acc = static_cast<StateScalar>(center_coeff_) * delay_[ci];
+		StateScalar acc = static_cast<StateScalar>(center_coeff_) * delay_[ci]
+		                + denormal_.ac();
 
 		for (std::size_t i = 0; i < sym_offsets_.size(); ++i) {
 			std::size_t k = sym_offsets_[i];
 			std::size_t left  = (ci + N - k) % N;
 			std::size_t right = (ci + k) % N;
 			acc = acc + static_cast<StateScalar>(sym_coeffs_[i]) *
-			            (delay_[left] + delay_[right]);
+			            (delay_[left] + delay_[right])
+			    + denormal_.ac();
 		}
 
 		write_pos_ = (write_pos_ + 1) % N;
@@ -187,14 +190,16 @@ public:
 		if (emit) {
 			std::size_t ci = (write_pos_ + N - center_) % N;
 			StateScalar acc =
-				static_cast<StateScalar>(center_coeff_) * delay_[ci];
+				static_cast<StateScalar>(center_coeff_) * delay_[ci]
+				+ denormal_.ac();
 
 			for (std::size_t i = 0; i < sym_offsets_.size(); ++i) {
 				std::size_t k = sym_offsets_[i];
 				std::size_t left  = (ci + N - k) % N;
 				std::size_t right = (ci + k) % N;
 				acc = acc + static_cast<StateScalar>(sym_coeffs_[i]) *
-				            (delay_[left] + delay_[right]);
+				            (delay_[left] + delay_[right])
+				    + denormal_.ac();
 			}
 
 			write_pos_ = (write_pos_ + 1) % N;
@@ -207,7 +212,7 @@ public:
 		return {false, SampleScalar{}};
 	}
 
-	// Block decimation: process input, append decimated outputs
+	// Block decimation: process input, append decimated outputs to vector
 	void process_block_decimate(std::span<const SampleScalar> input,
 	                            std::vector<SampleScalar>& output) {
 		for (auto s : input) {
@@ -252,6 +257,7 @@ private:
 	CoeffScalar center_coeff_;
 	std::vector<std::size_t> sym_offsets_;
 	std::vector<CoeffScalar> sym_coeffs_;
+	DenormalPrevention<StateScalar> denormal_;
 };
 
 } // namespace sw::dsp
