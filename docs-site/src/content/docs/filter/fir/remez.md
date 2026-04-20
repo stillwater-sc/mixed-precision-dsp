@@ -84,9 +84,9 @@ frequency ($f_s / 2$).
 auto lp = sw::dsp::design_fir_equiripple_lowpass<double>(
     num_taps, f_pass, f_stop, passband_weight, stopband_weight);
 
-// Equiripple bandpass: pass from f_low to f_high
+// Equiripple bandpass: pass from pass1 to pass2, stop below stop1 and above stop2
 auto bp = sw::dsp::design_fir_equiripple_bandpass<double>(
-    num_taps, f_low, f_high, transition_width, passband_weight, stopband_weight);
+    num_taps, stop1, pass1, pass2, stop2, stopband_weight, passband_weight);
 ```
 
 ### Parameters
