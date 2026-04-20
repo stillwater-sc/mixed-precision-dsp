@@ -84,3 +84,6 @@ dsp_add_test(test_src)
 
 # Type projection/embedding
 dsp_add_test(test_projection)
+
+# CIC decimation/interpolation (Issue #86)
+dsp_add_test(test_cic)
