@@ -58,6 +58,9 @@
 // Image processing
 #include <sw/dsp/image/image.hpp>
 
+// High-rate data acquisition
+#include <sw/dsp/acquisition/acquisition.hpp>
+
 // Numerical analysis
 #include <sw/dsp/analysis/analysis.hpp>
 
