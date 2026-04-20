@@ -22,7 +22,7 @@ high-speed data acquisition systems.
 A typical high-rate acquisition chain processes an ADC output through several
 stages of decimation before the signal reaches the application:
 
-```
+```text
 ┌─────────┐    ┌─────────────┐    ┌───────────┐    ┌──────────────┐    ┌────────┐
 │ ADC     │───>│ CIC         │───>│ CIC Comp  │───>│ Half-Band    │───>│ Final  │
 │ 1 GSPS  │    │ Decimator   │    │ Filter    │    │ Decimator    │    │ FIR    │

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT
 
 #include <sw/dsp/acquisition/cic.hpp>
+#include <sw/dsp/math/constants.hpp>
 
 #include <cmath>
 #include <iostream>
@@ -282,7 +283,7 @@ void test_mixed_precision() {
 	// Generate a signal with small amplitude to stress precision
 	std::vector<double> input(800);
 	for (std::size_t i = 0; i < input.size(); ++i) {
-		input[i] = 1e-4 * std::sin(2.0 * M_PI * 7.0 *
+		input[i] = 1e-4 * std::sin(sw::dsp::two_pi * 7.0 *
 			static_cast<double>(i) / static_cast<double>(input.size()));
 	}
 

@@ -21,7 +21,9 @@
 #include <cstddef>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
+#include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 
 namespace sw::dsp {
@@ -32,6 +34,17 @@ inline int cic_bit_growth(int stages, int decimation, int delay = 1) {
 	return stages * static_cast<int>(std::ceil(
 		std::log2(static_cast<double>(decimation) * static_cast<double>(delay))));
 }
+
+namespace detail {
+inline void validate_cic_params(int ratio, int stages, int delay, const char* name) {
+	if (ratio < 1)
+		throw std::invalid_argument(std::string(name) + ": ratio must be >= 1");
+	if (stages < 1)
+		throw std::invalid_argument(std::string(name) + ": number of stages must be >= 1");
+	if (delay < 1)
+		throw std::invalid_argument(std::string(name) + ": differential delay must be >= 1");
+}
+} // namespace detail
 
 // CIC decimation filter
 //
@@ -48,19 +61,15 @@ public:
 	using sample_scalar = SampleScalar;
 
 	CICDecimator(int decimation_ratio, int num_stages, int differential_delay = 1)
-		: R_(decimation_ratio), M_(num_stages), D_(differential_delay),
+		: R_((detail::validate_cic_params(decimation_ratio, num_stages,
+		       differential_delay, "CICDecimator"), decimation_ratio)),
+		  M_(num_stages), D_(differential_delay),
 		  integrators_(static_cast<std::size_t>(num_stages), StateScalar{}),
 		  comb_state_(static_cast<std::size_t>(num_stages), StateScalar{}),
 		  comb_delay_(static_cast<std::size_t>(num_stages) *
 		              static_cast<std::size_t>(differential_delay), StateScalar{}),
 		  comb_write_(static_cast<std::size_t>(num_stages), 0),
 		  count_(0) {
-		if (decimation_ratio < 1)
-			throw std::invalid_argument("CICDecimator: decimation ratio must be >= 1");
-		if (num_stages < 1)
-			throw std::invalid_argument("CICDecimator: number of stages must be >= 1");
-		if (differential_delay < 1)
-			throw std::invalid_argument("CICDecimator: differential delay must be >= 1");
 	}
 
 	// Feed one input sample. Returns true when an output is ready.
@@ -104,6 +113,19 @@ public:
 				output.push_back(this->output());
 			}
 		}
+	}
+
+	// Dense-vector overload for signal containers
+	mtl::vec::dense_vector<SampleScalar> process_block(
+			const mtl::vec::dense_vector<SampleScalar>& input) {
+		std::vector<SampleScalar> tmp;
+		tmp.reserve(input.size() / static_cast<std::size_t>(R_) + 1);
+		for (std::size_t i = 0; i < input.size(); ++i) {
+			if (push(input[i])) tmp.push_back(this->output());
+		}
+		mtl::vec::dense_vector<SampleScalar> result(tmp.size());
+		for (std::size_t i = 0; i < tmp.size(); ++i) result[i] = tmp[i];
+		return result;
 	}
 
 	// Reset all internal state
@@ -155,18 +177,14 @@ public:
 	using sample_scalar = SampleScalar;
 
 	CICInterpolator(int interpolation_ratio, int num_stages, int differential_delay = 1)
-		: R_(interpolation_ratio), M_(num_stages), D_(differential_delay),
+		: R_((detail::validate_cic_params(interpolation_ratio, num_stages,
+		       differential_delay, "CICInterpolator"), interpolation_ratio)),
+		  M_(num_stages), D_(differential_delay),
 		  integrators_(static_cast<std::size_t>(num_stages), StateScalar{}),
 		  comb_delay_(static_cast<std::size_t>(num_stages) *
 		              static_cast<std::size_t>(differential_delay), StateScalar{}),
 		  comb_write_(static_cast<std::size_t>(num_stages), 0),
 		  phase_(0) {
-		if (interpolation_ratio < 1)
-			throw std::invalid_argument("CICInterpolator: interpolation ratio must be >= 1");
-		if (num_stages < 1)
-			throw std::invalid_argument("CICInterpolator: number of stages must be >= 1");
-		if (differential_delay < 1)
-			throw std::invalid_argument("CICInterpolator: differential delay must be >= 1");
 	}
 
 	// Feed one low-rate input sample. Call output() R times to get interpolated samples.
@@ -208,6 +226,19 @@ public:
 				out.push_back(output());
 			}
 		}
+	}
+
+	// Dense-vector overload for signal containers
+	mtl::vec::dense_vector<SampleScalar> process_block(
+			const mtl::vec::dense_vector<SampleScalar>& input) {
+		std::size_t out_size = input.size() * static_cast<std::size_t>(R_);
+		mtl::vec::dense_vector<SampleScalar> result(out_size);
+		std::size_t idx = 0;
+		for (std::size_t i = 0; i < input.size(); ++i) {
+			push(input[i]);
+			for (int r = 0; r < R_; ++r) result[idx++] = output();
+		}
+		return result;
 	}
 
 	void reset() {
