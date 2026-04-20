@@ -55,7 +55,10 @@ double noise_spectral_tilt(const mtl::vec::dense_vector<double>& reference,
 		sum_xy += x * y;
 		count += 1.0;
 	}
-	double slope = (count * sum_xy - sum_x * sum_y) / (count * sum_xx - sum_x * sum_x);
+	double denom = count * sum_xx - sum_x * sum_x;
+	if (count < 2.0 || std::abs(denom) < 1e-12)
+		throw std::runtime_error("test failed: insufficient data for spectral-tilt regression");
+	double slope = (count * sum_xy - sum_x * sum_y) / denom;
 	return slope;
 }
 
@@ -145,10 +148,15 @@ void test_increasing_tilt_with_order() {
 	std::cout << "  increasing_tilt: passed (1st=" << tilt1 << ", 2nd=" << tilt2 << ", 3rd=" << tilt3 << " dB/oct)\n";
 }
 
-void test_inband_sqnr_improvement() {
-	// Higher-order shaping should improve in-band SQNR for oversampled signals.
-	// Use a low-frequency tone at high sample rate (oversampled scenario).
+void test_broadband_sqnr() {
+	// Noise shaping redistributes noise spectrally — broadband SQNR may
+	// decrease with higher order because more energy is pushed to high
+	// frequencies. Verify all values are finite and compare against plain
+	// quantization baseline.
 	auto sig = sine<double>(8192, 100.0, 44100.0);
+
+	ADC<double, float> adc;
+	auto plain = adc.convert(sig);
 
 	FirstOrderNoiseShaper<double, float> shaper1;
 	SecondOrderNoiseShaper<double, float> shaper2;
@@ -158,14 +166,21 @@ void test_inband_sqnr_improvement() {
 	auto s2 = shaper2.process(sig);
 	auto s3 = shaper3.process(sig);
 
+	double sqnr_plain = sqnr_db(sig, plain);
 	double sqnr1 = sqnr_db(sig, s1);
 	double sqnr2 = sqnr_db(sig, s2);
 	double sqnr3 = sqnr_db(sig, s3);
 
-	if (!(std::isfinite(sqnr1) && std::isfinite(sqnr2) && std::isfinite(sqnr3)))
+	if (!(std::isfinite(sqnr_plain) && std::isfinite(sqnr1) &&
+	      std::isfinite(sqnr2) && std::isfinite(sqnr3)))
 		throw std::runtime_error("test failed: all SQNR values should be finite");
 
-	std::cout << "  inband_sqnr: passed (1st=" << sqnr1 << ", 2nd=" << sqnr2 << ", 3rd=" << sqnr3 << " dB)\n";
+	// All shaped outputs should have reasonable SQNR (> 100 dB for double->float)
+	if (!(sqnr1 > 100.0 && sqnr2 > 100.0 && sqnr3 > 100.0))
+		throw std::runtime_error("test failed: shaped SQNR too low");
+
+	std::cout << "  broadband_sqnr: passed (plain=" << sqnr_plain
+	          << ", 1st=" << sqnr1 << ", 2nd=" << sqnr2 << ", 3rd=" << sqnr3 << " dB)\n";
 }
 
 void test_reset() {
@@ -306,7 +321,7 @@ int main() {
 		test_second_order_tilt();
 		test_third_order_tilt();
 		test_increasing_tilt_with_order();
-		test_inband_sqnr_improvement();
+		test_broadband_sqnr();
 		test_reset();
 		test_stability_aggressive_quantization();
 		test_posit_combination();

@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
+#include <sw/dsp/math/denormal.hpp>
 
 namespace sw::dsp {
 
@@ -29,7 +30,7 @@ public:
 		LowPrecT quantized = static_cast<LowPrecT>(shaped);
 		HighPrecT reconstructed = static_cast<HighPrecT>(quantized);
 		HighPrecT error = shaped - reconstructed;
-		error_feedback_ = error;
+		error_feedback_ = error + denormal_.ac();
 		return quantized;
 	}
 
@@ -45,6 +46,7 @@ public:
 
 private:
 	HighPrecT error_feedback_{};
+	DenormalPrevention<HighPrecT> denormal_;
 };
 
 // Second-order error-feedback noise shaper.
@@ -60,7 +62,7 @@ public:
 		HighPrecT reconstructed = static_cast<HighPrecT>(quantized);
 		HighPrecT error = shaped - reconstructed;
 		e2_ = e1_;
-		e1_ = error;
+		e1_ = error + denormal_.ac();
 		return quantized;
 	}
 
@@ -77,6 +79,7 @@ public:
 private:
 	HighPrecT e1_{};
 	HighPrecT e2_{};
+	DenormalPrevention<HighPrecT> denormal_;
 };
 
 // Third-order error-feedback noise shaper.
@@ -94,7 +97,7 @@ public:
 		HighPrecT error = shaped - reconstructed;
 		e3_ = e2_;
 		e2_ = e1_;
-		e1_ = error;
+		e1_ = error + denormal_.ac();
 		return quantized;
 	}
 
@@ -112,6 +115,7 @@ private:
 	HighPrecT e1_{};
 	HighPrecT e2_{};
 	HighPrecT e3_{};
+	DenormalPrevention<HighPrecT> denormal_;
 };
 
 } // namespace sw::dsp
