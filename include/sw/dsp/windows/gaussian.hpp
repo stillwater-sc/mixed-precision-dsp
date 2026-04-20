@@ -17,6 +17,7 @@ template <DspField T>
 mtl::vec::dense_vector<T> gaussian_window(std::size_t length, double sigma = 0.4) {
 	mtl::vec::dense_vector<T> w(length);
 	if (length <= 1) { if (length == 1) w[0] = T{1}; return w; }
+	if (sigma <= 0.0) sigma = 0.4;
 	double half_N = static_cast<double>(length - 1) * 0.5;
 	double denom = sigma * half_N;
 	for (std::size_t n = 0; n < length; ++n) {

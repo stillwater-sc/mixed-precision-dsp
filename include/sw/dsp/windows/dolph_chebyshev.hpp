@@ -25,7 +25,8 @@ namespace detail {
 inline double chebyshev_poly(int n, double x) {
 	if (std::abs(x) <= 1.0)
 		return std::cos(static_cast<double>(n) * std::acos(x));
-	return std::cosh(static_cast<double>(n) * std::acosh(std::abs(x)));
+	double val = std::cosh(static_cast<double>(n) * std::acosh(std::abs(x)));
+	return (x < 0.0 && (n % 2 != 0)) ? -val : val;
 }
 
 } // namespace detail
