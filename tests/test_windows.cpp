@@ -98,6 +98,79 @@ void test_flat_top() {
 	std::cout << "  flat_top: passed\n";
 }
 
+void test_tukey() {
+	auto w = tukey_window<double>(64, 0.5);
+	if (!(w.size() == 64)) throw std::runtime_error("test failed: tukey size");
+	// Symmetric
+	if (!(near(w[0], w[63], 1e-10))) throw std::runtime_error("test failed: tukey symmetry");
+	// Center should be 1.0 (flat region)
+	if (!(near(w[31], 1.0, 1e-10) || near(w[32], 1.0, 1e-10)))
+		throw std::runtime_error("test failed: tukey center should be 1.0");
+	// alpha=0 should give rectangular
+	auto w0 = tukey_window<double>(64, 0.0);
+	if (!(near(w0[0], 1.0, 1e-10))) throw std::runtime_error("test failed: tukey alpha=0");
+	// alpha=1 should match Hanning (endpoints near zero)
+	auto w1 = tukey_window<double>(64, 1.0);
+	if (!(near(w1[0], 0.0, 1e-10))) throw std::runtime_error("test failed: tukey alpha=1 endpoint");
+	std::cout << "  tukey: passed\n";
+}
+
+void test_gaussian() {
+	auto w = gaussian_window<double>(64, 0.4);
+	if (!(w.size() == 64)) throw std::runtime_error("test failed: gaussian size");
+	// Symmetric
+	if (!(near(w[0], w[63], 1e-10))) throw std::runtime_error("test failed: gaussian symmetry");
+	// Peak at center = 1.0
+	double center = static_cast<double>(w[31]);
+	double center2 = static_cast<double>(w[32]);
+	if (!(near(center, 1.0, 0.01) || near(center2, 1.0, 0.01)))
+		throw std::runtime_error("test failed: gaussian peak");
+	// Endpoints should be small for sigma=0.4
+	if (!(w[0] < 0.1)) throw std::runtime_error("test failed: gaussian endpoint");
+	// Larger sigma -> wider window (less attenuation at edges)
+	auto w_wide = gaussian_window<double>(64, 1.0);
+	if (!(w_wide[0] > w[0]))
+		throw std::runtime_error("test failed: gaussian sigma=1.0 should be wider");
+	std::cout << "  gaussian: passed\n";
+}
+
+void test_dolph_chebyshev() {
+	auto w = dolph_chebyshev_window<double>(64, 100.0);
+	if (!(w.size() == 64)) throw std::runtime_error("test failed: dolph_chebyshev size");
+	// Symmetric
+	if (!(near(w[0], w[63], 1e-6))) throw std::runtime_error("test failed: dolph_chebyshev symmetry");
+	// Peak = 1.0 (normalized)
+	double max_val = 0;
+	for (std::size_t i = 0; i < 64; ++i) {
+		if (static_cast<double>(w[i]) > max_val)
+			max_val = static_cast<double>(w[i]);
+	}
+	if (!(near(max_val, 1.0, 1e-6)))
+		throw std::runtime_error("test failed: dolph_chebyshev peak should be 1.0");
+	// All values should be positive for reasonable attenuation
+	for (std::size_t i = 0; i < 64; ++i) {
+		if (!(static_cast<double>(w[i]) > -0.01))
+			throw std::runtime_error("test failed: dolph_chebyshev negative value at " +
+			                         std::to_string(i));
+	}
+	std::cout << "  dolph_chebyshev: passed\n";
+}
+
+void test_bartlett_hann() {
+	auto w = bartlett_hann_window<double>(64);
+	if (!(w.size() == 64)) throw std::runtime_error("test failed: bartlett_hann size");
+	// Symmetric
+	if (!(near(w[0], w[63], 1e-10)))
+		throw std::runtime_error("test failed: bartlett_hann symmetry");
+	// Endpoints should be small (zero at n=0 for this formula)
+	if (!(w[0] >= 0.0 && w[0] < 0.2))
+		throw std::runtime_error("test failed: bartlett_hann endpoint");
+	// Peak near center
+	if (!(w[31] > 0.9 || w[32] > 0.9))
+		throw std::runtime_error("test failed: bartlett_hann peak");
+	std::cout << "  bartlett_hann: passed\n";
+}
+
 void test_apply_window() {
 	auto sig = sine<double>(64, 1.0, 64.0);
 	auto win = hamming_window<double>(64);
@@ -184,6 +257,10 @@ int main() {
 		test_blackman();
 		test_kaiser();
 		test_flat_top();
+		test_tukey();
+		test_gaussian();
+		test_dolph_chebyshev();
+		test_bartlett_hann();
 		test_apply_window();
 		test_window_float();
 
