@@ -79,6 +79,7 @@ struct FftRow {
 	int         fft_size;
 	std::string signal_type;
 	double      snr_db;
+	double      sqnr_db;
 	double      sfdr_db;
 	double      leakage_error;
 	double      parseval_error;
@@ -158,9 +159,9 @@ RefData gen_chirp(int N) {
 	double f0 = 0.0, f1 = 0.5 * N;
 	for (int n = 0; n < N; ++n) {
 		double t = static_cast<double>(n) / static_cast<double>(N);
-		double freq = f0 + (f1 - f0) * t;
+		double phase = two_pi * (f0 * t + 0.5 * (f1 - f0) * t * t);
 		rd.signal[static_cast<std::size_t>(n)] =
-			AMPLITUDE * std::sin(two_pi * freq * t);
+			AMPLITUDE * std::sin(phase);
 	}
 	auto fft_out = run_ref_fft(rd.signal);
 	rd.spectrum.resize(static_cast<std::size_t>(N));
@@ -249,7 +250,8 @@ FftRow measure_fft(const std::string& config_name,
 		quantized_signal[static_cast<std::size_t>(n)] = static_cast<double>(sample);
 	}
 
-	// Run FFT in StateT precision
+	// Run FFT in StateT precision (twiddle factors also use StateT;
+	// the library does not yet support a separate twiddle type)
 	spectral::fft_forward<StateT>(data);
 
 	// Convert result to std::complex<double> for comparison
@@ -267,6 +269,7 @@ FftRow measure_fft(const std::string& config_name,
 		ref_q[i] = ref_of_quantized[i];
 
 	double snr  = compute_snr(ref.spectrum, test_spectrum);
+	double sqnr = compute_snr(ref_q, test_spectrum);
 	double sfdr = compute_sfdr(test_spectrum, ref.peak_bin);
 	double leak = compute_leakage(test_spectrum, ref.peak_bin);
 	double pars = compute_parseval_error(quantized_signal, test_spectrum);
@@ -275,7 +278,7 @@ FftRow measure_fft(const std::string& config_name,
 	double energy  = std::pow(static_cast<double>(state_bits) / 64.0, 1.5);
 
 	return {config_name, number_system, sample_bits, total_bits, energy,
-	        N, signal_type, snr, sfdr, leak, pars};
+	        N, signal_type, snr, sqnr, sfdr, leak, pars};
 }
 
 // ============================================================================
@@ -328,6 +331,7 @@ std::vector<FftRow> sweep_uniform() {
 	add_uniform<cf16>(rows,   "cfloat<16,5>",   "cfloat",16);
 	add_uniform<fx32>(rows,   "fixpnt<32,16>",  "fixpnt",32);
 	add_uniform<fx16>(rows,   "fixpnt<16,8>",   "fixpnt",16);
+	add_uniform<lns16>(rows,  "lns<16,10>",     "lns",   16);
 
 	std::cout << " done (" << rows.size() << " rows)\n";
 	return rows;
@@ -354,6 +358,9 @@ std::vector<FftRow> sweep_named() {
 
 	add_mixed<p32, float>(rows,
 		"Cross-system", "mixed", 32, 32, 32);
+
+	add_mixed<p32, lns16>(rows,
+		"LNS input", "mixed", 16, 32, 32);
 
 	std::cout << " done (" << rows.size() << " rows)\n";
 	return rows;
@@ -414,9 +421,9 @@ void print_summary(const std::vector<FftRow>& rows) {
 
 void write_csv(const std::string& path, const std::vector<FftRow>& rows) {
 	std::ofstream ofs(path);
-	if (!ofs) { std::cerr << "WARNING: cannot open " << path << "\n"; return; }
+	if (!ofs) throw std::runtime_error("cannot open output file: " + path);
 	ofs << "config_name,number_system,sample_bits,total_bits,energy_proxy,"
-	    << "fft_size,signal_type,snr_db,sfdr_db,leakage_error,parseval_error\n";
+	    << "fft_size,signal_type,snr_db,sqnr_db,sfdr_db,leakage_error,parseval_error\n";
 	ofs << std::setprecision(15);
 	for (const auto& r : rows) {
 		ofs << csv_quote(r.config_name) << ","
@@ -427,6 +434,7 @@ void write_csv(const std::string& path, const std::vector<FftRow>& rows) {
 		    << r.fft_size << ","
 		    << csv_quote(r.signal_type) << ","
 		    << r.snr_db << ","
+		    << r.sqnr_db << ","
 		    << r.sfdr_db << ","
 		    << r.leakage_error << ","
 		    << r.parseval_error << "\n";
@@ -445,7 +453,7 @@ int main(int argc, char* argv[]) {
 
 		std::cout << std::string(110, '=') << "\n";
 		std::cout << "  FFT Trade-Off Analysis — Pareto Frontier\n";
-		std::cout << "  5 number systems, 15 configurations\n";
+		std::cout << "  5 number systems, 17 configurations\n";
 		std::cout << "  Signals: single tone, two-tone, noise, chirp\n";
 		std::cout << "  FFT sizes: 64, 256, 1024, 4096\n";
 		std::cout << "  Metrics: SNR, SFDR, spectral leakage, Parseval energy\n";
