@@ -87,3 +87,6 @@ dsp_add_test(test_projection)
 
 # CIC decimation/interpolation (Issue #86)
 dsp_add_test(test_cic)
+
+# Half-band FIR decimation (Issue #87)
+dsp_add_test(test_halfband)

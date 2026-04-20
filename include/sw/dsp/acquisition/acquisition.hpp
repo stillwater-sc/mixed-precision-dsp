@@ -5,3 +5,4 @@
 // SPDX-License-Identifier: MIT
 
 #include <sw/dsp/acquisition/cic.hpp>
+#include <sw/dsp/acquisition/halfband.hpp>
