@@ -25,6 +25,7 @@
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/filter/fir/fir_design.hpp>
+#include <sw/dsp/math/denormal.hpp>
 #include <sw/dsp/windows/kaiser.hpp>
 
 namespace sw::dsp {
@@ -72,7 +73,7 @@ public:
 			}
 		}
 
-		delay_.resize(sub_len, SampleScalar{});
+		delay_ = mtl::vec::dense_vector<SampleScalar>(sub_len, SampleScalar{});
 		write_pos_ = 0;
 	}
 
@@ -103,7 +104,7 @@ public:
 	}
 
 	void reset() {
-		for (auto& d : delay_) d = SampleScalar{};
+		for (std::size_t i = 0; i < delay_.size(); ++i) delay_[i] = SampleScalar{};
 		write_pos_ = 0;
 		time_reg_ = 0;
 	}
@@ -122,7 +123,8 @@ private:
 		std::size_t pos = (write_pos_ == 0) ? delay_.size() - 1 : write_pos_ - 1;
 		for (std::size_t p = 0; p < taps.size(); ++p) {
 			acc = acc + static_cast<StateScalar>(taps[p])
-			          * static_cast<StateScalar>(delay_[pos]);
+			          * static_cast<StateScalar>(delay_[pos])
+			    + denormal_.ac();
 			pos = (pos == 0) ? delay_.size() - 1 : pos - 1;
 		}
 		return static_cast<SampleScalar>(acc);
@@ -132,8 +134,9 @@ private:
 	std::size_t M_;
 	std::size_t time_reg_;
 	std::vector<std::vector<CoeffScalar>> sub_taps_;
-	std::vector<SampleScalar> delay_;
+	mtl::vec::dense_vector<SampleScalar> delay_;
 	std::size_t write_pos_;
+	DenormalPrevention<StateScalar> denormal_;
 };
 
 } // namespace sw::dsp

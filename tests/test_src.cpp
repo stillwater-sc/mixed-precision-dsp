@@ -272,6 +272,45 @@ void test_reset() {
 	std::cout << "  reset: passed\n";
 }
 
+void test_chunked_streaming() {
+	// Verify that processing as one buffer matches processing as chunks
+	RationalResampler<> resampler(3, 2);
+	auto sig = sine<double>(300, 440.0, 44100.0);
+
+	auto out_single = resampler.process(sig);
+
+	resampler.reset();
+
+	// Process in 4 chunks of varying sizes
+	std::size_t chunks[] = {50, 100, 80, 70};
+	std::vector<double> out_chunked;
+	std::size_t offset = 0;
+	for (auto chunk_size : chunks) {
+		mtl::vec::dense_vector<double> chunk(chunk_size);
+		for (std::size_t i = 0; i < chunk_size; ++i) {
+			chunk[i] = sig[offset + i];
+		}
+		auto chunk_out = resampler.process(chunk);
+		for (std::size_t i = 0; i < chunk_out.size(); ++i) {
+			out_chunked.push_back(static_cast<double>(chunk_out[i]));
+		}
+		offset += chunk_size;
+	}
+
+	if (out_single.size() != out_chunked.size())
+		throw std::runtime_error("test failed: chunked size " +
+		                         std::to_string(out_chunked.size()) +
+		                         " vs single " + std::to_string(out_single.size()));
+
+	for (std::size_t i = 0; i < out_single.size(); ++i) {
+		if (static_cast<double>(out_single[i]) != out_chunked[i])
+			throw std::runtime_error("test failed: chunked mismatch at " +
+			                         std::to_string(i));
+	}
+
+	std::cout << "  chunked_streaming: passed\n";
+}
+
 void test_posit_types() {
 	using p32 = sw::universal::posit<32, 2>;
 	RationalResampler<double, double, p32> resampler(3, 2);
@@ -342,6 +381,7 @@ int main() {
 		test_integer_upsample();
 		test_integer_downsample();
 		test_reset();
+		test_chunked_streaming();
 		test_posit_types();
 		test_fixpnt_types();
 		test_invalid_args();
