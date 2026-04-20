@@ -115,6 +115,51 @@ Designed for **amplitude accuracy**: the scalloping loss is nearly zero
 ($< 0.01\,\text{dB}$), making it ideal for calibration and instrument
 measurement at the expense of a very wide main lobe.
 
+### Tukey (Cosine-Tapered)
+
+$$
+w[n] = \begin{cases}
+\frac{1}{2}\left[1 + \cos\!\left(\frac{2\pi}{\alpha}\left(\frac{n}{N-1} - \frac{\alpha}{2}\right)\right)\right] & 0 \leq \frac{n}{N-1} < \frac{\alpha}{2} \\
+1 & \frac{\alpha}{2} \leq \frac{n}{N-1} \leq 1 - \frac{\alpha}{2} \\
+\frac{1}{2}\left[1 + \cos\!\left(\frac{2\pi}{\alpha}\left(\frac{n}{N-1} - 1 + \frac{\alpha}{2}\right)\right)\right] & 1 - \frac{\alpha}{2} < \frac{n}{N-1} \leq 1
+\end{cases}
+$$
+
+The parameter $\alpha \in [0, 1]$ controls the fraction of the window
+that is tapered. $\alpha = 0$ gives the rectangular window; $\alpha = 1$
+gives the Hanning window. Useful when a flat passband with controlled
+edge tapering is needed.
+
+### Gaussian
+
+$$
+w[n] = \exp\!\left(-\frac{1}{2}\left(\frac{n - (N\!-\!1)/2}{\sigma\,(N\!-\!1)/2}\right)^2\right)
+$$
+
+The parameter $\sigma$ controls the width: smaller values give narrower
+windows with more attenuation at the edges. The Gaussian window has no
+side lobes in the continuous case but achieves only modest side lobe
+suppression in the discrete DFT.
+
+### Dolph-Chebyshev
+
+Designed so that all side lobes are exactly equal at a specified
+attenuation level. This is optimal in the minimax sense: for a given
+side lobe level, no other window achieves a narrower main lobe.
+
+The window is constructed in the frequency domain using Chebyshev
+polynomials and transformed to the time domain via inverse DFT.
+Parameter: `attenuation_db` (default 100 dB).
+
+### Bartlett-Hann
+
+$$
+w[n] = 0.62 - 0.48\left|\frac{n}{N-1} - 0.5\right| + 0.38\cos\!\left(2\pi\left(\frac{n}{N-1} - 0.5\right)\right)
+$$
+
+A hybrid between the Bartlett (triangular) and Hann windows. Provides
+moderate side lobe rejection with good side lobe rolloff.
+
 ## Library API
 
 Each window function returns a `mtl::vec::dense_vector<T>` of length $N$:
@@ -125,12 +170,16 @@ Each window function returns a `mtl::vec::dense_vector<T>` of length $N$:
 using Scalar = double;
 constexpr std::size_t N = 1024;
 
-auto rect    = sw::dsp::rectangular<Scalar>(N);
-auto ham     = sw::dsp::hamming<Scalar>(N);
-auto hann    = sw::dsp::hanning<Scalar>(N);
-auto black   = sw::dsp::blackman<Scalar>(N);
-auto kai     = sw::dsp::kaiser<Scalar>(N, 8.6);
-auto flat    = sw::dsp::flattop<Scalar>(N);
+auto rect    = sw::dsp::rectangular_window<Scalar>(N);
+auto ham     = sw::dsp::hamming_window<Scalar>(N);
+auto hann    = sw::dsp::hanning_window<Scalar>(N);
+auto black   = sw::dsp::blackman_window<Scalar>(N);
+auto kai     = sw::dsp::kaiser_window<Scalar>(N, 8.6);
+auto flat    = sw::dsp::flat_top_window<Scalar>(N);
+auto tuk     = sw::dsp::tukey_window<Scalar>(N, 0.5);
+auto gauss   = sw::dsp::gaussian_window<Scalar>(N, 0.4);
+auto cheby   = sw::dsp::dolph_chebyshev_window<Scalar>(N, 100.0);
+auto bh      = sw::dsp::bartlett_hann_window<Scalar>(N);
 ```
 
 ### Applying a Window
