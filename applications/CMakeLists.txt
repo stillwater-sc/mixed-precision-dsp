@@ -27,5 +27,8 @@ add_subdirectory(mp_comparison)
 # Flagship precision sweep tool (Issue #69)
 add_subdirectory(precision_sweep)
 
+# FFT trade-off analysis (Issue #74)
+add_subdirectory(fft_tradeoff)
+
 # Phase 8: Signal conditioning
 # add_subdirectory(conditioning_demo)
