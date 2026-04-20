@@ -3,7 +3,7 @@ title: Mixed-Precision DSP
 description: Header-only C++20 library for mixed-precision digital signal processing
 template: splash
 hero:
-  tagline: "v0.4.1 — Explore how arithmetic type selection impacts DSP algorithm quality, performance, and energy efficiency."
+  tagline: "v0.5.0 — Explore how arithmetic type selection impacts DSP algorithm quality, performance, and energy efficiency."
   actions:
     - text: Get Started
       link: /mixed-precision-dsp/getting-started/installation/
@@ -67,11 +67,11 @@ and noise shaping.
 | Module | What it provides |
 |--------|-----------------|
 | **signals** | Signal containers, generators (sine, chirp, noise), sampling utilities |
-| **windows** | Hamming, Hanning, Blackman, Kaiser, flat-top window functions |
-| **conditioning** | Envelope detection, dynamic range compression, AGC |
-| **spectral** | DFT, FFT, PSD (Welch), spectrograms, Z-transform |
-| **filter** | Butterworth, Chebyshev I/II, Elliptic, Bessel, Legendre IIR; windowed/equiripple FIR; polyphase multirate |
+| **windows** | Hamming, Hanning, Blackman, Kaiser, flat-top, Tukey, Gaussian, Dolph-Chebyshev, Bartlett-Hann |
+| **conditioning** | Envelope detection, dynamic range compression, AGC, rational sample-rate conversion |
+| **spectral** | DFT, FFT, arbitrary-length FFT (Bluestein), PSD (Welch), spectrograms, Z-transform |
+| **filter** | Butterworth, Chebyshev I/II, Elliptic, Bessel, Legendre IIR; windowed/equiripple FIR (Remez); polyphase multirate; zero-phase filtfilt |
 | **estimation** | Kalman, Extended Kalman, Unscented Kalman, LMS, RLS adaptive filters |
 | **image** | 2D convolution, Sobel/Canny edge detection, morphological operations |
 | **analysis** | Stability margins, coefficient sensitivity, condition numbers |
-| **quantization** | ADC/DAC modeling, dithering, noise shaping, SQNR |
+| **quantization** | ADC/DAC modeling, dithering, 1st/2nd/3rd-order noise shaping, SQNR |
