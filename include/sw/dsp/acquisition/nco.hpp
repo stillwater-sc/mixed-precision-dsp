@@ -24,6 +24,7 @@
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/math/constants.hpp>
+#include <sw/dsp/math/denormal.hpp>
 
 namespace sw::dsp {
 
@@ -46,27 +47,27 @@ public:
 
 	// Construct an NCO with the given output frequency and sample rate.
 	// Frequency can be positive (counter-clockwise) or negative (clockwise).
-	NCO(SampleScalar frequency, SampleScalar sample_rate)
+	NCO(StateScalar frequency, StateScalar sample_rate)
 		: phase_{},
 		  phase_offset_{},
 		  two_pi_state_(static_cast<StateScalar>(two_pi)) {
-		if (!(sample_rate > SampleScalar{}))
+		if (!(sample_rate > StateScalar{}))
 			throw std::invalid_argument("NCO: sample_rate must be positive");
 		set_frequency(frequency, sample_rate);
 	}
 
 	// Set output frequency. The phase increment is frequency / sample_rate,
 	// normalized so 1.0 = one full cycle.
-	void set_frequency(SampleScalar frequency, SampleScalar sample_rate) {
-		if (!(sample_rate > SampleScalar{}))
+	void set_frequency(StateScalar frequency, StateScalar sample_rate) {
+		if (!(sample_rate > StateScalar{}))
 			throw std::invalid_argument("NCO: sample_rate must be positive");
-		phase_inc_ = static_cast<StateScalar>(frequency)
-		           / static_cast<StateScalar>(sample_rate);
+		phase_inc_ = frequency / sample_rate;
 	}
 
 	// Set a fixed phase offset (in normalized units, 1.0 = full cycle)
 	void set_phase_offset(StateScalar offset) {
-		phase_offset_ = offset;
+		using std::floor;
+		phase_offset_ = offset - floor(offset);
 	}
 
 	// Get the current phase accumulator value [0, 1)
@@ -77,11 +78,13 @@ public:
 
 	// Generate a single complex I/Q sample and advance the phase.
 	complex_t generate_sample() {
+		using std::cos; using std::sin;
 		StateScalar angle = (phase_ + phase_offset_) * two_pi_state_;
-		double a = static_cast<double>(angle);
 
-		SampleScalar i_out = static_cast<SampleScalar>(std::cos(a));
-		SampleScalar q_out = static_cast<SampleScalar>(std::sin(a));
+		SampleScalar i_out = static_cast<SampleScalar>(cos(angle))
+		                   + denormal_.ac();
+		SampleScalar q_out = static_cast<SampleScalar>(sin(angle))
+		                   + denormal_.ac();
 
 		phase_ = phase_ + phase_inc_;
 		wrap_phase();
@@ -91,10 +94,11 @@ public:
 
 	// Generate a single real (cosine) sample and advance the phase.
 	SampleScalar generate_real() {
+		using std::cos;
 		StateScalar angle = (phase_ + phase_offset_) * two_pi_state_;
-		double a = static_cast<double>(angle);
 
-		SampleScalar out = static_cast<SampleScalar>(std::cos(a));
+		SampleScalar out = static_cast<SampleScalar>(cos(angle))
+		                 + denormal_.ac();
 
 		phase_ = phase_ + phase_inc_;
 		wrap_phase();
@@ -157,6 +161,7 @@ private:
 	StateScalar phase_inc_;
 	StateScalar phase_offset_;
 	StateScalar two_pi_state_;
+	DenormalPrevention<SampleScalar> denormal_;
 
 	void wrap_phase() {
 		using std::floor;

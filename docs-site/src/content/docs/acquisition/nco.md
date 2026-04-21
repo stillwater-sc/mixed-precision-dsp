@@ -139,16 +139,19 @@ $$
 \Delta\phi = \frac{f_{\text{out}}}{f_s}
 $$
 
-The frequency resolution is:
+The frequency resolution is determined by the number of distinct
+representable phase states $N_\phi$:
 
 $$
-\Delta f_{\min} = \frac{f_s}{\text{range of } \phi}
+\Delta f_{\min} = \frac{f_s}{N_\phi}
 $$
 
-For a phase accumulator stored in `double` (53-bit mantissa), this gives
-sub-microhertz resolution at any practical sample rate. For posit or
-fixed-point accumulators, the resolution depends on the effective bit
-width near the values $[0, 1)$ where the phase lives.
+For a $W$-bit fixed-point accumulator, $N_\phi = 2^W$, so
+$\Delta f_{\min} = f_s / 2^W$. For a `double` phase accumulator
+($W \approx 53$), this gives sub-microhertz resolution at any practical
+sample rate. For posit or fixed-point accumulators, the resolution
+depends on the effective number of distinct phase values the type can
+represent in $[0, 1)$.
 
 ### Normalized Phase vs. Radians
 
