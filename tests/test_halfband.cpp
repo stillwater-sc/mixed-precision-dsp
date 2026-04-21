@@ -78,6 +78,29 @@ void test_design_lengths() {
 }
 
 // ============================================================================
+// Design with float: verify parameterized design works for non-double types
+// ============================================================================
+
+void test_design_float() {
+	auto taps = design_halfband<float>(11, 0.1f);
+
+	if (taps.size() != 11)
+		throw std::runtime_error("test failed: float design tap count");
+
+	std::size_t center = 5;
+	if (!near(static_cast<double>(taps[center]), 0.5, 1e-6))
+		throw std::runtime_error("test failed: float center tap");
+
+	// Even offsets must be zero
+	for (std::size_t k = 2; k <= center; k += 2) {
+		if (taps[center - k] != 0.0f || taps[center + k] != 0.0f)
+			throw std::runtime_error("test failed: float even-offset non-zero");
+	}
+
+	std::cout << "  design_float: passed\n";
+}
+
+// ============================================================================
 // DC gain: sum of taps should be ~1.0
 // ============================================================================
 
@@ -232,6 +255,28 @@ void test_block_processing() {
 }
 
 // ============================================================================
+// process_block throws when output span is too small
+// ============================================================================
+
+void test_block_output_validation() {
+	auto taps = design_halfband<double>(11, 0.1);
+	HalfBandFilter<double> hb(taps);
+
+	std::vector<double> input(20, 1.0);
+	std::vector<double> output(10);
+	bool caught = false;
+	try {
+		hb.process_block(std::span<const double>(input),
+		                 std::span<double>(output));
+	}
+	catch (const std::invalid_argument&) { caught = true; }
+	if (!caught)
+		throw std::runtime_error("test failed: undersized output should throw");
+
+	std::cout << "  block_output_validation: passed\n";
+}
+
+// ============================================================================
 // Decimation: output count and basic correctness
 // ============================================================================
 
@@ -240,8 +285,7 @@ void test_decimation_count() {
 	HalfBandFilter<double> hb(taps);
 
 	std::vector<double> input(100, 1.0);
-	std::vector<double> output;
-	hb.process_block_decimate(std::span<const double>(input), output);
+	auto output = hb.process_block_decimate(std::span<const double>(input));
 
 	// 100 input samples / 2 = 50 output samples
 	if (output.size() != 50)
@@ -257,8 +301,7 @@ void test_decimation_dc() {
 
 	// Feed DC = 1.0 through decimation — settled output should be ~1.0
 	std::vector<double> input(200, 1.0);
-	std::vector<double> output;
-	hb.process_block_decimate(std::span<const double>(input), output);
+	auto output = hb.process_block_decimate(std::span<const double>(input));
 
 	// Check last outputs are settled near 1.0
 	for (std::size_t i = output.size() - 10; i < output.size(); ++i) {
@@ -296,8 +339,7 @@ void test_decimation_correctness() {
 	}
 
 	// Integrated decimation
-	std::vector<double> dec_out;
-	hb_dec.process_block_decimate(std::span<const double>(input), dec_out);
+	auto dec_out = hb_dec.process_block_decimate(std::span<const double>(input));
 
 	if (downsampled.size() != dec_out.size())
 		throw std::runtime_error("test failed: decimation size mismatch: " +
@@ -414,6 +456,46 @@ void test_dense_vector() {
 }
 
 // ============================================================================
+// Constructor validation: rejects non-half-band taps
+// ============================================================================
+
+void test_constructor_validation() {
+	bool caught = false;
+
+	// Non-zero even offset from center
+	{
+		mtl::vec::dense_vector<double> bad(7, 0.0);
+		bad[3] = 0.5;    // center
+		bad[2] = 0.1;    // offset 1 (odd) — OK
+		bad[4] = 0.1;    // offset 1 (odd) — OK
+		bad[1] = 0.05;   // offset 2 (even) — should be zero
+		bad[5] = 0.05;   // offset 2 (even) — should be zero
+		bad[0] = 0.05;   // offset 3 (odd) — OK
+		bad[6] = 0.05;   // offset 3 (odd) — OK
+		caught = false;
+		try { HalfBandFilter<double> hb(bad); }
+		catch (const std::invalid_argument&) { caught = true; }
+		if (!caught)
+			throw std::runtime_error("test failed: non-zero even offset should throw");
+	}
+
+	// Asymmetric taps
+	{
+		mtl::vec::dense_vector<double> bad(7, 0.0);
+		bad[3] = 0.5;
+		bad[2] = 0.1;
+		bad[4] = 0.2;   // asymmetric
+		caught = false;
+		try { HalfBandFilter<double> hb(bad); }
+		catch (const std::invalid_argument&) { caught = true; }
+		if (!caught)
+			throw std::runtime_error("test failed: asymmetric taps should throw");
+	}
+
+	std::cout << "  constructor_validation: passed\n";
+}
+
+// ============================================================================
 // Parameter validation
 // ============================================================================
 
@@ -472,17 +554,20 @@ int main() {
 		std::cout << "Half-band FIR filter tests\n";
 		test_design_structure();
 		test_design_lengths();
+		test_design_float();
 		test_dc_gain();
 		test_nonzero_count();
 		test_impulse_response();
 		test_frequency_response();
 		test_block_processing();
+		test_block_output_validation();
 		test_decimation_count();
 		test_decimation_dc();
 		test_decimation_correctness();
 		test_reset();
 		test_mixed_precision();
 		test_dense_vector();
+		test_constructor_validation();
 		test_parameter_validation();
 		std::cout << "All half-band tests passed.\n";
 		return 0;

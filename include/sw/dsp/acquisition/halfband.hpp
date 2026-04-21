@@ -51,20 +51,23 @@ mtl::vec::dense_vector<T> design_halfband(
 			"design_halfband: num_taps must be of the form 4K+3 "
 			"(e.g., 3, 7, 11, 15, 19, ...)");
 
-	double tw = static_cast<double>(transition_width);
-	if (tw <= 0.0 || tw >= 0.5)
+	T tw = transition_width;
+	T half = T(0.5);
+	T quarter = T(0.25);
+	T two = T{1} + T{1};
+
+	if (!(tw > T{0}) || !(tw < half))
 		throw std::invalid_argument(
 			"design_halfband: transition_width must be in (0, 0.5)");
 
-	double pass_edge = 0.25 - tw / 2.0;
-	double stop_edge = 0.25 + tw / 2.0;
+	T pass_edge = quarter - tw / two;
+	T stop_edge = quarter + tw / two;
 
-	if (pass_edge <= 0.0 || stop_edge >= 0.5)
+	if (!(pass_edge > T{0}) || !(stop_edge < half))
 		throw std::invalid_argument(
 			"design_halfband: transition_width too large");
 
-	std::vector<T> bands   = {T{0}, static_cast<T>(pass_edge),
-	                          static_cast<T>(stop_edge), T(0.5)};
+	std::vector<T> bands   = {T{0}, pass_edge, stop_edge, half};
 	std::vector<T> desired = {T{1}, T{1}, T{0}, T{0}};
 	std::vector<T> weights = {T{1}, T{1}};
 
@@ -72,7 +75,7 @@ mtl::vec::dense_vector<T> design_halfband(
 
 	// Enforce exact half-band constraints
 	std::size_t center = (num_taps - 1) / 2;
-	taps[center] = static_cast<T>(0.5);
+	taps[center] = half;
 	for (std::size_t k = 2; k <= center; k += 2) {
 		taps[center - k] = T{0};
 		taps[center + k] = T{0};
@@ -80,22 +83,20 @@ mtl::vec::dense_vector<T> design_halfband(
 
 	// Enforce perfect symmetry on the non-zero taps
 	for (std::size_t k = 1; k <= center; k += 2) {
-		T avg = static_cast<T>(
-			(static_cast<double>(taps[center - k]) +
-			 static_cast<double>(taps[center + k])) / 2.0);
+		T avg = (taps[center - k] + taps[center + k]) / two;
 		taps[center - k] = avg;
 		taps[center + k] = avg;
 	}
 
 	// Normalize: center contributes 0.5, odd-offset taps must sum to 0.5
-	double sum_odd = 0.0;
+	T sum_odd{};
 	for (std::size_t k = 1; k <= center; k += 2) {
-		sum_odd += 2.0 * static_cast<double>(taps[center + k]);
+		sum_odd = sum_odd + two * taps[center + k];
 	}
-	if (std::abs(sum_odd) > 1e-15) {
-		double scale = 0.5 / sum_odd;
+	if (!(sum_odd == T{0})) {
+		T scale = half / sum_odd;
 		for (std::size_t k = 1; k <= center; k += 2) {
-			T val = static_cast<T>(static_cast<double>(taps[center + k]) * scale);
+			T val = taps[center + k] * scale;
 			taps[center - k] = val;
 			taps[center + k] = val;
 		}
@@ -130,6 +131,22 @@ public:
 		if ((taps.size() & 1) == 0)
 			throw std::invalid_argument("HalfBandFilter: num_taps must be odd");
 
+		// Validate half-band structure: even offsets from center must be zero,
+		// and taps must be symmetric
+		CoeffScalar zero{};
+		for (std::size_t k = 2; k <= center_; k += 2) {
+			if (!(taps[center_ - k] == zero) || !(taps[center_ + k] == zero))
+				throw std::invalid_argument(
+					"HalfBandFilter: even-offset taps must be zero "
+					"(offset " + std::to_string(k) + " is non-zero)");
+		}
+		for (std::size_t k = 1; k <= center_; ++k) {
+			if (!(taps[center_ - k] == taps[center_ + k]))
+				throw std::invalid_argument(
+					"HalfBandFilter: taps must be symmetric "
+					"(mismatch at offset " + std::to_string(k) + ")");
+		}
+
 		center_coeff_ = taps[center_];
 
 		for (std::size_t k = 1; k <= center_; k += 2) {
@@ -160,11 +177,13 @@ public:
 		return static_cast<SampleScalar>(acc);
 	}
 
-	// Block processing: full-rate
+	// Block processing: full-rate (output span must be >= input span)
 	void process_block(std::span<const SampleScalar> input,
 	                   std::span<SampleScalar> output) {
-		std::size_t n = std::min(input.size(), output.size());
-		for (std::size_t i = 0; i < n; ++i) {
+		if (output.size() < input.size())
+			throw std::invalid_argument(
+				"HalfBandFilter::process_block: output span too small");
+		for (std::size_t i = 0; i < input.size(); ++i) {
 			output[i] = process(input[i]);
 		}
 	}
@@ -212,27 +231,41 @@ public:
 		return {false, SampleScalar{}};
 	}
 
-	// Block decimation: process input, append decimated outputs to vector
-	void process_block_decimate(std::span<const SampleScalar> input,
-	                            std::vector<SampleScalar>& output) {
-		for (auto s : input) {
-			auto [ready, y] = process_decimate(s);
-			if (ready) output.push_back(y);
+	// Block decimation from span, returns dense_vector of decimated outputs
+	mtl::vec::dense_vector<SampleScalar> process_block_decimate(
+			std::span<const SampleScalar> input) {
+		// Pre-compute output count
+		std::size_t count = 0;
+		int phase = decimate_phase_;
+		for (std::size_t i = 0; i < input.size(); ++i) {
+			if (phase == 1) ++count;
+			phase = (phase == 0) ? 1 : 0;
 		}
+		mtl::vec::dense_vector<SampleScalar> output(count);
+		std::size_t idx = 0;
+		for (std::size_t i = 0; i < input.size(); ++i) {
+			auto [ready, y] = process_decimate(input[i]);
+			if (ready) output[idx++] = y;
+		}
+		return output;
 	}
 
 	// Dense-vector overload for decimation
 	mtl::vec::dense_vector<SampleScalar> process_block_decimate(
 			const mtl::vec::dense_vector<SampleScalar>& input) {
-		std::vector<SampleScalar> tmp;
-		tmp.reserve(input.size() / 2 + 1);
+		std::size_t count = 0;
+		int phase = decimate_phase_;
+		for (std::size_t i = 0; i < input.size(); ++i) {
+			if (phase == 1) ++count;
+			phase = (phase == 0) ? 1 : 0;
+		}
+		mtl::vec::dense_vector<SampleScalar> output(count);
+		std::size_t idx = 0;
 		for (std::size_t i = 0; i < input.size(); ++i) {
 			auto [ready, y] = process_decimate(input[i]);
-			if (ready) tmp.push_back(y);
+			if (ready) output[idx++] = y;
 		}
-		mtl::vec::dense_vector<SampleScalar> result(tmp.size());
-		for (std::size_t i = 0; i < tmp.size(); ++i) result[i] = tmp[i];
-		return result;
+		return output;
 	}
 
 	void reset() {
