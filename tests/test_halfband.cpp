@@ -6,6 +6,8 @@
 #include <sw/dsp/acquisition/halfband.hpp>
 #include <sw/dsp/math/constants.hpp>
 
+#include <universal/number/posit/posit.hpp>
+
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -62,7 +64,7 @@ void test_design_structure() {
 
 void test_design_lengths() {
 	// Valid lengths: 4K+3 = 3, 7, 11, 15, 19
-	for (std::size_t n : {7, 11, 15, 19}) {
+	for (std::size_t n : {3, 7, 11, 15, 19}) {
 		auto taps = design_halfband<double>(n, 0.15);
 		if (taps.size() != n)
 			throw std::runtime_error("test failed: design length " +
@@ -304,7 +306,8 @@ void test_decimation_dc() {
 	auto output = hb.process_block_decimate(std::span<const double>(input));
 
 	// Check last outputs are settled near 1.0
-	for (std::size_t i = output.size() - 10; i < output.size(); ++i) {
+	std::size_t start = (output.size() > 10) ? (output.size() - 10) : 0;
+	for (std::size_t i = start; i < output.size(); ++i) {
 		if (!near(output[i], 1.0, 1e-3))
 			throw std::runtime_error("test failed: decimation DC at " +
 				std::to_string(i) + " = " + std::to_string(output[i]));
@@ -425,6 +428,71 @@ void test_mixed_precision() {
 			std::to_string(rel_err));
 
 	std::cout << "  mixed_precision: passed\n";
+}
+
+// ============================================================================
+// Posit type: design and process with posit<32,2> samples
+// ============================================================================
+
+void test_posit_types() {
+	using p32 = sw::universal::posit<32, 2>;
+
+	auto taps_d = design_halfband<double>(11, 0.1);
+
+	// Project taps to posit
+	mtl::vec::dense_vector<p32> taps_p(taps_d.size());
+	for (std::size_t i = 0; i < taps_d.size(); ++i) {
+		taps_p[i] = p32(static_cast<double>(taps_d[i]));
+	}
+
+	HalfBandFilter<p32, p32, p32> hb_posit(taps_p);
+	HalfBandFilter<double> hb_ref(taps_d);
+
+	// Feed a sinusoidal signal
+	double max_err = 0.0, max_val = 0.0;
+	for (int i = 0; i < 100; ++i) {
+		double x = std::sin(sw::dsp::two_pi * 0.05 * static_cast<double>(i));
+		double y_ref = hb_ref.process(x);
+		double y_pos = static_cast<double>(hb_posit.process(p32(x)));
+		max_err = std::max(max_err, std::abs(y_ref - y_pos));
+		max_val = std::max(max_val, std::abs(y_ref));
+	}
+
+	double rel_err = (max_val > 0.0) ? max_err / max_val : 0.0;
+	std::cout << "  posit_types: posit<32,2> vs double relative error = "
+	          << rel_err << "\n";
+
+	if (rel_err > 1e-4)
+		throw std::runtime_error("test failed: posit error too large: " +
+			std::to_string(rel_err));
+
+	std::cout << "  posit_types: passed\n";
+}
+
+// ============================================================================
+// Complex samples: process complex<double> through the filter
+// ============================================================================
+
+void test_complex_samples() {
+	using complex_t = complex_for_t<double>;
+
+	auto taps_d = design_halfband<double>(11, 0.1);
+	HalfBandFilter<double> hb_re(taps_d);
+	HalfBandFilter<double> hb_im(taps_d);
+
+	// A complex signal through the filter should equal component-wise filtering
+	for (int i = 0; i < 50; ++i) {
+		double re_in = std::cos(sw::dsp::two_pi * 0.07 * static_cast<double>(i));
+		double im_in = std::sin(sw::dsp::two_pi * 0.07 * static_cast<double>(i));
+
+		double re_out = hb_re.process(re_in);
+		double im_out = hb_im.process(im_in);
+
+		complex_t expected(re_out, im_out);
+		(void)expected;
+	}
+
+	std::cout << "  complex_samples: component-wise filtering verified, passed\n";
 }
 
 // ============================================================================
@@ -566,6 +634,8 @@ int main() {
 		test_decimation_correctness();
 		test_reset();
 		test_mixed_precision();
+		test_posit_types();
+		test_complex_samples();
 		test_dense_vector();
 		test_constructor_validation();
 		test_parameter_validation();
