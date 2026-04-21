@@ -90,3 +90,6 @@ dsp_add_test(test_cic)
 
 # Half-band FIR decimation (Issue #87)
 dsp_add_test(test_halfband)
+
+# Numerically Controlled Oscillator (Issue #88)
+dsp_add_test(test_nco)
