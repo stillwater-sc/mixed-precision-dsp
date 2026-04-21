@@ -8,6 +8,7 @@
 
 #include <universal/number/posit/posit.hpp>
 
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -153,10 +154,10 @@ void test_impulse_response() {
 	HalfBandFilter<double> hb(taps);
 
 	// Feed impulse followed by zeros
-	std::vector<double> output;
-	output.push_back(hb.process(1.0));
+	std::array<double, 11> output;
+	output[0] = hb.process(1.0);
 	for (int i = 1; i < 11; ++i) {
-		output.push_back(hb.process(0.0));
+		output[static_cast<std::size_t>(i)] = hb.process(0.0);
 	}
 
 	// Output should match taps: y[n] = h[n] for unit impulse at n=0
@@ -479,8 +480,9 @@ void test_complex_samples() {
 	auto taps_d = design_halfband<double>(11, 0.1);
 	HalfBandFilter<double> hb_re(taps_d);
 	HalfBandFilter<double> hb_im(taps_d);
+	HalfBandFilter<double, complex_t, complex_t> hb_cx(taps_d);
 
-	// A complex signal through the filter should equal component-wise filtering
+	// Complex filter output should match component-wise real filtering
 	for (int i = 0; i < 50; ++i) {
 		double re_in = std::cos(sw::dsp::two_pi * 0.07 * static_cast<double>(i));
 		double im_in = std::sin(sw::dsp::two_pi * 0.07 * static_cast<double>(i));
@@ -488,11 +490,15 @@ void test_complex_samples() {
 		double re_out = hb_re.process(re_in);
 		double im_out = hb_im.process(im_in);
 
-		complex_t expected(re_out, im_out);
-		(void)expected;
+		complex_t x(re_in, im_in);
+		complex_t y = hb_cx.process(x);
+		if (!near(y.real(), re_out, 1e-12) ||
+		    !near(y.imag(), im_out, 1e-12))
+			throw std::runtime_error("test failed: complex filtering mismatch at " +
+				std::to_string(i));
 	}
 
-	std::cout << "  complex_samples: component-wise filtering verified, passed\n";
+	std::cout << "  complex_samples: passed\n";
 }
 
 // ============================================================================
