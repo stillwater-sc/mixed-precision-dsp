@@ -53,6 +53,10 @@ export default defineConfig({
           autogenerate: { directory: 'filter' },
         },
         {
+          label: 'Data Acquisition',
+          autogenerate: { directory: 'acquisition' },
+        },
+        {
           label: 'State Estimation',
           autogenerate: { directory: 'estimation' },
         },
