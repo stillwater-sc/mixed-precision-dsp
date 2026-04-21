@@ -250,8 +250,8 @@ double y = nco.generate_real();
 auto block = nco.generate_block(1024);
 
 // Span-based (pre-allocated buffer)
-std::vector<std::complex<double>> buf(1024);
-nco.generate_block(std::span<std::complex<double>>(buf));
+mtl::vec::dense_vector<std::complex<double>> buf(1024);
+nco.generate_block(std::span<std::complex<double>>(buf.data(), buf.size()));
 
 // Real-only block (cosine)
 auto real_block = nco.generate_block_real(1024);
@@ -309,9 +309,8 @@ HalfBandFilter<double> hb(hb_taps);
 // Process: mix down to baseband, then decimate
 auto baseband = lo.mix_down(adc_samples);
 
-// Extract real part for CIC (or process I and Q channels separately)
-std::vector<double> cic_out;
-// ... feed real/imag parts through CIC and half-band stages
+// Feed I and Q channels through CIC and half-band stages separately
+// ... process baseband.real() and baseband.imag() through cic and hb
 ```
 
 ## Precision Considerations

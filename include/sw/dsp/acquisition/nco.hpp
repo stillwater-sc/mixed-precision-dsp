@@ -21,7 +21,6 @@
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <vector>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/math/constants.hpp>
@@ -49,7 +48,8 @@ public:
 	// Frequency can be positive (counter-clockwise) or negative (clockwise).
 	NCO(SampleScalar frequency, SampleScalar sample_rate)
 		: phase_{},
-		  phase_offset_{} {
+		  phase_offset_{},
+		  two_pi_state_(static_cast<StateScalar>(two_pi)) {
 		if (!(sample_rate > SampleScalar{}))
 			throw std::invalid_argument("NCO: sample_rate must be positive");
 		set_frequency(frequency, sample_rate);
@@ -77,11 +77,11 @@ public:
 
 	// Generate a single complex I/Q sample and advance the phase.
 	complex_t generate_sample() {
-		StateScalar total_phase = phase_ + phase_offset_;
-		double angle = static_cast<double>(total_phase) * two_pi;
+		StateScalar angle = (phase_ + phase_offset_) * two_pi_state_;
+		double a = static_cast<double>(angle);
 
-		SampleScalar i_out = static_cast<SampleScalar>(std::cos(angle));
-		SampleScalar q_out = static_cast<SampleScalar>(std::sin(angle));
+		SampleScalar i_out = static_cast<SampleScalar>(std::cos(a));
+		SampleScalar q_out = static_cast<SampleScalar>(std::sin(a));
 
 		phase_ = phase_ + phase_inc_;
 		wrap_phase();
@@ -91,10 +91,10 @@ public:
 
 	// Generate a single real (cosine) sample and advance the phase.
 	SampleScalar generate_real() {
-		StateScalar total_phase = phase_ + phase_offset_;
-		double angle = static_cast<double>(total_phase) * two_pi;
+		StateScalar angle = (phase_ + phase_offset_) * two_pi_state_;
+		double a = static_cast<double>(angle);
 
-		SampleScalar out = static_cast<SampleScalar>(std::cos(angle));
+		SampleScalar out = static_cast<SampleScalar>(std::cos(a));
 
 		phase_ = phase_ + phase_inc_;
 		wrap_phase();
@@ -143,7 +143,7 @@ public:
 			complex_t lo = generate_sample();
 			output[i] = complex_t(
 				input[i] * lo.real(),
-				SampleScalar{} - input[i] * lo.imag());
+				-(input[i] * lo.imag()));
 		}
 		return output;
 	}
@@ -156,12 +156,14 @@ private:
 	StateScalar phase_;
 	StateScalar phase_inc_;
 	StateScalar phase_offset_;
+	StateScalar two_pi_state_;
 
 	void wrap_phase() {
-		double p = static_cast<double>(phase_);
-		if (p >= 1.0 || p < 0.0) {
-			p = p - std::floor(p);
-			phase_ = static_cast<StateScalar>(p);
+		using std::floor;
+		StateScalar one{1};
+		StateScalar zero{};
+		if (phase_ >= one || phase_ < zero) {
+			phase_ = phase_ - floor(phase_);
 		}
 	}
 };
