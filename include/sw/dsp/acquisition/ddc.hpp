@@ -96,10 +96,7 @@ public:
 		  decim_i_(decimator),
 		  decim_q_(decimator),
 		  center_frequency_(center_frequency),
-		  sample_rate_(sample_rate) {
-		if (!(sample_rate > StateScalar{}))
-			throw std::invalid_argument("DDC: sample_rate must be positive");
-	}
+		  sample_rate_(sample_rate) {}
 
 	// Retune the local oscillator.
 	void set_center_frequency(StateScalar frequency) {

@@ -231,7 +231,7 @@ filter passband.
 
 ### Single-Stage DDC
 
-```
+```text
   ADC input (real, fs)
          │
          ▼
@@ -250,7 +250,7 @@ filter passband.
 
 ### Multi-Stage DDC (Typical ASIC Architecture)
 
-```
+```text
   ADC (fs)  →  mix  →  CIC ↓R1  →  half-band ↓2  →  half-band ↓2  →  FIR ↓1  →  I/Q
               ▲
               NCO
