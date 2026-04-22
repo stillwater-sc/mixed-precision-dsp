@@ -93,3 +93,6 @@ dsp_add_test(test_halfband)
 
 # Numerically Controlled Oscillator (Issue #88)
 dsp_add_test(test_nco)
+
+# Digital Down-Converter (Issue #89)
+dsp_add_test(test_ddc)
