@@ -6,5 +6,6 @@
 
 #include <sw/dsp/acquisition/cic.hpp>
 #include <sw/dsp/acquisition/ddc.hpp>
+#include <sw/dsp/acquisition/decimation_chain.hpp>
 #include <sw/dsp/acquisition/halfband.hpp>
 #include <sw/dsp/acquisition/nco.hpp>
