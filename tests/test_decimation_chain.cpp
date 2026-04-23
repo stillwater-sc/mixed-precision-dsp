@@ -484,6 +484,63 @@ void test_mixed_precision_posit() {
 }
 
 // ============================================================================
+// CIC compensator designed at posit<32,2> precision
+// ============================================================================
+//
+// Verifies that design_cic_compensator runs its intermediate math in T, not
+// double. Posit tapered precision around 1.0 should give agreement with the
+// double-precision reference to within a few ULPs of posit32.
+
+void test_compensator_in_posit_precision() {
+	using posit_t = sw::universal::posit<32, 2>;
+
+	std::size_t N = 31;
+	int M = 3;
+	int R = 16;
+	double pb_d = 0.2;
+	posit_t pb_p(pb_d);
+
+	auto taps_d = design_cic_compensator<double>(N, M, R, pb_d);
+	auto taps_p = design_cic_compensator<posit_t>(N, M, R, pb_p);
+
+	if (taps_p.size() != N)
+		throw std::runtime_error("test failed: posit compensator length");
+
+	// Symmetry preserved to posit<32,2> precision. Posit has ~28 bits of
+	// mantissa around unit magnitude; accumulated non-associative rounding
+	// across the 31-term frequency-sampling sum gives ~1e-6 asymmetry.
+	double max_asym = 0.0;
+	for (std::size_t i = 0; i < N / 2; ++i) {
+		double li = static_cast<double>(taps_p[i]);
+		double ri = static_cast<double>(taps_p[N - 1 - i]);
+		max_asym = std::max(max_asym, std::abs(li - ri));
+	}
+	if (max_asym > 1e-5)
+		throw std::runtime_error("test failed: posit compensator asymmetry = " +
+			std::to_string(max_asym));
+
+	// DC gain remains 1 after the T-domain normalization
+	double dc = 0.0;
+	for (std::size_t i = 0; i < N; ++i) dc += static_cast<double>(taps_p[i]);
+	if (std::abs(dc - 1.0) > 1e-5)
+		throw std::runtime_error("test failed: posit compensator DC = " + std::to_string(dc));
+
+	// Agreement with double reference within posit precision
+	double max_diff = 0.0;
+	for (std::size_t i = 0; i < N; ++i) {
+		double diff = std::abs(static_cast<double>(taps_p[i]) - taps_d[i]);
+		if (diff > max_diff) max_diff = diff;
+	}
+	if (max_diff > 1e-5)
+		throw std::runtime_error("test failed: posit vs double compensator max diff = " +
+			std::to_string(max_diff));
+
+	std::cout << "  compensator_in_posit_precision: asym=" << max_asym
+	          << ", DC err=" << std::abs(dc - 1.0)
+	          << ", max diff vs double=" << max_diff << ", passed\n";
+}
+
+// ============================================================================
 // Stage accessor
 // ============================================================================
 
@@ -519,6 +576,7 @@ int main() {
 		test_compensator_flattens_passband();
 		test_precision_sweep();
 		test_mixed_precision_posit();
+		test_compensator_in_posit_precision();
 		test_stage_accessor();
 		std::cout << "All DecimationChain tests passed.\n";
 	} catch (const std::exception& e) {

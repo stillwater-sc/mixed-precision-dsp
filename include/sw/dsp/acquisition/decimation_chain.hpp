@@ -224,6 +224,11 @@ DecimationChain(Sample, Stages...) -> DecimationChain<Sample, Stages...>;
 //   |H_cic(f)| = | sin(pi f D) / (R D sin(pi f / R)) |^M
 // The compensator approximates 1/|H_cic(f)| across [0, passband], rolling off
 // smoothly toward 0 past the passband.
+//
+// Intermediate math is performed in T so that calls with posit, cfloat, or
+// other custom scalars run their design-time arithmetic at the caller's
+// declared precision — a requirement for embedded mixed-precision deployments
+// where the compensator design may run on the target.
 template <DspField T>
 mtl::vec::dense_vector<T> design_cic_compensator(
 		std::size_t num_taps,
@@ -231,6 +236,8 @@ mtl::vec::dense_vector<T> design_cic_compensator(
 		int cic_ratio,
 		T passband,
 		int differential_delay = 1) {
+	// ADL-friendly dispatch so sw::universal::{sin,cos,pow,abs} are found
+	// for non-native T; std::{sin,...} for native float/double.
 	using std::abs; using std::sin; using std::cos; using std::pow;
 	if (num_taps < 3)
 		throw std::invalid_argument("design_cic_compensator: num_taps must be >= 3");
@@ -240,68 +247,80 @@ mtl::vec::dense_vector<T> design_cic_compensator(
 		throw std::invalid_argument("design_cic_compensator: cic_ratio must be >= 2");
 	if (differential_delay < 1)
 		throw std::invalid_argument("design_cic_compensator: differential_delay must be >= 1");
-	double pb = static_cast<double>(passband);
-	if (!(pb > 0.0 && pb < 0.5))
+
+	const T zero{};
+	const T one   = T(1);
+	const T half  = T(1) / T(2);
+	const T pi_T  = T(pi);                 // runtime init — avoids posit constexpr path
+	const T R     = T(cic_ratio);
+	const T M     = T(cic_stages);
+	const T D     = T(differential_delay);
+	const T N_T   = T(num_taps);
+
+	if (!(passband > zero) || !(passband < half))
 		throw std::invalid_argument("design_cic_compensator: passband must be in (0, 0.5)");
+
+	// tiny threshold for |sin(pi f / R)| near zero (f = 0): we handle f == 0
+	// via the DC-gain unit-value branch below, so this guard is a safety net.
+	const T tiny = T(1) / T(1'000'000'000'000LL);
 
 	// Compute the desired magnitude at num_taps frequency points in [0, 0.5].
 	// Within the passband: 1 / |H_cic(f)|. Beyond: smooth cosine rolloff to 0.
-	auto desired = [&](double f) -> double {
-		double R = static_cast<double>(cic_ratio);
-		double M = static_cast<double>(cic_stages);
-		double D = static_cast<double>(differential_delay);
-		// H_cic(f) at the output-rate normalized frequency:
-		//   numerator   : sin(pi * f * D)
-		//   denominator : R * D * sin(pi * f / R)
-		double s_num = std::sin(pi * f * D);
-		double s_den = R * D * std::sin(pi * f / R);
-		double ratio = (f == 0.0 || s_den == 0.0) ? 1.0 : s_num / s_den;
-		double mag = std::pow(std::abs(ratio), M);
-		if (mag < 1e-12) return 0.0;
-		if (f <= pb) {
-			return 1.0 / mag;
-		} else if (f < 0.5) {
+	auto desired = [&](T f) -> T {
+		if (f == zero) return one;  // CIC is unit-gain after normalization at DC
+		T s_num = sin(pi_T * f * D);
+		T s_den = R * D * sin(pi_T * f / R);
+		if (abs(s_den) < tiny) return zero;
+		T ratio = s_num / s_den;
+		T mag = pow(abs(ratio), M);
+		if (mag < tiny) return zero;
+		if (f <= passband) {
+			return one / mag;
+		} else if (f < half) {
 			// Cosine rolloff between passband and Nyquist.
-			double t = (f - pb) / (0.5 - pb);
-			double roll = 0.5 * (1.0 + std::cos(pi * t));
-			return (1.0 / mag) * roll;
+			T t = (f - passband) / (half - passband);
+			T roll = half * (one + cos(pi_T * t));
+			return (one / mag) * roll;
 		}
-		return 0.0;
+		return zero;
 	};
 
 	// Frequency-sampling design for a type I (odd length, symmetric) linear-phase FIR.
 	// h[n] = (1/N) * sum_{k=0..N-1} H_k * exp(j 2 pi k n / N), with conjugate-symmetric H
-	// yielding a real h. We set H_k = desired(k/N) * exp(-j 2 pi k (N-1)/2 / N) to center.
+	// yielding a real h. H_k = desired(k/N) * exp(-j 2 pi k (N-1)/2 / N) to center.
 	std::size_t N = num_taps;
 	mtl::vec::dense_vector<T> taps(N);
-	double shift = static_cast<double>(N - 1) / 2.0;
+	const T shift = T(N - 1) * half;
+	const T two_pi_T = T(two_pi);
 
 	for (std::size_t n = 0; n < N; ++n) {
-		double h = 0.0;
+		T h = zero;
+		const T n_T = T(n);
 		for (std::size_t k = 0; k < N; ++k) {
-			double fk = static_cast<double>(k) / static_cast<double>(N);
+			const T k_T = T(k);
+			T fk = k_T / N_T;
 			// Mirror frequencies above 0.5 for conjugate symmetry.
-			double f_mag = (fk > 0.5) ? (1.0 - fk) : fk;
-			double Hk_mag = desired(f_mag);
-			double phase = -2.0 * pi * static_cast<double>(k) * shift / static_cast<double>(N)
-			             + 2.0 * pi * static_cast<double>(k) * static_cast<double>(n) / static_cast<double>(N);
-			h += Hk_mag * std::cos(phase);
+			T f_mag = (fk > half) ? (one - fk) : fk;
+			T Hk_mag = desired(f_mag);
+			T phase = -two_pi_T * k_T * shift / N_T
+			        +  two_pi_T * k_T * n_T   / N_T;
+			h = h + Hk_mag * cos(phase);
 		}
-		h /= static_cast<double>(N);
-		taps[n] = static_cast<T>(h);
+		taps[n] = h / N_T;
 	}
 
 	// Apply a Hamming window to suppress ripple from finite-length truncation.
+	const T a0 = T(54) / T(100);
+	const T a1 = T(46) / T(100);
 	for (std::size_t n = 0; n < N; ++n) {
-		double w = 0.54 - 0.46 * std::cos(2.0 * pi * static_cast<double>(n) /
-			static_cast<double>(N - 1));
-		taps[n] = taps[n] * static_cast<T>(w);
+		T w = a0 - a1 * cos(two_pi_T * T(n) / T(N - 1));
+		taps[n] = taps[n] * w;
 	}
 
 	// Normalize to unit DC gain so the compensator preserves signal scale.
-	T dc_gain{};
+	T dc_gain = zero;
 	for (std::size_t n = 0; n < N; ++n) dc_gain = dc_gain + taps[n];
-	if (!(static_cast<double>(dc_gain) == 0.0)) {
+	if (!(dc_gain == zero)) {
 		for (std::size_t n = 0; n < N; ++n) taps[n] = taps[n] / dc_gain;
 	}
 	return taps;
