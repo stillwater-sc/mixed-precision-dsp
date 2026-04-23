@@ -93,7 +93,7 @@ using namespace sw::dsp;
 
 double fs = 1'000'000.0;   // 1 MHz input
 
-// Stage 1: CIC with R=64, M=3 (10x bulk reduction)
+// Stage 1: CIC with R=64, M=3 (64x bulk reduction)
 CICDecimator<double> cic(64, 3);
 
 // Stage 2: half-band 2:1
@@ -110,7 +110,7 @@ DecimationChain<double,
                 HalfBandFilter<double>,
                 PolyphaseDecimator<double>> chain(fs, cic, hb, pf);
 
-// Total: 64 × 2 × 4 = 512x decimation, output at 1'953 Hz
+// Total: 64 × 2 × 4 = 512x decimation, output at 1'953.125 Hz
 std::cout << "total decimation: " << chain.total_decimation() << "\n";
 std::cout << "output rate:      " << chain.output_rate()      << "\n";
 ```

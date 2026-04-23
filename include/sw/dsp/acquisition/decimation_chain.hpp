@@ -82,31 +82,13 @@ public:
 
 	// Block: process a span of inputs and return all emitted outputs.
 	mtl::vec::dense_vector<Sample> process_block(std::span<const Sample> input) {
-		std::vector<Sample> tmp;
-		std::size_t dec = total_decimation();
-		if (dec > 0) tmp.reserve(input.size() / dec + 1);
-		for (std::size_t n = 0; n < input.size(); ++n) {
-			auto [ready, y] = process(input[n]);
-			if (ready) tmp.push_back(y);
-		}
-		mtl::vec::dense_vector<Sample> out(tmp.size());
-		for (std::size_t i = 0; i < tmp.size(); ++i) out[i] = tmp[i];
-		return out;
+		return process_block_impl(input);
 	}
 
 	// Dense-vector overload.
 	mtl::vec::dense_vector<Sample> process_block(
 			const mtl::vec::dense_vector<Sample>& input) {
-		std::vector<Sample> tmp;
-		std::size_t dec = total_decimation();
-		if (dec > 0) tmp.reserve(input.size() / dec + 1);
-		for (std::size_t n = 0; n < input.size(); ++n) {
-			auto [ready, y] = process(input[n]);
-			if (ready) tmp.push_back(y);
-		}
-		mtl::vec::dense_vector<Sample> out(tmp.size());
-		for (std::size_t i = 0; i < tmp.size(); ++i) out[i] = tmp[i];
-		return out;
+		return process_block_impl(input);
 	}
 
 	// Reset every stage.
@@ -152,6 +134,22 @@ public:
 private:
 	std::tuple<Stages...> stages_;
 	Sample                input_rate_;
+
+	// Shared block-processing body. Input may be any container with .size()
+	// and operator[], so both std::span and mtl::vec::dense_vector work.
+	template <class Input>
+	mtl::vec::dense_vector<Sample> process_block_impl(const Input& input) {
+		std::vector<Sample> tmp;
+		std::size_t dec = total_decimation();
+		if (dec > 0) tmp.reserve(input.size() / dec + 1);
+		for (std::size_t n = 0; n < input.size(); ++n) {
+			auto [ready, y] = process(input[n]);
+			if (ready) tmp.push_back(y);
+		}
+		mtl::vec::dense_vector<Sample> out(tmp.size());
+		for (std::size_t i = 0; i < tmp.size(); ++i) out[i] = tmp[i];
+		return out;
+	}
 
 	template <std::size_t I>
 	std::pair<bool, Sample> process_impl(Sample in) {
@@ -216,16 +214,23 @@ DecimationChain(Sample, Stages...) -> DecimationChain<Sample, Stages...>;
 // response, IDFT, apply a Hamming window. Simple and analytic. For a more
 // aggressive equaliser, use a Remez-based design.
 //
-// num_taps:   FIR length; an odd value gives a linear-phase centered tap.
-// cic_stages: M (number of integrator/comb sections).
-// cic_ratio:  R (decimation ratio).
-// passband:   normalized passband edge in (0, 0.5) at the CIC output rate.
+// num_taps:          FIR length; an odd value gives a linear-phase centered tap.
+// cic_stages:        M (number of integrator/comb sections).
+// cic_ratio:         R (decimation ratio).
+// passband:          normalized passband edge in (0, 0.5) at the CIC output rate.
+// differential_delay: D (comb stage delay; defaults to 1, the usual case).
+//
+// The CIC magnitude referred to the output-rate normalized frequency f is
+//   |H_cic(f)| = | sin(pi f D) / (R D sin(pi f / R)) |^M
+// The compensator approximates 1/|H_cic(f)| across [0, passband], rolling off
+// smoothly toward 0 past the passband.
 template <DspField T>
 mtl::vec::dense_vector<T> design_cic_compensator(
 		std::size_t num_taps,
 		int cic_stages,
 		int cic_ratio,
-		T passband) {
+		T passband,
+		int differential_delay = 1) {
 	using std::abs; using std::sin; using std::cos; using std::pow;
 	if (num_taps < 3)
 		throw std::invalid_argument("design_cic_compensator: num_taps must be >= 3");
@@ -233,6 +238,8 @@ mtl::vec::dense_vector<T> design_cic_compensator(
 		throw std::invalid_argument("design_cic_compensator: cic_stages must be >= 1");
 	if (cic_ratio < 2)
 		throw std::invalid_argument("design_cic_compensator: cic_ratio must be >= 2");
+	if (differential_delay < 1)
+		throw std::invalid_argument("design_cic_compensator: differential_delay must be >= 1");
 	double pb = static_cast<double>(passband);
 	if (!(pb > 0.0 && pb < 0.5))
 		throw std::invalid_argument("design_cic_compensator: passband must be in (0, 0.5)");
@@ -242,10 +249,14 @@ mtl::vec::dense_vector<T> design_cic_compensator(
 	auto desired = [&](double f) -> double {
 		double R = static_cast<double>(cic_ratio);
 		double M = static_cast<double>(cic_stages);
-		// Frequency relative to the CIC *input* rate.
-		double f_in = f / R;
-		double num = (f_in == 0.0) ? 1.0 : std::sin(pi * f_in * R) / (R * std::sin(pi * f_in));
-		double mag = std::pow(std::abs(num), M);
+		double D = static_cast<double>(differential_delay);
+		// H_cic(f) at the output-rate normalized frequency:
+		//   numerator   : sin(pi * f * D)
+		//   denominator : R * D * sin(pi * f / R)
+		double s_num = std::sin(pi * f * D);
+		double s_den = R * D * std::sin(pi * f / R);
+		double ratio = (f == 0.0 || s_den == 0.0) ? 1.0 : s_num / s_den;
+		double mag = std::pow(std::abs(ratio), M);
 		if (mag < 1e-12) return 0.0;
 		if (f <= pb) {
 			return 1.0 / mag;

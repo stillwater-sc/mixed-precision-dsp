@@ -11,6 +11,7 @@
 #include <sw/dsp/math/constants.hpp>
 #include <sw/dsp/windows/hamming.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <complex>
