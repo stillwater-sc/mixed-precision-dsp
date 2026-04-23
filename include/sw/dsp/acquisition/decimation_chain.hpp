@@ -22,9 +22,9 @@
 #include <cmath>
 #include <cstddef>
 #include <span>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
-#include <vector>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/acquisition/detail/decimator_step.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
@@ -38,12 +38,24 @@ namespace detail {
 //   CICDecimator:      decimation_ratio()
 //   PolyphaseDecimator: factor()
 //   HalfBandFilter:    has process_decimate(), always 2:1
+//
+// Validates that the returned value is strictly positive so callers
+// (total_decimation, stage_ratios) cannot divide by zero or wrap on cast
+// from a signed integer. The existing library stages already enforce
+// positive ratios in their constructors, so this is defensive for
+// user-provided custom stages.
 template <class T>
 std::size_t decimation_ratio_of(const T& t) {
+	auto validate = [](auto r) -> std::size_t {
+		if (!(r > 0))
+			throw std::invalid_argument(
+				"decimation_ratio_of: stage decimation ratio must be positive");
+		return static_cast<std::size_t>(r);
+	};
 	if constexpr (requires { t.decimation_ratio(); }) {
-		return static_cast<std::size_t>(t.decimation_ratio());
+		return validate(t.decimation_ratio());
 	} else if constexpr (requires { t.factor(); }) {
-		return t.factor();
+		return validate(t.factor());
 	} else if constexpr (requires (T x, typename T::sample_scalar s) { x.process_decimate(s); }) {
 		return 2;
 	} else {
@@ -137,17 +149,23 @@ private:
 
 	// Shared block-processing body. Input may be any container with .size()
 	// and operator[], so both std::span and mtl::vec::dense_vector work.
+	//
+	// Uses mtl::vec::dense_vector (not std::vector) for signal staging per
+	// the library's container convention. The worst-case emit count is
+	// ceil(input.size() / total_decimation) + 1; we allocate that and
+	// return a right-sized dense_vector built from the produced samples.
 	template <class Input>
 	mtl::vec::dense_vector<Sample> process_block_impl(const Input& input) {
-		std::vector<Sample> tmp;
 		std::size_t dec = total_decimation();
-		if (dec > 0) tmp.reserve(input.size() / dec + 1);
+		std::size_t max_out = (dec > 0) ? (input.size() / dec + 1) : input.size();
+		mtl::vec::dense_vector<Sample> staging(max_out);
+		std::size_t produced = 0;
 		for (std::size_t n = 0; n < input.size(); ++n) {
 			auto [ready, y] = process(input[n]);
-			if (ready) tmp.push_back(y);
+			if (ready) staging[produced++] = y;
 		}
-		mtl::vec::dense_vector<Sample> out(tmp.size());
-		for (std::size_t i = 0; i < tmp.size(); ++i) out[i] = tmp[i];
+		mtl::vec::dense_vector<Sample> out(produced);
+		for (std::size_t i = 0; i < produced; ++i) out[i] = staging[i];
 		return out;
 	}
 

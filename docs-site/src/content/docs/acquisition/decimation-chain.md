@@ -43,7 +43,7 @@ filter targets the narrower bandwidth at its input rate.
 The canonical chain — replicated in the HSP50016, AD6620, GC4016 DDC
 ICs — looks like:
 
-```
+```text
 ADC (100 MHz)  →  CIC ↓64  →  HB ↓2  →  HB ↓2  →  FIR ↓2  →  baseband (~195 kHz)
 ```
 
@@ -56,7 +56,8 @@ ADC (100 MHz)  →  CIC ↓64  →  HB ↓2  →  HB ↓2  →  FIR ↓2  →  b
 ### CIC Compensation
 
 The CIC's passband droop — amplitude drops across the passband following
-$|sinc(\pi f D R) / (R \sin(\pi f D))|^M$ — is predictable and
+$\left|\dfrac{\sin(\pi f D)}{R D \sin(\pi f / R)}\right|^M$ (with $f$
+normalized to the CIC output rate) — is predictable and
 correctable. A short FIR filter with a rising magnitude response
 (inverse-sinc$^M$) run at the CIC output rate flattens the combined
 response. This is the origin of the "CIC compensator" or "droop
@@ -201,7 +202,7 @@ DecimationChain<float,
 
 ### A Typical DDC Chain
 
-```
+```text
   ADC  ─────▶  CIC ↓R1  ─────▶  HB ↓2  ─────▶  HB ↓2  ─────▶  FIR ↓Rn  ─────▶  I/Q
 (100MHz)    (sinc^M         (sharp cut    (sharp cut      (channel      (~100 kHz)
              droop)          near 2x)      near 2x)        shaping)
@@ -212,7 +213,7 @@ DecimationChain<float,
 
 ### Per-Stage Bandwidth Budget
 
-```
+```text
   input BW ──┬────────────────── fs/2
              │
   after CIC ─┤───── fs/(2R1)
