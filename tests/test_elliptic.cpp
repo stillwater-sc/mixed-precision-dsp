@@ -13,6 +13,8 @@
 #include <iostream>
 #include <stdexcept>
 
+#include <universal/number/posit/posit.hpp>
+
 using namespace sw::dsp;
 
 bool near(double a, double b, double eps = 1e-4) {
@@ -349,6 +351,95 @@ void test_spec_simple_filter() {
 	std::cout << "  spec_simple_filter: passed\n";
 }
 
+// ============================================================================
+// Posit<32,2> regression: verify the Elliptic prewarp and bandpass-geometry
+// math that this PR refactored actually works at the caller's scalar type.
+//
+// Instead of instantiating the full EllipticLowPassSpec<posit> (which drags
+// in PoleZeroLayout<posit>, BiquadCoefficients<posit>, etc. — those paths
+// assume std::complex<T> but complex_for_t<posit> dispatches to
+// sw::universal::complex; that's a pre-existing infrastructure issue tracked
+// separately), this test recomputes the exact prewarp expressions used by
+// the Spec::setup methods in both double and posit, and verifies agreement.
+// ============================================================================
+
+void test_spec_prewarp_in_posit_precision() {
+	using posit_t = sw::universal::posit<32, 2>;
+	using std::tan; using std::abs;
+
+	auto check = [](const char* label, double posit_val, double double_val, double eps) {
+		double diff = std::abs(posit_val - double_val);
+		if (diff > eps) {
+			char buf[256];
+			std::snprintf(buf, sizeof(buf),
+				"test failed: %s posit=%.12g double=%.12g diff=%.3e (eps=%.1e)",
+				label, posit_val, double_val, diff, eps);
+			throw std::runtime_error(buf);
+		}
+		return diff;
+	};
+
+	// Lowpass prewarp: the math inside EllipticLowPassSpec::setup
+	{
+		constexpr posit_t pi_p = posit_t(sw::dsp::pi);
+		const posit_t fs_p(44100.0);
+		const posit_t wp_p = tan(pi_p * posit_t(2000.0) / fs_p);
+		const posit_t ws_p = tan(pi_p * posit_t(3000.0) / fs_p);
+		const posit_t k_p  = wp_p / ws_p;
+
+		const double wp_d = std::tan(sw::dsp::pi * 2000.0 / 44100.0);
+		const double ws_d = std::tan(sw::dsp::pi * 3000.0 / 44100.0);
+		const double k_d  = wp_d / ws_d;
+
+		// Tolerances reflect posit<32,2> ULP (~2^-28 ~ 3.7e-9 near unity) with
+		// a few ops of amplification. wp and ws are direct tan results; k is
+		// a single division so retains similar precision.
+		double d1 = check("LP wp", static_cast<double>(wp_p), wp_d, 1e-8);
+		double d2 = check("LP ws", static_cast<double>(ws_p), ws_d, 1e-8);
+		double d3 = check("LP k",  static_cast<double>(k_p),  k_d,  5e-8);
+		std::cout << "  spec_prewarp (lowpass): wp_diff=" << d1
+		          << " ws_diff=" << d2 << " k_diff=" << d3 << "\n";
+	}
+
+	// Bandpass prewarp + geometry: the math inside EllipticBandPassSpec::setup
+	{
+		constexpr posit_t pi_p = posit_t(sw::dsp::pi);
+		constexpr posit_t one_p = posit_t(1);
+		const posit_t fs_p(44100.0);
+		const posit_t wpl = tan(pi_p * posit_t(3000.0) / fs_p);
+		const posit_t wph = tan(pi_p * posit_t(5000.0) / fs_p);
+		const posit_t wsl = tan(pi_p * posit_t(2000.0) / fs_p);
+		const posit_t wsh = tan(pi_p * posit_t(6000.0) / fs_p);
+		const posit_t w0_sq = wpl * wph;
+		const posit_t bw = wph - wpl;
+		const posit_t kl = abs((wsl * wsl - w0_sq) / (wsl * bw));
+		const posit_t kh = abs((wsh * wsh - w0_sq) / (wsh * bw));
+		const posit_t k_min = (kl < kh) ? kl : kh;
+		const posit_t k_p   = one_p / k_min;
+
+		// Double reference
+		const double wpl_d = std::tan(sw::dsp::pi * 3000.0 / 44100.0);
+		const double wph_d = std::tan(sw::dsp::pi * 5000.0 / 44100.0);
+		const double wsl_d = std::tan(sw::dsp::pi * 2000.0 / 44100.0);
+		const double wsh_d = std::tan(sw::dsp::pi * 6000.0 / 44100.0);
+		const double w0_sq_d = wpl_d * wph_d;
+		const double bw_d = wph_d - wpl_d;
+		const double kl_d = std::abs((wsl_d * wsl_d - w0_sq_d) / (wsl_d * bw_d));
+		const double kh_d = std::abs((wsh_d * wsh_d - w0_sq_d) / (wsh_d * bw_d));
+		const double k_d  = 1.0 / std::min(kl_d, kh_d);
+
+		// Bandpass kl amplifies error through wsl², subtraction, division.
+		// Measured on this config: wpl ~1e-10, kl ~6e-7, k ~1e-8.
+		double d_wpl = check("BP wpl", static_cast<double>(wpl), wpl_d, 1e-8);
+		double d_kl  = check("BP kl",  static_cast<double>(kl),  kl_d,  5e-6);
+		double d_k   = check("BP k",   static_cast<double>(k_p), k_d,   1e-6);
+		std::cout << "  spec_prewarp (bandpass): wpl_diff=" << d_wpl
+		          << " kl_diff=" << d_kl << " k_diff=" << d_k << "\n";
+	}
+
+	std::cout << "  spec_prewarp_in_posit_precision: passed\n";
+}
+
 void test_spec_rejects_invalid() {
 	iir::EllipticLowPassSpec<4> f;
 
@@ -400,6 +491,7 @@ int main() {
 		test_spec_bandpass();
 		test_spec_bandstop();
 		test_spec_simple_filter();
+		test_spec_prewarp_in_posit_precision();
 		test_spec_rejects_invalid();
 
 		std::cout << "All Elliptic filter tests passed.\n";
