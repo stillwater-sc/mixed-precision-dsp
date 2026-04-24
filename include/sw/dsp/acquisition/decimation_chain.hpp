@@ -266,14 +266,20 @@ mtl::vec::dense_vector<T> design_cic_compensator(
 	if (differential_delay < 1)
 		throw std::invalid_argument("design_cic_compensator: differential_delay must be >= 1");
 
-	const T zero{};
-	const T one   = T(1);
-	const T half  = T(1) / T(2);
-	const T pi_T  = T(pi);                 // runtime init — avoids posit constexpr path
-	const T R     = T(cic_ratio);
-	const T M     = T(cic_stages);
-	const T D     = T(differential_delay);
-	const T N_T   = T(num_taps);
+	// Scalar constants built from pure constructor calls are constexpr:
+	// T(int) and T(double) ctors are constexpr for native types and for
+	// sw::universal::posit (v4.6.10+). Values that involve operator/ or
+	// function-parameter conversion must stay const because posit's
+	// arithmetic operators and function-parameter evaluation aren't yet
+	// usable in constant expressions.
+	constexpr T zero = T(0);
+	constexpr T one  = T(1);
+	const     T half = T(1) / T(2);            // operator/ not yet constexpr
+	constexpr T pi_T = T(pi);
+	const     T R    = T(cic_ratio);           // function parameter, not constexpr
+	const     T M    = T(cic_stages);
+	const     T D    = T(differential_delay);
+	const     T N_T  = T(num_taps);
 
 	if (!(passband > zero) || !(passband < half))
 		throw std::invalid_argument("design_cic_compensator: passband must be in (0, 0.5)");
@@ -309,7 +315,7 @@ mtl::vec::dense_vector<T> design_cic_compensator(
 	std::size_t N = num_taps;
 	mtl::vec::dense_vector<T> taps(N);
 	const T shift = T(N - 1) * half;
-	const T two_pi_T = T(two_pi);
+	constexpr T two_pi_T = T(two_pi);
 
 	for (std::size_t n = 0; n < N; ++n) {
 		T h = zero;
