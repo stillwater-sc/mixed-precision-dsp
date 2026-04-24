@@ -261,8 +261,11 @@ void test_windows_in_posit_precision() {
 
 	auto compare_window = [&](const char* name, const auto& win_d, const auto& win_p,
 	                          double eps) {
-		if (win_p.size() != N)
-			throw std::runtime_error(std::string("test failed: ") + name + " size");
+		if (win_d.size() != N || win_p.size() != N)
+			throw std::runtime_error(std::string("compare_window: ") + name +
+				" size mismatch: win_d=" + std::to_string(win_d.size()) +
+				" win_p=" + std::to_string(win_p.size()) +
+				" expected=" + std::to_string(N));
 		double max_diff = 0.0;
 		for (std::size_t i = 0; i < N; ++i) {
 			double diff = std::abs(static_cast<double>(win_p[i]) - win_d[i]);
