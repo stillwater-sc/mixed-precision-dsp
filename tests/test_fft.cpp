@@ -12,6 +12,8 @@
 #include <iostream>
 #include <stdexcept>
 
+#include <universal/number/posit/posit.hpp>
+
 using namespace sw::dsp;
 using namespace sw::dsp::spectral;
 
@@ -255,6 +257,73 @@ void test_tf_cascade() {
 	std::cout << "  tf_cascade: passed\n";
 }
 
+// ============================================================================
+// Posit<32,2> regression: verify fft_forward runs its twiddle-factor math
+// in T, not double. Instantiates fft_forward<posit<32,2>> on a known tone and
+// checks that the spectral peak lands on the right bin with a magnitude that
+// agrees with the double reference within posit<32,2> precision.
+// ============================================================================
+
+void test_fft_forward_in_posit_precision() {
+	using posit_t = sw::universal::posit<32, 2>;
+	using cposit_t = complex_for_t<posit_t>;
+
+	constexpr std::size_t N = 256;
+	constexpr std::size_t tone_bin = 10;
+
+	// Generate the same tone in both scalar types
+	mtl::vec::dense_vector<std::complex<double>> x_d(N);
+	mtl::vec::dense_vector<cposit_t> x_p(N);
+	for (std::size_t n = 0; n < N; ++n) {
+		double angle = 2.0 * pi * static_cast<double>(tone_bin * n) / static_cast<double>(N);
+		double s = std::sin(angle);
+		x_d[n] = std::complex<double>(s, 0.0);
+		x_p[n] = cposit_t(posit_t(s), posit_t(0.0));
+	}
+
+	fft_forward<double>(x_d);
+	fft_forward<posit_t>(x_p);
+
+	// Locate peak bin in posit result (excluding DC, over first half)
+	double peak_mag = 0.0;
+	std::size_t peak_bin = 0;
+	for (std::size_t k = 1; k < N / 2; ++k) {
+		double mag_p = std::sqrt(
+			static_cast<double>(x_p[k].real()) * static_cast<double>(x_p[k].real()) +
+			static_cast<double>(x_p[k].imag()) * static_cast<double>(x_p[k].imag()));
+		if (mag_p > peak_mag) { peak_mag = mag_p; peak_bin = k; }
+	}
+	if (peak_bin != tone_bin)
+		throw std::runtime_error("test failed: posit FFT peak at bin " +
+			std::to_string(peak_bin) + ", expected " + std::to_string(tone_bin));
+
+	// Compare peak-bin magnitude to double reference
+	double peak_mag_d = std::abs(x_d[tone_bin]);
+	double peak_rel_err = std::abs(peak_mag - peak_mag_d) / peak_mag_d;
+	if (peak_rel_err > 1e-6)
+		throw std::runtime_error("test failed: posit peak magnitude rel err = " +
+			std::to_string(peak_rel_err));
+
+	// Scan all bins: max per-bin diff (not relative — bins not at the tone
+	// hold noise at the level of posit ULP, so absolute check is appropriate)
+	double max_abs_diff = 0.0;
+	for (std::size_t k = 0; k < N; ++k) {
+		std::complex<double> zp(static_cast<double>(x_p[k].real()),
+		                         static_cast<double>(x_p[k].imag()));
+		double d = std::abs(zp - x_d[k]);
+		if (d > max_abs_diff) max_abs_diff = d;
+	}
+	// Peak magnitude is ~N/2 = 128; posit<32,2> ULP near that is ~128 * 2^-28 ~= 5e-7.
+	// Allow 10x margin for accumulated rounding across log2(N)=8 butterfly stages.
+	if (max_abs_diff > 5e-6)
+		throw std::runtime_error("test failed: posit FFT max |diff| vs double = " +
+			std::to_string(max_abs_diff));
+
+	std::cout << "  fft_forward_in_posit_precision: peak at bin " << peak_bin
+	          << ", |diff| max = " << max_abs_diff
+	          << ", peak rel err = " << peak_rel_err << ", passed\n";
+}
+
 int main() {
 	try {
 		std::cout << "Spectral & TransferFunction Tests\n";
@@ -270,6 +339,7 @@ int main() {
 		test_fft_sine_peak();
 		test_fft_magnitude_db();
 		test_fft_zero_padding();
+		test_fft_forward_in_posit_precision();
 
 		test_tf_evaluate();
 		test_tf_first_order_lp();
