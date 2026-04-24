@@ -35,9 +35,16 @@ namespace sw::dsp {
 namespace detail {
 
 // Query a stage's decimation ratio via whatever query method it exposes.
-//   CICDecimator:      decimation_ratio()
+//   CICDecimator:       decimation_ratio()
 //   PolyphaseDecimator: factor()
-//   HalfBandFilter:    has process_decimate(), always 2:1
+//   HalfBandFilter:     has process_decimate() but no ratio query -> assumed 2:1
+//
+// The process_decimate fallback to 2 is correct for the library's built-in
+// HalfBandFilter (structurally fixed at 2:1). Custom user-defined stages
+// that expose process_decimate() with a different rate MUST also expose
+// decimation_ratio() or factor() — the precedence above prefers those
+// whenever they exist, so adding an explicit query is sufficient; only
+// stages lacking any explicit query fall through to the 2:1 assumption.
 //
 // Validates that the returned value is strictly positive so callers
 // (total_decimation, stage_ratios) cannot divide by zero or wrap on cast
@@ -76,6 +83,9 @@ std::size_t decimation_ratio_of(const T& t) {
 //          and must expose a decimation-ratio query (see decimation_ratio_of).
 template <DspField Sample, class... Stages>
 class DecimationChain {
+	static_assert(sizeof...(Stages) > 0,
+		"DecimationChain requires at least one stage; "
+		"an empty pack would degenerate into an identity pass-through.");
 public:
 	using sample_t = Sample;
 	static constexpr std::size_t num_stages = sizeof...(Stages);
@@ -342,9 +352,12 @@ mtl::vec::dense_vector<T> design_cic_compensator(
 	}
 
 	// Normalize to unit DC gain so the compensator preserves signal scale.
+	// Guard against division by a pathologically small gain (could happen
+	// for degenerate passband or ratio settings) using the same `tiny`
+	// threshold used elsewhere in the function.
 	T dc_gain = zero;
 	for (std::size_t n = 0; n < N; ++n) dc_gain = dc_gain + taps[n];
-	if (!(dc_gain == zero)) {
+	if (abs(dc_gain) > tiny) {
 		for (std::size_t n = 0; n < N; ++n) taps[n] = taps[n] / dc_gain;
 	}
 	return taps;
