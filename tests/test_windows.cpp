@@ -12,6 +12,8 @@
 #include <iostream>
 #include <stdexcept>
 
+#include <universal/number/posit/posit.hpp>
+
 using namespace sw::dsp;
 
 bool near(double a, double b, double eps = 1e-6) {
@@ -247,6 +249,59 @@ void test_upsample_downsample_roundtrip() {
 	std::cout << "  upsample_downsample_roundtrip: passed\n";
 }
 
+// ============================================================================
+// Posit<32,2> regression: verify window templates run intermediate math in T.
+// Compares posit-designed windows against double references; agreement must
+// be within posit<32,2> precision (~2^-28 ULP near unit magnitude).
+// ============================================================================
+
+void test_windows_in_posit_precision() {
+	using posit_t = sw::universal::posit<32, 2>;
+	constexpr std::size_t N = 64;
+
+	auto compare_window = [&](const char* name, const auto& win_d, const auto& win_p,
+	                          double eps) {
+		if (win_d.size() != N || win_p.size() != N)
+			throw std::runtime_error(std::string("compare_window: ") + name +
+				" size mismatch: win_d=" + std::to_string(win_d.size()) +
+				" win_p=" + std::to_string(win_p.size()) +
+				" expected=" + std::to_string(N));
+		double max_diff = 0.0;
+		for (std::size_t i = 0; i < N; ++i) {
+			double diff = std::abs(static_cast<double>(win_p[i]) - win_d[i]);
+			if (diff > max_diff) max_diff = diff;
+		}
+		if (max_diff > eps)
+			throw std::runtime_error(std::string("test failed: ") + name +
+				" posit-vs-double max diff = " + std::to_string(max_diff) +
+				" (eps=" + std::to_string(eps) + ")");
+		return max_diff;
+	};
+
+	// Hamming — simple cosine
+	auto ham_d = hamming_window<double>(N);
+	auto ham_p = hamming_window<posit_t>(N);
+	double ham_diff = compare_window("hamming", ham_d, ham_p, 1e-7);
+
+	// Kaiser — exercises bessel_I0 template and sqrt
+	auto kai_d = kaiser_window<double>(N, 8.6);
+	auto kai_p = kaiser_window<posit_t>(N, 8.6);
+	// Kaiser's Bessel series has more accumulated rounding than the simple
+	// windows. Measured ~8e-8; 1e-7 gives modest headroom for platform ULP
+	// variance while still catching meaningful regressions.
+	double kai_diff = compare_window("kaiser", kai_d, kai_p, 1e-7);
+
+	// Gaussian — exercises exp
+	auto gau_d = gaussian_window<double>(N, 0.4);
+	auto gau_p = gaussian_window<posit_t>(N, 0.4);
+	double gau_diff = compare_window("gaussian", gau_d, gau_p, 1e-7);
+
+	std::cout << "  windows_in_posit_precision: hamming=" << ham_diff
+	          << " kaiser=" << kai_diff
+	          << " gaussian=" << gau_diff
+	          << ", passed\n";
+}
+
 int main() {
 	try {
 		std::cout << "Window & Signal Tests\n";
@@ -263,6 +318,7 @@ int main() {
 		test_bartlett_hann();
 		test_apply_window();
 		test_window_float();
+		test_windows_in_posit_precision();
 
 		test_signal_wrapper();
 
