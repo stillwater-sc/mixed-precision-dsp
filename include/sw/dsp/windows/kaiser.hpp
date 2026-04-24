@@ -6,6 +6,10 @@
 // where I0 is the zeroth-order modified Bessel function of the first kind.
 // beta controls the trade-off between main lobe width and side lobe level.
 //
+// Intermediate math runs in T. detail::bessel_I0 is templated so the
+// Bessel series expansion runs at the caller's declared precision;
+// sqrt and max dispatch via ADL.
+//
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
@@ -20,14 +24,20 @@ namespace detail {
 
 // Modified Bessel function of the first kind, order 0.
 // Series expansion: I0(x) = sum_{k=0}^{inf} ((x/2)^k / k!)^2
-inline double bessel_I0(double x) {
-	double sum = 1.0;
-	double term = 1.0;
-	double x_half = x * 0.5;
+// Evaluated entirely in T so non-native CoeffScalar callers don't
+// silently fall back to double precision.
+template <DspField T>
+T bessel_I0(const T& x) {
+	constexpr T half = T(0.5);
+	constexpr T tol  = T(1e-15);
+	T sum  = T(1);
+	T term = T(1);
+	const T x_half = x * half;
 	for (int k = 1; k < 30; ++k) {
-		term *= (x_half / k) * (x_half / k);
-		sum += term;
-		if (term < sum * 1e-15) break;
+		const T ratio = x_half / T(k);
+		term = term * ratio * ratio;
+		sum = sum + term;
+		if (term < sum * tol) break;
 	}
 	return sum;
 }
@@ -36,14 +46,22 @@ inline double bessel_I0(double x) {
 
 template <DspField T>
 mtl::vec::dense_vector<T> kaiser_window(std::size_t length, double beta = 8.6) {
+	using std::sqrt;
 	mtl::vec::dense_vector<T> w(length);
-	if (length <= 1) { if (length == 1) w[0] = T{1}; return w; }
-	double N = static_cast<double>(length - 1);
-	double I0_beta = detail::bessel_I0(beta);
+	if (length <= 1) { if (length == 1) w[0] = T(1); return w; }
+
+	constexpr T zero = T(0);
+	constexpr T one  = T(1);
+	constexpr T two  = T(2);
+	const T N = T(length - 1);
+	const T beta_T = T(beta);
+	const T I0_beta = detail::bessel_I0(beta_T);
 	for (std::size_t n = 0; n < length; ++n) {
-		double x = 2.0 * static_cast<double>(n) / N - 1.0;
-		double arg = beta * std::sqrt(std::max(0.0, 1.0 - x * x));
-		w[n] = static_cast<T>(detail::bessel_I0(arg) / I0_beta);
+		const T x = two * T(n) / N - one;
+		const T radicand = one - x * x;
+		const T clamped  = (radicand < zero) ? zero : radicand;
+		const T arg = beta_T * sqrt(clamped);
+		w[n] = detail::bessel_I0(arg) / I0_beta;
 	}
 	return w;
 }
