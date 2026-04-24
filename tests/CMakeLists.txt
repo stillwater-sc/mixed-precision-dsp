@@ -96,3 +96,6 @@ dsp_add_test(test_nco)
 
 # Digital Down-Converter (Issue #89)
 dsp_add_test(test_ddc)
+
+# Multi-stage decimation chain (Issue #90)
+dsp_add_test(test_decimation_chain)

@@ -39,37 +39,15 @@
 
 #include <cstddef>
 #include <stdexcept>
-#include <type_traits>
 #include <utility>
 #include <vector>
 #include <mtl/vec/dense_vector.hpp>
+#include <sw/dsp/acquisition/detail/decimator_step.hpp>
 #include <sw/dsp/acquisition/nco.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/filter/fir/polyphase.hpp>
 
 namespace sw::dsp {
-
-namespace detail {
-
-// Uniform streaming dispatch for the three decimator APIs used in this library.
-// Returns {true, y} on the emit cycle, {false, 0} otherwise.
-template <class Decimator, class Sample>
-std::pair<bool, Sample> step_decimator(Decimator& d, Sample in) {
-	if constexpr (requires { { d.process(in) } -> std::convertible_to<std::pair<bool, Sample>>; }) {
-		return d.process(in);
-	} else if constexpr (requires { { d.process_decimate(in) } -> std::convertible_to<std::pair<bool, Sample>>; }) {
-		return d.process_decimate(in);
-	} else if constexpr (requires { { d.push(in) } -> std::convertible_to<bool>; d.output(); }) {
-		bool ready = d.push(in);
-		if (ready) return {true, d.output()};
-		return {false, Sample{}};
-	} else {
-		static_assert(sizeof(Decimator) == 0,
-			"step_decimator: Decimator must have process(), process_decimate(), or push()/output()");
-	}
-}
-
-} // namespace detail
 
 // Digital Down-Converter: NCO -> mixer -> decimation filter.
 //
