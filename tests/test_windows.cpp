@@ -296,9 +296,17 @@ void test_windows_in_posit_precision() {
 	auto gau_p = gaussian_window<posit_t>(N, 0.4);
 	double gau_diff = compare_window("gaussian", gau_d, gau_p, 1e-7);
 
+	// Dolph-Chebyshev — exercises the Chebyshev-polynomial recurrence and
+	// O(N^2) IDFT kernel at posit precision. More accumulated rounding than
+	// per-sample windows: N^2=4096 cos sums amplify posit<32,2> ULP.
+	auto dc_d = dolph_chebyshev_window<double>(N, 80.0);
+	auto dc_p = dolph_chebyshev_window<posit_t>(N, 80.0);
+	double dc_diff = compare_window("dolph_chebyshev", dc_d, dc_p, 5e-6);
+
 	std::cout << "  windows_in_posit_precision: hamming=" << ham_diff
 	          << " kaiser=" << kai_diff
 	          << " gaussian=" << gau_diff
+	          << " dolph_chebyshev=" << dc_diff
 	          << ", passed\n";
 }
 
