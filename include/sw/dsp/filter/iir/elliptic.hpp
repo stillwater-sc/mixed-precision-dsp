@@ -490,17 +490,21 @@ public:
 
 	void setup(int order, double sample_rate, double passband_freq,
 	           double stopband_freq, double ripple_db, double stopband_db) {
+		using std::tan;
 		validate_lowpass(passband_freq, stopband_freq, sample_rate, ripple_db, stopband_db);
 
-		double wp = std::tan(sw::dsp::pi * passband_freq / sample_rate);
-		double ws = std::tan(sw::dsp::pi * stopband_freq / sample_rate);
-		double k = wp / ws;
+		// Bilinear prewarp in CoeffScalar so posit/cfloat users get design-time
+		// math at their declared precision (required for embedded deployments).
+		constexpr CoeffScalar pi_T = CoeffScalar(sw::dsp::pi);
+		const CoeffScalar fs = CoeffScalar(sample_rate);
+		const CoeffScalar wp = tan(pi_T * CoeffScalar(passband_freq) / fs);
+		const CoeffScalar ws = tan(pi_T * CoeffScalar(stopband_freq) / fs);
+		const CoeffScalar k  = wp / ws;
 
 		EllipticAnalogPrototype<CoeffScalar, MaxOrder> proto;
-		proto.design_from_modulus(order, static_cast<CoeffScalar>(ripple_db),
-		                         static_cast<CoeffScalar>(k), analog_);
+		proto.design_from_modulus(order, CoeffScalar(ripple_db), k, analog_);
 		LowPassTransform<CoeffScalar>(
-			static_cast<CoeffScalar>(passband_freq / sample_rate), digital_, analog_);
+			CoeffScalar(passband_freq) / fs, digital_, analog_);
 		cascade_.set_layout(digital_);
 	}
 
@@ -528,17 +532,19 @@ public:
 
 	void setup(int order, double sample_rate, double passband_freq,
 	           double stopband_freq, double ripple_db, double stopband_db) {
+		using std::tan;
 		validate_highpass(passband_freq, stopband_freq, sample_rate, ripple_db, stopband_db);
 
-		double wp = std::tan(sw::dsp::pi * passband_freq / sample_rate);
-		double ws = std::tan(sw::dsp::pi * stopband_freq / sample_rate);
-		double k = ws / wp;
+		constexpr CoeffScalar pi_T = CoeffScalar(sw::dsp::pi);
+		const CoeffScalar fs = CoeffScalar(sample_rate);
+		const CoeffScalar wp = tan(pi_T * CoeffScalar(passband_freq) / fs);
+		const CoeffScalar ws = tan(pi_T * CoeffScalar(stopband_freq) / fs);
+		const CoeffScalar k  = ws / wp;
 
 		EllipticAnalogPrototype<CoeffScalar, MaxOrder> proto;
-		proto.design_from_modulus(order, static_cast<CoeffScalar>(ripple_db),
-		                         static_cast<CoeffScalar>(k), analog_);
+		proto.design_from_modulus(order, CoeffScalar(ripple_db), k, analog_);
 		HighPassTransform<CoeffScalar>(
-			static_cast<CoeffScalar>(passband_freq / sample_rate), digital_, analog_);
+			CoeffScalar(passband_freq) / fs, digital_, analog_);
 		cascade_.set_layout(digital_);
 	}
 
@@ -567,6 +573,7 @@ public:
 	           double pass_low, double pass_high,
 	           double stop_low, double stop_high,
 	           double ripple_db, double stopband_db) {
+		using std::tan; using std::abs;
 		if (ripple_db <= 0 || stopband_db <= 0)
 			throw std::invalid_argument("elliptic bandpass: ripple and stopband must be > 0");
 		if (!(stop_low < pass_low && pass_low < pass_high && pass_high < stop_high))
@@ -574,26 +581,30 @@ public:
 		if (stop_high >= sample_rate / 2.0)
 			throw std::invalid_argument("elliptic bandpass: stop_high must be < Nyquist");
 
-		double wpl = std::tan(sw::dsp::pi * pass_low / sample_rate);
-		double wph = std::tan(sw::dsp::pi * pass_high / sample_rate);
-		double wsl = std::tan(sw::dsp::pi * stop_low / sample_rate);
-		double wsh = std::tan(sw::dsp::pi * stop_high / sample_rate);
+		constexpr CoeffScalar pi_T = CoeffScalar(sw::dsp::pi);
+		constexpr CoeffScalar one  = CoeffScalar(1);
+		constexpr CoeffScalar two  = CoeffScalar(2);
+		const CoeffScalar fs = CoeffScalar(sample_rate);
+		const CoeffScalar wpl = tan(pi_T * CoeffScalar(pass_low)  / fs);
+		const CoeffScalar wph = tan(pi_T * CoeffScalar(pass_high) / fs);
+		const CoeffScalar wsl = tan(pi_T * CoeffScalar(stop_low)  / fs);
+		const CoeffScalar wsh = tan(pi_T * CoeffScalar(stop_high) / fs);
 
-		double w0_sq = wpl * wph;
-		double bw = wph - wpl;
-		double kl = std::abs((wsl * wsl - w0_sq) / (wsl * bw));
-		double kh = std::abs((wsh * wsh - w0_sq) / (wsh * bw));
-		double k = 1.0 / std::min(kl, kh);
+		const CoeffScalar w0_sq = wpl * wph;
+		const CoeffScalar bw = wph - wpl;
+		const CoeffScalar kl = abs((wsl * wsl - w0_sq) / (wsl * bw));
+		const CoeffScalar kh = abs((wsh * wsh - w0_sq) / (wsh * bw));
+		// min() via explicit compare; std::min on posit is ambiguous in some
+		// overload sets. Comparison operators are well-defined on DspField.
+		const CoeffScalar k_min = (kl < kh) ? kl : kh;
+		const CoeffScalar k = one / k_min;
 
-		double center_freq = (pass_low + pass_high) / 2.0;
-		double width_freq = pass_high - pass_low;
+		const CoeffScalar center_freq = (CoeffScalar(pass_low) + CoeffScalar(pass_high)) / two;
+		const CoeffScalar width_freq  =  CoeffScalar(pass_high) - CoeffScalar(pass_low);
 
 		EllipticAnalogPrototype<CoeffScalar, MaxOrder> proto;
-		proto.design_from_modulus(order, static_cast<CoeffScalar>(ripple_db),
-		                         static_cast<CoeffScalar>(k), analog_);
-		BandPassTransform<CoeffScalar>(
-			static_cast<CoeffScalar>(center_freq / sample_rate),
-			static_cast<CoeffScalar>(width_freq / sample_rate), digital_, analog_);
+		proto.design_from_modulus(order, CoeffScalar(ripple_db), k, analog_);
+		BandPassTransform<CoeffScalar>(center_freq / fs, width_freq / fs, digital_, analog_);
 		cascade_.set_layout(digital_);
 	}
 
@@ -622,6 +633,7 @@ public:
 	           double stop_low, double stop_high,
 	           double pass_low, double pass_high,
 	           double ripple_db, double stopband_db) {
+		using std::tan; using std::abs;
 		if (ripple_db <= 0 || stopband_db <= 0)
 			throw std::invalid_argument("elliptic bandstop: ripple and stopband must be > 0");
 		if (!(pass_low < stop_low && stop_low < stop_high && stop_high < pass_high))
@@ -629,28 +641,30 @@ public:
 		if (pass_high >= sample_rate / 2.0)
 			throw std::invalid_argument("elliptic bandstop: pass_high must be < Nyquist");
 
-		double wpl = std::tan(sw::dsp::pi * pass_low / sample_rate);
-		double wph = std::tan(sw::dsp::pi * pass_high / sample_rate);
-		double wsl = std::tan(sw::dsp::pi * stop_low / sample_rate);
-		double wsh = std::tan(sw::dsp::pi * stop_high / sample_rate);
+		constexpr CoeffScalar pi_T = CoeffScalar(sw::dsp::pi);
+		constexpr CoeffScalar one  = CoeffScalar(1);
+		constexpr CoeffScalar two  = CoeffScalar(2);
+		const CoeffScalar fs = CoeffScalar(sample_rate);
+		const CoeffScalar wpl = tan(pi_T * CoeffScalar(pass_low)  / fs);
+		const CoeffScalar wph = tan(pi_T * CoeffScalar(pass_high) / fs);
+		const CoeffScalar wsl = tan(pi_T * CoeffScalar(stop_low)  / fs);
+		const CoeffScalar wsh = tan(pi_T * CoeffScalar(stop_high) / fs);
 
 		// Bandstop selectivity: for each passband edge, compute its
 		// equivalent lowpass prototype frequency, then take the tightest.
-		double w0_sq = wsl * wsh;
-		double bw = wsh - wsl;
-		double kl = std::abs((wpl * wpl - w0_sq) / (wpl * bw));
-		double kh = std::abs((wph * wph - w0_sq) / (wph * bw));
-		double k = 1.0 / std::max(kl, kh);
+		const CoeffScalar w0_sq = wsl * wsh;
+		const CoeffScalar bw = wsh - wsl;
+		const CoeffScalar kl = abs((wpl * wpl - w0_sq) / (wpl * bw));
+		const CoeffScalar kh = abs((wph * wph - w0_sq) / (wph * bw));
+		const CoeffScalar k_max = (kl > kh) ? kl : kh;
+		const CoeffScalar k = one / k_max;
 
-		double center_freq = (stop_low + stop_high) / 2.0;
-		double width_freq = stop_high - stop_low;
+		const CoeffScalar center_freq = (CoeffScalar(stop_low) + CoeffScalar(stop_high)) / two;
+		const CoeffScalar width_freq  =  CoeffScalar(stop_high) - CoeffScalar(stop_low);
 
 		EllipticAnalogPrototype<CoeffScalar, MaxOrder> proto;
-		proto.design_from_modulus(order, static_cast<CoeffScalar>(ripple_db),
-		                         static_cast<CoeffScalar>(k), analog_);
-		BandStopTransform<CoeffScalar>(
-			static_cast<CoeffScalar>(center_freq / sample_rate),
-			static_cast<CoeffScalar>(width_freq / sample_rate), digital_, analog_);
+		proto.design_from_modulus(order, CoeffScalar(ripple_db), k, analog_);
+		BandStopTransform<CoeffScalar>(center_freq / fs, width_freq / fs, digital_, analog_);
 		cascade_.set_layout(digital_);
 	}
 
