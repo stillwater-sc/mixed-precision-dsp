@@ -4,6 +4,16 @@
 // Direct coefficient formulas — no analog prototype needed.
 // Reference: http://www.musicdsp.org/files/Audio-EQ-Cookbook.txt
 //
+// The public setup() APIs take `double` parameters (sample_rate, freq, Q,
+// gain_db, slope) for interface stability, but all intermediate
+// coefficient math runs in CoeffScalar. A posit or fixed-point CoeffScalar
+// therefore produces coefficients that were computed end-to-end at the
+// caller's declared precision — required for embedded mixed-precision
+// deployments where filter design executes on the target.
+//
+// ADL-friendly trig (using std::cos; cos(x);) picks up sw::universal::cos
+// for Universal number types and std::cos for native floats.
+//
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
@@ -58,19 +68,24 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double q = 0.7071) {
+		using std::cos; using std::sin;
 		detail::validate_freq(sample_rate, cutoff_freq, "rbj::LowPass");
 		detail::validate_q(q, "rbj::LowPass");
-		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
-		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
-		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
-		CoeffScalar alpha = sn / (CoeffScalar{2} * static_cast<CoeffScalar>(q));
 
-		CoeffScalar b0 = (CoeffScalar{1} - cs) / CoeffScalar{2};
-		CoeffScalar b1 =  CoeffScalar{1} - cs;
-		CoeffScalar b2 = (CoeffScalar{1} - cs) / CoeffScalar{2};
-		CoeffScalar a0 =  CoeffScalar{1} + alpha;
-		CoeffScalar a1 =  CoeffScalar{-2} * cs;
-		CoeffScalar a2 =  CoeffScalar{1} - alpha;
+		constexpr CoeffScalar one = CoeffScalar(1);
+		constexpr CoeffScalar two = CoeffScalar(2);
+		const CoeffScalar w0 = CoeffScalar(two_pi)
+		                     * CoeffScalar(cutoff_freq) / CoeffScalar(sample_rate);
+		const CoeffScalar cs = cos(w0);
+		const CoeffScalar sn = sin(w0);
+		const CoeffScalar alpha = sn / (two * CoeffScalar(q));
+
+		CoeffScalar b0 = (one - cs) / two;
+		CoeffScalar b1 =  one - cs;
+		CoeffScalar b2 = (one - cs) / two;
+		CoeffScalar a0 =  one + alpha;
+		CoeffScalar a1 = -(two * cs);
+		CoeffScalar a2 =  one - alpha;
 
 		cascade_.set_num_stages(1);
 		cascade_.stage(0) = detail::normalize(b0, b1, b2, a0, a1, a2);
@@ -93,19 +108,24 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double q = 0.7071) {
+		using std::cos; using std::sin;
 		detail::validate_freq(sample_rate, cutoff_freq, "rbj::HighPass");
 		detail::validate_q(q, "rbj::HighPass");
-		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
-		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
-		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
-		CoeffScalar alpha = sn / (CoeffScalar{2} * static_cast<CoeffScalar>(q));
 
-		CoeffScalar b0 =  (CoeffScalar{1} + cs) / CoeffScalar{2};
-		CoeffScalar b1 = -(CoeffScalar{1} + cs);
-		CoeffScalar b2 =  (CoeffScalar{1} + cs) / CoeffScalar{2};
-		CoeffScalar a0 =  CoeffScalar{1} + alpha;
-		CoeffScalar a1 =  CoeffScalar{-2} * cs;
-		CoeffScalar a2 =  CoeffScalar{1} - alpha;
+		constexpr CoeffScalar one = CoeffScalar(1);
+		constexpr CoeffScalar two = CoeffScalar(2);
+		const CoeffScalar w0 = CoeffScalar(two_pi)
+		                     * CoeffScalar(cutoff_freq) / CoeffScalar(sample_rate);
+		const CoeffScalar cs = cos(w0);
+		const CoeffScalar sn = sin(w0);
+		const CoeffScalar alpha = sn / (two * CoeffScalar(q));
+
+		CoeffScalar b0 =  (one + cs) / two;
+		CoeffScalar b1 = -(one + cs);
+		CoeffScalar b2 =  (one + cs) / two;
+		CoeffScalar a0 =   one + alpha;
+		CoeffScalar a1 = -(two * cs);
+		CoeffScalar a2 =   one - alpha;
 
 		cascade_.set_num_stages(1);
 		cascade_.stage(0) = detail::normalize(b0, b1, b2, a0, a1, a2);
@@ -128,19 +148,25 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double center_freq, double bandwidth = 1.0) {
+		using std::cos; using std::sin;
 		detail::validate_freq(sample_rate, center_freq, "rbj::BandPass");
 		detail::validate_q(bandwidth, "rbj::BandPass");
-		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(center_freq / sample_rate);
-		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
-		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
-		CoeffScalar alpha = sn / (CoeffScalar{2} * static_cast<CoeffScalar>(bandwidth));
+
+		constexpr CoeffScalar zero = CoeffScalar(0);
+		constexpr CoeffScalar one  = CoeffScalar(1);
+		constexpr CoeffScalar two  = CoeffScalar(2);
+		const CoeffScalar w0 = CoeffScalar(two_pi)
+		                     * CoeffScalar(center_freq) / CoeffScalar(sample_rate);
+		const CoeffScalar cs = cos(w0);
+		const CoeffScalar sn = sin(w0);
+		const CoeffScalar alpha = sn / (two * CoeffScalar(bandwidth));
 
 		CoeffScalar b0 =  alpha;
-		CoeffScalar b1 =  CoeffScalar{};
+		CoeffScalar b1 =  zero;
 		CoeffScalar b2 = -alpha;
-		CoeffScalar a0 =  CoeffScalar{1} + alpha;
-		CoeffScalar a1 =  CoeffScalar{-2} * cs;
-		CoeffScalar a2 =  CoeffScalar{1} - alpha;
+		CoeffScalar a0 =  one + alpha;
+		CoeffScalar a1 = -(two * cs);
+		CoeffScalar a2 =  one - alpha;
 
 		cascade_.set_num_stages(1);
 		cascade_.stage(0) = detail::normalize(b0, b1, b2, a0, a1, a2);
@@ -163,19 +189,24 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double center_freq, double bandwidth = 1.0) {
+		using std::cos; using std::sin;
 		detail::validate_freq(sample_rate, center_freq, "rbj::BandStop");
 		detail::validate_q(bandwidth, "rbj::BandStop");
-		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(center_freq / sample_rate);
-		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
-		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
-		CoeffScalar alpha = sn / (CoeffScalar{2} * static_cast<CoeffScalar>(bandwidth));
 
-		CoeffScalar b0 =  CoeffScalar{1};
-		CoeffScalar b1 =  CoeffScalar{-2} * cs;
-		CoeffScalar b2 =  CoeffScalar{1};
-		CoeffScalar a0 =  CoeffScalar{1} + alpha;
-		CoeffScalar a1 =  CoeffScalar{-2} * cs;
-		CoeffScalar a2 =  CoeffScalar{1} - alpha;
+		constexpr CoeffScalar one = CoeffScalar(1);
+		constexpr CoeffScalar two = CoeffScalar(2);
+		const CoeffScalar w0 = CoeffScalar(two_pi)
+		                     * CoeffScalar(center_freq) / CoeffScalar(sample_rate);
+		const CoeffScalar cs = cos(w0);
+		const CoeffScalar sn = sin(w0);
+		const CoeffScalar alpha = sn / (two * CoeffScalar(bandwidth));
+
+		CoeffScalar b0 =  one;
+		CoeffScalar b1 = -(two * cs);
+		CoeffScalar b2 =  one;
+		CoeffScalar a0 =  one + alpha;
+		CoeffScalar a1 = -(two * cs);
+		CoeffScalar a2 =  one - alpha;
 
 		cascade_.set_num_stages(1);
 		cascade_.stage(0) = detail::normalize(b0, b1, b2, a0, a1, a2);
@@ -198,19 +229,24 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double center_freq, double q = 0.7071) {
+		using std::cos; using std::sin;
 		detail::validate_freq(sample_rate, center_freq, "rbj::AllPass");
 		detail::validate_q(q, "rbj::AllPass");
-		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(center_freq / sample_rate);
-		CoeffScalar cs = static_cast<CoeffScalar>(std::cos(static_cast<double>(w0)));
-		CoeffScalar sn = static_cast<CoeffScalar>(std::sin(static_cast<double>(w0)));
-		CoeffScalar alpha = sn / (CoeffScalar{2} * static_cast<CoeffScalar>(q));
 
-		CoeffScalar b0 =  CoeffScalar{1} - alpha;
-		CoeffScalar b1 =  CoeffScalar{-2} * cs;
-		CoeffScalar b2 =  CoeffScalar{1} + alpha;
-		CoeffScalar a0 =  CoeffScalar{1} + alpha;
-		CoeffScalar a1 =  CoeffScalar{-2} * cs;
-		CoeffScalar a2 =  CoeffScalar{1} - alpha;
+		constexpr CoeffScalar one = CoeffScalar(1);
+		constexpr CoeffScalar two = CoeffScalar(2);
+		const CoeffScalar w0 = CoeffScalar(two_pi)
+		                     * CoeffScalar(center_freq) / CoeffScalar(sample_rate);
+		const CoeffScalar cs = cos(w0);
+		const CoeffScalar sn = sin(w0);
+		const CoeffScalar alpha = sn / (two * CoeffScalar(q));
+
+		CoeffScalar b0 =  one - alpha;
+		CoeffScalar b1 = -(two * cs);
+		CoeffScalar b2 =  one + alpha;
+		CoeffScalar a0 =  one + alpha;
+		CoeffScalar a1 = -(two * cs);
+		CoeffScalar a2 =  one - alpha;
 
 		cascade_.set_num_stages(1);
 		cascade_.stage(0) = detail::normalize(b0, b1, b2, a0, a1, a2);
@@ -233,25 +269,38 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double gain_db, double slope = 1.0) {
+		using std::cos; using std::sin; using std::pow; using std::sqrt;
 		detail::validate_freq(sample_rate, cutoff_freq, "rbj::LowShelf");
 		if (!(slope > 0.0)) throw std::invalid_argument("rbj::LowShelf: slope must be > 0");
 		if (!std::isfinite(gain_db)) throw std::invalid_argument("rbj::LowShelf: gain_db must be finite");
-		double A  = std::pow(10.0, gain_db / 40.0);
-		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
-		double cs = std::cos(static_cast<double>(w0));
-		double sn = std::sin(static_cast<double>(w0));
-		double radicand = (A + 1.0/A) * (1.0/slope - 1.0) + 2.0;
-		double alpha = sn / 2.0 * std::sqrt(std::max(0.0, radicand));
-		double sq = 2.0 * std::sqrt(A) * alpha;
 
-		auto C = [](double v) { return static_cast<CoeffScalar>(v); };
+		constexpr CoeffScalar zero = CoeffScalar(0);
+		constexpr CoeffScalar one  = CoeffScalar(1);
+		constexpr CoeffScalar two  = CoeffScalar(2);
+		constexpr CoeffScalar ten  = CoeffScalar(10);
+		constexpr CoeffScalar forty = CoeffScalar(40);
 
-		CoeffScalar b0 = C(A * ((A+1) - (A-1)*cs + sq));
-		CoeffScalar b1 = C(2*A * ((A-1) - (A+1)*cs));
-		CoeffScalar b2 = C(A * ((A+1) - (A-1)*cs - sq));
-		CoeffScalar a0 = C((A+1) + (A-1)*cs + sq);
-		CoeffScalar a1 = C(-2 * ((A-1) + (A+1)*cs));
-		CoeffScalar a2 = C((A+1) + (A-1)*cs - sq);
+		const CoeffScalar A = pow(ten, CoeffScalar(gain_db) / forty);
+		const CoeffScalar w0 = CoeffScalar(two_pi)
+		                     * CoeffScalar(cutoff_freq) / CoeffScalar(sample_rate);
+		const CoeffScalar cs = cos(w0);
+		const CoeffScalar sn = sin(w0);
+		const CoeffScalar inv_A = one / A;
+		const CoeffScalar inv_slope = one / CoeffScalar(slope);
+		CoeffScalar radicand = (A + inv_A) * (inv_slope - one) + two;
+		if (radicand < zero) radicand = zero;
+		const CoeffScalar alpha = sn / two * sqrt(radicand);
+		const CoeffScalar sq = two * sqrt(A) * alpha;
+
+		const CoeffScalar Ap1 = A + one;
+		const CoeffScalar Am1 = A - one;
+
+		CoeffScalar b0 =  A * (Ap1 - Am1*cs + sq);
+		CoeffScalar b1 =  two * A * (Am1 - Ap1*cs);
+		CoeffScalar b2 =  A * (Ap1 - Am1*cs - sq);
+		CoeffScalar a0 =  Ap1 + Am1*cs + sq;
+		CoeffScalar a1 = -(two * (Am1 + Ap1*cs));
+		CoeffScalar a2 =  Ap1 + Am1*cs - sq;
 
 		cascade_.set_num_stages(1);
 		cascade_.stage(0) = detail::normalize(b0, b1, b2, a0, a1, a2);
@@ -274,25 +323,38 @@ public:
 	static constexpr int max_stages = 1;
 
 	void setup(double sample_rate, double cutoff_freq, double gain_db, double slope = 1.0) {
+		using std::cos; using std::sin; using std::pow; using std::sqrt;
 		detail::validate_freq(sample_rate, cutoff_freq, "rbj::HighShelf");
 		if (!(slope > 0.0)) throw std::invalid_argument("rbj::HighShelf: slope must be > 0");
 		if (!std::isfinite(gain_db)) throw std::invalid_argument("rbj::HighShelf: gain_db must be finite");
-		double A  = std::pow(10.0, gain_db / 40.0);
-		CoeffScalar w0 = two_pi_v<CoeffScalar> * static_cast<CoeffScalar>(cutoff_freq / sample_rate);
-		double cs = std::cos(static_cast<double>(w0));
-		double sn = std::sin(static_cast<double>(w0));
-		double radicand = (A + 1.0/A) * (1.0/slope - 1.0) + 2.0;
-		double alpha = sn / 2.0 * std::sqrt(std::max(0.0, radicand));
-		double sq = 2.0 * std::sqrt(A) * alpha;
 
-		auto C = [](double v) { return static_cast<CoeffScalar>(v); };
+		constexpr CoeffScalar zero = CoeffScalar(0);
+		constexpr CoeffScalar one  = CoeffScalar(1);
+		constexpr CoeffScalar two  = CoeffScalar(2);
+		constexpr CoeffScalar ten  = CoeffScalar(10);
+		constexpr CoeffScalar forty = CoeffScalar(40);
 
-		CoeffScalar b0 = C(A * ((A+1) + (A-1)*cs + sq));
-		CoeffScalar b1 = C(-2*A * ((A-1) + (A+1)*cs));
-		CoeffScalar b2 = C(A * ((A+1) + (A-1)*cs - sq));
-		CoeffScalar a0 = C((A+1) - (A-1)*cs + sq);
-		CoeffScalar a1 = C(2 * ((A-1) - (A+1)*cs));
-		CoeffScalar a2 = C((A+1) - (A-1)*cs - sq);
+		const CoeffScalar A = pow(ten, CoeffScalar(gain_db) / forty);
+		const CoeffScalar w0 = CoeffScalar(two_pi)
+		                     * CoeffScalar(cutoff_freq) / CoeffScalar(sample_rate);
+		const CoeffScalar cs = cos(w0);
+		const CoeffScalar sn = sin(w0);
+		const CoeffScalar inv_A = one / A;
+		const CoeffScalar inv_slope = one / CoeffScalar(slope);
+		CoeffScalar radicand = (A + inv_A) * (inv_slope - one) + two;
+		if (radicand < zero) radicand = zero;
+		const CoeffScalar alpha = sn / two * sqrt(radicand);
+		const CoeffScalar sq = two * sqrt(A) * alpha;
+
+		const CoeffScalar Ap1 = A + one;
+		const CoeffScalar Am1 = A - one;
+
+		CoeffScalar b0 =  A * (Ap1 + Am1*cs + sq);
+		CoeffScalar b1 = -(two * A * (Am1 + Ap1*cs));
+		CoeffScalar b2 =  A * (Ap1 + Am1*cs - sq);
+		CoeffScalar a0 =  Ap1 - Am1*cs + sq;
+		CoeffScalar a1 =  two * (Am1 - Ap1*cs);
+		CoeffScalar a2 =  Ap1 - Am1*cs - sq;
 
 		cascade_.set_num_stages(1);
 		cascade_.stage(0) = detail::normalize(b0, b1, b2, a0, a1, a2);
