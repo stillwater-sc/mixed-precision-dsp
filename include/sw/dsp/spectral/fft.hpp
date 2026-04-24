@@ -64,7 +64,11 @@ void fft_forward(mtl::vec::dense_vector<complex_for_t<T>>& data) {
 	}
 
 	// Butterfly stages. Twiddle generation stays in T.
-	constexpr T two_pi_T = T(two_pi);
+	// `two_pi_T` is `const`, not `constexpr`: T(double) is constexpr for posit
+	// (Universal v4.6.10) but not yet for lns<> — its constexpr chain hits a
+	// non-constexpr blockbinary copy ctor deep in numeric_limits. The compiler
+	// still constant-folds this for types that allow it.
+	const T two_pi_T = T(two_pi);
 	for (int s = 1; s <= log2n; ++s) {
 		std::size_t m = std::size_t{1} << s;
 		std::size_t m2 = m >> 1;
