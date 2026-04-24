@@ -5,6 +5,13 @@
 // an ideal (sinc) impulse response. The window controls the
 // trade-off between transition bandwidth and stopband attenuation.
 //
+// Intermediate math runs in the template scalar T so that callers using
+// posit, cfloat, fixpnt, etc. get design-time computation at their
+// declared precision — a requirement for embedded mixed-precision
+// deployments where filter design may execute on-target. ADL-friendly
+// trig (using std::sin) picks up sw::universal::sin for Universal number
+// types and std::sin for native floats.
+//
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
@@ -27,21 +34,33 @@ namespace sw::dsp {
 template <DspField T>
 mtl::vec::dense_vector<T> design_fir_lowpass(std::size_t num_taps, T cutoff,
                                               const mtl::vec::dense_vector<T>& window) {
+	using std::abs; using std::sin;
 	if (window.size() != num_taps)
 		throw std::invalid_argument("design_fir_lowpass: window size must equal num_taps");
 	mtl::vec::dense_vector<T> taps(num_taps);
-	int M = static_cast<int>(num_taps - 1);
-	double fc = static_cast<double>(cutoff);
+
+	// Constants built from pure constructor calls (constexpr since
+	// Universal v4.6.10 for posit's IEEE-754 ctors).
+	constexpr T two    = T(2);
+	constexpr T pi_T   = T(pi);
+	constexpr T two_pi_T = T(two_pi);
+	// Odd num_taps gives M/2 an integer, so x=0 at the center tap exactly.
+	// Even num_taps gives M/2 a half-integer, so the sinc argument never
+	// lands on 0. `tiny` is a safety threshold against floating-point drift.
+	const     T tiny   = T(1) / T(1'000'000'000'000LL);
+
+	const std::size_t M = num_taps - 1;
+	const T half_M = T(M) / two;
 
 	for (std::size_t n = 0; n < num_taps; ++n) {
-		double x = static_cast<double>(n) - M * 0.5;
-		double h;
-		if (std::abs(x) < 1e-10) {
-			h = 2.0 * fc;  // sinc(0) = 1, scaled by 2*fc
+		T x = T(n) - half_M;
+		T h;
+		if (abs(x) < tiny) {
+			h = two * cutoff;  // sinc(0) = 1, scaled by 2*fc
 		} else {
-			h = std::sin(2.0 * pi * fc * x) / (pi * x);
+			h = sin(two_pi_T * cutoff * x) / (pi_T * x);
 		}
-		taps[n] = static_cast<T>(h) * window[n];
+		taps[n] = h * window[n];
 	}
 	return taps;
 }
@@ -51,14 +70,16 @@ mtl::vec::dense_vector<T> design_fir_lowpass(std::size_t num_taps, T cutoff,
 template <DspField T>
 mtl::vec::dense_vector<T> design_fir_highpass(std::size_t num_taps, T cutoff,
                                                const mtl::vec::dense_vector<T>& window) {
-	auto lp = design_fir_lowpass(num_taps, cutoff, window);
+	auto lp = design_fir_lowpass<T>(num_taps, cutoff, window);
+
+	constexpr T one = T(1);
 
 	// Spectral inversion: negate all taps, add 1 to center tap
 	for (std::size_t n = 0; n < num_taps; ++n) {
-		lp[n] = T{} - lp[n];
+		lp[n] = -lp[n];
 	}
 	std::size_t center = (num_taps - 1) / 2;
-	lp[center] = lp[center] + T{1};
+	lp[center] = lp[center] + one;
 
 	return lp;
 }
@@ -69,8 +90,8 @@ template <DspField T>
 mtl::vec::dense_vector<T> design_fir_bandpass(std::size_t num_taps,
                                                T f_low, T f_high,
                                                const mtl::vec::dense_vector<T>& window) {
-	auto lp_high = design_fir_lowpass(num_taps, f_high, window);
-	auto lp_low = design_fir_lowpass(num_taps, f_low, window);
+	auto lp_high = design_fir_lowpass<T>(num_taps, f_high, window);
+	auto lp_low  = design_fir_lowpass<T>(num_taps, f_low,  window);
 
 	mtl::vec::dense_vector<T> bp(num_taps);
 	for (std::size_t n = 0; n < num_taps; ++n) {

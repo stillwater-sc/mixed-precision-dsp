@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include <universal/number/posit/posit.hpp>
+
 using namespace sw::dsp;
 
 bool near(double a, double b, double eps = 1e-6) {
@@ -241,6 +243,90 @@ void test_fir_filtering_signal() {
 	          << high_energy_out / high_energy_in << ")\n";
 }
 
+// ============================================================================
+// Posit<32,2> regression: verify that design_fir_lowpass/highpass/bandpass
+// run their intermediate math in T, not double. Compares a posit-designed
+// tap set against a double-designed reference; agreement must be within
+// posit<32,2> precision (~2^-28 ULP near unit magnitude).
+// ============================================================================
+
+void test_design_in_posit_precision() {
+	using posit_t = sw::universal::posit<32, 2>;
+	std::size_t N = 31;
+	double cutoff_d = 0.2;
+	posit_t cutoff_p(cutoff_d);
+
+	// Design the window in double, cast to posit (windows are a separate
+	// cleanup — issue #115; here we only exercise fir_design in posit).
+	auto win_d = hamming_window<double>(N);
+	mtl::vec::dense_vector<posit_t> win_p(N);
+	for (std::size_t i = 0; i < N; ++i) win_p[i] = posit_t(win_d[i]);
+
+	// ---- lowpass
+	auto lp_d = design_fir_lowpass<double>(N, cutoff_d, win_d);
+	auto lp_p = design_fir_lowpass<posit_t>(N, cutoff_p, win_p);
+
+	if (lp_p.size() != N)
+		throw std::runtime_error("test failed: posit lowpass length");
+
+	// Symmetric (linear phase)
+	double max_asym = 0.0;
+	for (std::size_t i = 0; i < N / 2; ++i) {
+		double li = static_cast<double>(lp_p[i]);
+		double ri = static_cast<double>(lp_p[N - 1 - i]);
+		double a = std::abs(li - ri);
+		if (a > max_asym) max_asym = a;
+	}
+	if (max_asym > 1e-6)
+		throw std::runtime_error("test failed: posit lowpass asymmetry = " +
+			std::to_string(max_asym));
+
+	// Agreement with double reference
+	double max_diff = 0.0;
+	for (std::size_t i = 0; i < N; ++i) {
+		double d = std::abs(static_cast<double>(lp_p[i]) - lp_d[i]);
+		if (d > max_diff) max_diff = d;
+	}
+	if (max_diff > 1e-6)
+		throw std::runtime_error("test failed: posit lowpass max diff vs double = " +
+			std::to_string(max_diff));
+
+	// ---- highpass
+	auto hp_d = design_fir_highpass<double>(N, cutoff_d, win_d);
+	auto hp_p = design_fir_highpass<posit_t>(N, cutoff_p, win_p);
+	double hp_max_diff = 0.0;
+	for (std::size_t i = 0; i < N; ++i) {
+		double d = std::abs(static_cast<double>(hp_p[i]) - hp_d[i]);
+		if (d > hp_max_diff) hp_max_diff = d;
+	}
+	if (hp_max_diff > 1e-6)
+		throw std::runtime_error("test failed: posit highpass max diff = " +
+			std::to_string(hp_max_diff));
+
+	// ---- bandpass
+	std::size_t Nbp = 63;
+	auto win_d_bp = hamming_window<double>(Nbp);
+	mtl::vec::dense_vector<posit_t> win_p_bp(Nbp);
+	for (std::size_t i = 0; i < Nbp; ++i) win_p_bp[i] = posit_t(win_d_bp[i]);
+
+	auto bp_d = design_fir_bandpass<double>(Nbp, 0.15, 0.35, win_d_bp);
+	auto bp_p = design_fir_bandpass<posit_t>(Nbp, posit_t(0.15), posit_t(0.35), win_p_bp);
+	double bp_max_diff = 0.0;
+	for (std::size_t i = 0; i < Nbp; ++i) {
+		double d = std::abs(static_cast<double>(bp_p[i]) - bp_d[i]);
+		if (d > bp_max_diff) bp_max_diff = d;
+	}
+	if (bp_max_diff > 1e-6)
+		throw std::runtime_error("test failed: posit bandpass max diff = " +
+			std::to_string(bp_max_diff));
+
+	std::cout << "  design_in_posit_precision: lowpass asym=" << max_asym
+	          << " diff=" << max_diff
+	          << ", highpass diff=" << hp_max_diff
+	          << ", bandpass diff=" << bp_max_diff
+	          << ", passed\n";
+}
+
 void test_fir_validation() {
 	// Empty taps should throw
 	bool caught = false;
@@ -266,6 +352,7 @@ int main() {
 		test_design_lowpass();
 		test_design_highpass();
 		test_design_bandpass();
+		test_design_in_posit_precision();
 		test_fir_filtering_signal();
 		test_fir_validation();
 
