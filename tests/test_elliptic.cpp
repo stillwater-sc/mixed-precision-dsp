@@ -440,6 +440,53 @@ void test_spec_prewarp_in_posit_precision() {
 	std::cout << "  spec_prewarp_in_posit_precision: passed\n";
 }
 
+// ============================================================================
+// Issue #119: EllipticLowPassSpec<posit<32,2>> full end-to-end instantiation.
+// Previously blocked by std::complex-vs-complex_for_t dispatch in
+// BiquadCoefficients and Cascade::response. Now that those are fixed, we can
+// compare the posit-designed filter's frequency response against the double
+// reference at several probe frequencies.
+// ============================================================================
+
+void test_spec_end_to_end_in_posit_precision() {
+	using posit_t = sw::universal::posit<32, 2>;
+
+	iir::EllipticLowPassSpec<8, double>  lp_d;
+	iir::EllipticLowPassSpec<8, posit_t> lp_p;
+
+	const int n = iir::elliptic_minimum_order(1.0, 40.0, 2000.0, 3000.0, 44100.0);
+	lp_d.setup(n, 44100.0, 2000.0, 3000.0, 1.0, 40.0);
+	lp_p.setup(n, 44100.0, 2000.0, 3000.0, 1.0, 40.0);
+
+	double max_db_diff = 0.0;
+	for (double f_hz : {100.0, 500.0, 1000.0, 1500.0, 1800.0, 2200.0,
+	                     2700.0, 3500.0, 5000.0, 8000.0}) {
+		const double f = f_hz / 44100.0;
+		auto resp_d = lp_d.cascade().response(f);
+		auto resp_p = lp_p.cascade().response(f);
+		const double mag_d = std::abs(resp_d);
+		const double rp = static_cast<double>(resp_p.real());
+		const double ip = static_cast<double>(resp_p.imag());
+		const double mag_p = std::sqrt(rp * rp + ip * ip);
+		const double db_d = 20.0 * std::log10(std::max(mag_d, 1e-15));
+		const double db_p = 20.0 * std::log10(std::max(mag_p, 1e-15));
+		const double d = std::abs(db_d - db_p);
+		if (d > max_db_diff) max_db_diff = d;
+	}
+
+	// Filter design is heavy on transcendentals and involves elliptic
+	// integrals; posit<32,2> ULP propagates through. A 0.1 dB agreement
+	// across passband, transition, and stopband is tight enough to catch
+	// any regression in the complex-type dispatch but loose enough not to
+	// fail on legitimate posit rounding.
+	if (max_db_diff > 0.1)
+		throw std::runtime_error("test failed: spec LP posit-vs-double max |dB diff| = " +
+			std::to_string(max_db_diff));
+
+	std::cout << "  spec_end_to_end_in_posit_precision: max |dB diff| = "
+	          << max_db_diff << ", passed\n";
+}
+
 void test_spec_rejects_invalid() {
 	iir::EllipticLowPassSpec<4> f;
 
@@ -492,6 +539,7 @@ int main() {
 		test_spec_bandstop();
 		test_spec_simple_filter();
 		test_spec_prewarp_in_posit_precision();
+		test_spec_end_to_end_in_posit_precision();
 		test_spec_rejects_invalid();
 
 		std::cout << "All Elliptic filter tests passed.\n";

@@ -14,6 +14,7 @@
 #include <cassert>
 #include <complex>
 #include <cmath>
+#include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/types/biquad_coefficients.hpp>
 #include <sw/dsp/filter/layout/layout.hpp>
 #include <sw/dsp/math/constants.hpp>
@@ -87,9 +88,13 @@ public:
 		return out;
 	}
 
-	// Evaluate frequency response at normalized frequency f in [0, 0.5]
-	std::complex<CoeffScalar> response(double normalized_freq) const {
-		std::complex<CoeffScalar> result(CoeffScalar{1});
+	// Evaluate frequency response at normalized frequency f in [0, 0.5].
+	// Return type is complex_for_t<CoeffScalar> so Universal number types
+	// (posit etc.) receive sw::universal::complex<T> instead of
+	// std::complex<T> (which the C++ standard only defines for native
+	// floating-point types).
+	complex_for_t<CoeffScalar> response(double normalized_freq) const {
+		complex_for_t<CoeffScalar> result(CoeffScalar{1});
 		for (int i = 0; i < num_stages_; ++i) {
 			result = result * stages_[i].response(normalized_freq);
 		}

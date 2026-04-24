@@ -39,8 +39,8 @@ struct BiquadCoefficients {
 	}
 
 	// Set coefficients from a single pole/zero pair (first-order section)
-	void set_one_pole(const std::complex<CoeffScalar>& pole,
-	                  const std::complex<CoeffScalar>& zero) {
+	void set_one_pole(const complex_for_t<CoeffScalar>& pole,
+	                  const complex_for_t<CoeffScalar>& zero) {
 		b0 = CoeffScalar{1};
 		b1 = CoeffScalar{-1} * zero.real();
 		b2 = CoeffScalar{};
@@ -49,10 +49,10 @@ struct BiquadCoefficients {
 	}
 
 	// Set coefficients from a conjugate pair of poles/zeros (second-order section)
-	void set_two_pole(const std::complex<CoeffScalar>& pole1,
-	                  const std::complex<CoeffScalar>& zero1,
-	                  const std::complex<CoeffScalar>& pole2,
-	                  const std::complex<CoeffScalar>& zero2) {
+	void set_two_pole(const complex_for_t<CoeffScalar>& pole1,
+	                  const complex_for_t<CoeffScalar>& zero1,
+	                  const complex_for_t<CoeffScalar>& pole2,
+	                  const complex_for_t<CoeffScalar>& zero2) {
 		using std::real;
 		using std::imag;
 
@@ -89,8 +89,14 @@ struct BiquadCoefficients {
 	}
 
 	// Evaluate frequency response at normalized frequency f in [0, 0.5]
-	// where f = frequency / sample_rate
-	std::complex<CoeffScalar> response(double normalized_freq) const {
+	// where f = frequency / sample_rate.
+	//
+	// Intermediate math uses std::complex<double> for the cis/division —
+	// design-time analysis at double precision matches the pattern in
+	// analysis/stability.hpp. The return type is complex_for_t<CoeffScalar>
+	// so callers using Universal number types (posit etc.) receive the
+	// correctly-dispatched complex type.
+	complex_for_t<CoeffScalar> response(double normalized_freq) const {
 		using complex_t = std::complex<double>;
 		const double w = 2.0 * 3.14159265358979323846 * normalized_freq;
 		const complex_t z1 = std::exp(complex_t(0, -w));        // z^-1
@@ -104,7 +110,7 @@ struct BiquadCoefficients {
 		              + static_cast<double>(a2) * z2;
 
 		auto result = num / den;
-		return std::complex<CoeffScalar>(
+		return complex_for_t<CoeffScalar>(
 			static_cast<CoeffScalar>(result.real()),
 			static_cast<CoeffScalar>(result.imag()));
 	}
