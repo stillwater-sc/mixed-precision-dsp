@@ -286,8 +286,10 @@ void test_windows_in_posit_precision() {
 	// Kaiser — exercises bessel_I0 template and sqrt
 	auto kai_d = kaiser_window<double>(N, 8.6);
 	auto kai_p = kaiser_window<posit_t>(N, 8.6);
-	// Kaiser's Bessel series has more accumulated rounding; allow slightly wider.
-	double kai_diff = compare_window("kaiser", kai_d, kai_p, 1e-6);
+	// Kaiser's Bessel series has more accumulated rounding than the simple
+	// windows. Measured ~8e-8; 1e-7 gives modest headroom for platform ULP
+	// variance while still catching meaningful regressions.
+	double kai_diff = compare_window("kaiser", kai_d, kai_p, 1e-7);
 
 	// Gaussian — exercises exp
 	auto gau_d = gaussian_window<double>(N, 0.4);
