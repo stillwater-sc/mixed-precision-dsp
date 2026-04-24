@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <iostream>
 
+#include <universal/number/posit/posit.hpp>
+
 using namespace sw::dsp;
 
 bool near(double a, double b, double eps = 1e-4) {
@@ -247,6 +249,82 @@ void test_rbj_simple_filter() {
 	std::cout << "  rbj_simple_filter: passed\n";
 }
 
+// ========== Posit<32,2> regression: RBJ biquad coefficients in T ==========
+//
+// Verifies that rbj::setup() runs its coefficient math in CoeffScalar, not
+// double. A posit-designed biquad must agree with the double reference to
+// within posit<32,2> precision across its five coefficients.
+
+void test_rbj_in_posit_precision() {
+	using posit_t = sw::universal::posit<32, 2>;
+
+	auto compare_biquad = [](const auto& cs_d, const auto& cs_p, const char* label) {
+		const auto& coef_d = cs_d.stage(0);
+		const auto& coef_p = cs_p.stage(0);
+		double max_diff = 0.0;
+		double dd[5] = {
+			static_cast<double>(coef_d.b0), static_cast<double>(coef_d.b1),
+			static_cast<double>(coef_d.b2), static_cast<double>(coef_d.a1),
+			static_cast<double>(coef_d.a2)
+		};
+		double pp[5] = {
+			static_cast<double>(coef_p.b0), static_cast<double>(coef_p.b1),
+			static_cast<double>(coef_p.b2), static_cast<double>(coef_p.a1),
+			static_cast<double>(coef_p.a2)
+		};
+		for (int i = 0; i < 5; ++i) {
+			double d = std::abs(dd[i] - pp[i]);
+			if (d > max_diff) max_diff = d;
+		}
+		if (max_diff > 1e-6)
+			throw std::runtime_error(std::string("test failed: ") + label +
+				" posit vs double max diff = " + std::to_string(max_diff));
+		return max_diff;
+	};
+
+	// LowPass (basic filter)
+	iir::rbj::LowPass<double>  lp_d;
+	iir::rbj::LowPass<posit_t> lp_p;
+	lp_d.setup(44100.0, 1000.0, 0.7071);
+	lp_p.setup(44100.0, 1000.0, 0.7071);
+	double lp_diff = compare_biquad(lp_d.cascade(), lp_p.cascade(), "LowPass");
+
+	// HighPass
+	iir::rbj::HighPass<double>  hp_d;
+	iir::rbj::HighPass<posit_t> hp_p;
+	hp_d.setup(44100.0, 1000.0, 0.7071);
+	hp_p.setup(44100.0, 1000.0, 0.7071);
+	double hp_diff = compare_biquad(hp_d.cascade(), hp_p.cascade(), "HighPass");
+
+	// BandPass
+	iir::rbj::BandPass<double>  bp_d;
+	iir::rbj::BandPass<posit_t> bp_p;
+	bp_d.setup(44100.0, 4000.0, 1.0);
+	bp_p.setup(44100.0, 4000.0, 1.0);
+	double bp_diff = compare_biquad(bp_d.cascade(), bp_p.cascade(), "BandPass");
+
+	// LowShelf (tests pow/sqrt path)
+	iir::rbj::LowShelf<double>  ls_d;
+	iir::rbj::LowShelf<posit_t> ls_p;
+	ls_d.setup(44100.0, 1000.0, 6.0);
+	ls_p.setup(44100.0, 1000.0, 6.0);
+	double ls_diff = compare_biquad(ls_d.cascade(), ls_p.cascade(), "LowShelf");
+
+	// HighShelf
+	iir::rbj::HighShelf<double>  hs_d;
+	iir::rbj::HighShelf<posit_t> hs_p;
+	hs_d.setup(44100.0, 1000.0, 6.0);
+	hs_p.setup(44100.0, 1000.0, 6.0);
+	double hs_diff = compare_biquad(hs_d.cascade(), hs_p.cascade(), "HighShelf");
+
+	std::cout << "  rbj_in_posit_precision: LowPass=" << lp_diff
+	          << " HighPass=" << hp_diff
+	          << " BandPass=" << bp_diff
+	          << " LowShelf=" << ls_diff
+	          << " HighShelf=" << hs_diff
+	          << ", passed\n";
+}
+
 int main() {
 	try {
 		std::cout << "Chebyshev & RBJ Filter Tests\n";
@@ -270,6 +348,7 @@ int main() {
 		test_rbj_allpass();
 		test_rbj_shelves();
 		test_rbj_simple_filter();
+		test_rbj_in_posit_precision();
 
 		std::cout << "All Chebyshev & RBJ tests passed.\n";
 		return 0;
