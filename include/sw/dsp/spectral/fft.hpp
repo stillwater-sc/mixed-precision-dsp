@@ -36,8 +36,14 @@ inline std::size_t bit_reverse(std::size_t x, int log2n) {
 
 // Forward FFT: in-place Cooley-Tukey radix-2 decimation-in-time.
 // Input/output: complex vector of length N (must be power of 2).
+//
+// Twiddle factors are computed in T so non-native CoeffScalar callers
+// (posit, cfloat, etc.) run the sin/cos through their own math library,
+// not through IEEE double. ADL trig (using std::cos; using std::sin)
+// selects sw::universal::{cos,sin} for Universal types.
 template <DspField T>
 void fft_forward(mtl::vec::dense_vector<complex_for_t<T>>& data) {
+	using std::cos; using std::sin;
 	using complex_t = complex_for_t<T>;
 	std::size_t N = data.size();
 	if (!detail::is_power_of_2(N))
@@ -57,16 +63,17 @@ void fft_forward(mtl::vec::dense_vector<complex_for_t<T>>& data) {
 		}
 	}
 
-	// Butterfly stages
+	// Butterfly stages. Twiddle generation stays in T.
+	constexpr T two_pi_T = T(two_pi);
 	for (int s = 1; s <= log2n; ++s) {
 		std::size_t m = std::size_t{1} << s;
 		std::size_t m2 = m >> 1;
-		double angle_step = -two_pi / static_cast<double>(m);
+		const T angle_step = -two_pi_T / T(m);
 
 		for (std::size_t k = 0; k < N; k += m) {
 			for (std::size_t j = 0; j < m2; ++j) {
-				double angle = angle_step * static_cast<double>(j);
-				complex_t w(static_cast<T>(std::cos(angle)), static_cast<T>(std::sin(angle)));
+				const T angle = angle_step * T(j);
+				complex_t w(cos(angle), sin(angle));
 				complex_t t = w * data[k + j + m2];
 				complex_t u = data[k + j];
 				data[k + j] = u + t;
