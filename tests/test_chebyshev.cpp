@@ -303,6 +303,20 @@ void test_rbj_in_posit_precision() {
 	bp_p.setup(44100.0, 4000.0, 1.0);
 	double bp_diff = compare_biquad(bp_d.cascade(), bp_p.cascade(), "BandPass");
 
+	// BandStop
+	iir::rbj::BandStop<double>  bs_d;
+	iir::rbj::BandStop<posit_t> bs_p;
+	bs_d.setup(44100.0, 4000.0, 1.0);
+	bs_p.setup(44100.0, 4000.0, 1.0);
+	double bs_diff = compare_biquad(bs_d.cascade(), bs_p.cascade(), "BandStop");
+
+	// AllPass
+	iir::rbj::AllPass<double>  ap_d;
+	iir::rbj::AllPass<posit_t> ap_p;
+	ap_d.setup(44100.0, 4000.0, 0.7071);
+	ap_p.setup(44100.0, 4000.0, 0.7071);
+	double ap_diff = compare_biquad(ap_d.cascade(), ap_p.cascade(), "AllPass");
+
 	// LowShelf (tests pow/sqrt path)
 	iir::rbj::LowShelf<double>  ls_d;
 	iir::rbj::LowShelf<posit_t> ls_p;
@@ -320,6 +334,8 @@ void test_rbj_in_posit_precision() {
 	std::cout << "  rbj_in_posit_precision: LowPass=" << lp_diff
 	          << " HighPass=" << hp_diff
 	          << " BandPass=" << bp_diff
+	          << " BandStop=" << bs_diff
+	          << " AllPass=" << ap_diff
 	          << " LowShelf=" << ls_diff
 	          << " HighShelf=" << hs_diff
 	          << ", passed\n";
