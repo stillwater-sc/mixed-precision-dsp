@@ -298,15 +298,43 @@ void test_windows_in_posit_precision() {
 
 	// Dolph-Chebyshev — exercises the Chebyshev-polynomial recurrence and
 	// O(N^2) IDFT kernel at posit precision. More accumulated rounding than
-	// per-sample windows: N^2=4096 cos sums amplify posit<32,2> ULP.
+	// per-sample windows: N^2=4096 cos sums amplify posit<32,2> ULP. Use
+	// 1e-5 to leave headroom for cross-toolchain libm differences in the
+	// posit cos/cosh/acosh shims (which round-trip through double).
 	auto dc_d = dolph_chebyshev_window<double>(N, 80.0);
 	auto dc_p = dolph_chebyshev_window<posit_t>(N, 80.0);
-	double dc_diff = compare_window("dolph_chebyshev", dc_d, dc_p, 5e-6);
+	double dc_diff = compare_window("dolph_chebyshev", dc_d, dc_p, 1e-5);
+
+	// Structural check independent of the cross-type numeric diff:
+	// posit window must be symmetric and peak-normalized.
+	double dc_max_asym = 0.0;
+	double dc_max_abs  = 0.0;
+	for (std::size_t i = 0; i < N; ++i) {
+		double v = static_cast<double>(dc_p[i]);
+		if (std::abs(v) > dc_max_abs) dc_max_abs = std::abs(v);
+		if (i < N / 2) {
+			double diff = std::abs(v - static_cast<double>(dc_p[N - 1 - i]));
+			if (diff > dc_max_asym) dc_max_asym = diff;
+		}
+	}
+	if (dc_max_asym > 1e-10)
+		throw std::runtime_error("test failed: dolph_chebyshev posit asymmetry = " +
+			std::to_string(dc_max_asym));
+	if (std::abs(dc_max_abs - 1.0) > 1e-7)
+		throw std::runtime_error("test failed: dolph_chebyshev posit peak = " +
+			std::to_string(dc_max_abs) + " (expected 1.0)");
+
+	// Negative attenuation must throw
+	bool threw = false;
+	try { dolph_chebyshev_window<double>(N, -10.0); }
+	catch (const std::invalid_argument&) { threw = true; }
+	if (!threw) throw std::runtime_error("test failed: negative atten should throw");
 
 	std::cout << "  windows_in_posit_precision: hamming=" << ham_diff
 	          << " kaiser=" << kai_diff
 	          << " gaussian=" << gau_diff
 	          << " dolph_chebyshev=" << dc_diff
+	          << " (symmetric, peak=1.0)"
 	          << ", passed\n";
 }
 

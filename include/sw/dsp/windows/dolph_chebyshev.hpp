@@ -26,6 +26,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/math/constants.hpp>
@@ -71,6 +72,12 @@ template <DspField T>
 mtl::vec::dense_vector<T> dolph_chebyshev_window(std::size_t length,
                                                   double attenuation_db = 100.0) {
 	using std::cos; using std::cosh; using std::acosh; using std::pow; using std::abs;
+	// attenuation_db must be strictly positive: at 0 the design is degenerate
+	// (all sidelobes equal to the main lobe), and a negative value would make
+	// atten_linear < 1 and pass an out-of-domain argument to acosh.
+	if (!(attenuation_db > 0.0))
+		throw std::invalid_argument(
+			"dolph_chebyshev_window: attenuation_db must be > 0");
 	mtl::vec::dense_vector<T> w(length);
 	if (length <= 1) { if (length == 1) w[0] = T(1); return w; }
 
