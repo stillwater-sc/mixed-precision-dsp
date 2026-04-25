@@ -9,3 +9,4 @@
 #include <sw/dsp/acquisition/decimation_chain.hpp>
 #include <sw/dsp/acquisition/halfband.hpp>
 #include <sw/dsp/acquisition/nco.hpp>
+#include <sw/dsp/acquisition/polyphase_decimator.hpp>

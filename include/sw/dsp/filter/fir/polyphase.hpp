@@ -72,6 +72,29 @@ decompose_polyphase(const mtl::vec::dense_vector<T>& taps, std::size_t factor) {
 
 } // namespace detail
 
+// Public design helper: decompose an FIR prototype into the M sub-filter
+// branches used by polyphase decimation/interpolation.
+//
+// Arguments:
+//   taps   - prototype FIR impulse response, length N. Must not be empty.
+//   factor - rate-change factor M (decimation or interpolation). Must be > 0.
+//
+// Returns:
+//   M sub-filters of length ceil(N / M). sub[q][p] = taps[p*M + q] with
+//   zero-padding at the tail so all branches have identical length.
+//
+// Throws:
+//   std::invalid_argument if `factor == 0` or `taps` is empty.
+//
+// Useful when callers want to inspect the polyphase matrix (e.g., for
+// pre-quantization analysis or hardware coefficient placement) without
+// instantiating a runtime PolyphaseDecimator/Interpolator.
+template <typename T>
+std::vector<mtl::vec::dense_vector<T>>
+polyphase_decompose(const mtl::vec::dense_vector<T>& taps, std::size_t factor) {
+	return detail::decompose_polyphase(taps, factor);
+}
+
 // -----------------------------------------------------------------------------
 // PolyphaseInterpolator: integer-factor upsampling with embedded FIR smoothing.
 // -----------------------------------------------------------------------------
