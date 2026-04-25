@@ -101,12 +101,18 @@ non-trivial rational number, e.g., 44.1 kHz audio to 48 kHz
 $L \cdot f_s$), then decimate by $M$ (with anti-alias filter). Two
 big filters, both running at the unhelpful $L \cdot f_s$ rate.
 
-**Library solution:** [`RationalResampler<CoeffScalar, StateScalar, SampleScalar>`](https://github.com/stillwater-sc/mixed-precision-dsp/blob/main/include/sw/dsp/conditioning/src.hpp)
-combines polyphase interpolation by $L$ and decimation by $M$ into
-a single time-register pipeline that emits exactly the output samples
-that survive both stages. The shared anti-alias / anti-image filter
-is auto-designed as a Kaiser-windowed sinc of sufficient length to
-suppress aliases below a configurable noise floor.
+**Library solution:** `RationalResampler<CoeffScalar, StateScalar, SampleScalar>`
+(in `sw/dsp/conditioning/src.hpp`) combines polyphase interpolation
+by $L$ and decimation by $M$ into a single time-register pipeline
+that emits exactly the output samples that survive both stages. The
+shared anti-alias / anti-image filter is auto-designed as a
+Kaiser-windowed sinc of sufficient length to suppress aliases below
+a configurable noise floor.
+
+> **Docs gap:** `RationalResampler` doesn't yet have a dedicated
+> reference page under `conditioning/`. The header comments in
+> `sw/dsp/conditioning/src.hpp` are the source of truth until that
+> page is filed as a follow-up.
 
 ```cpp
 #include <sw/dsp/conditioning/src.hpp>
@@ -138,12 +144,21 @@ generic FIR of the same length.
 
 ```cpp
 #include <sw/dsp/acquisition/halfband.hpp>
+using namespace sw::dsp;
 
-// Length-31 half-band filter
-HalfBandFilter<double, double, double> hb(31);
+// Design a length-31 half-band (must be of the form 4K+3 — 31 = 4·7+3).
+// transition_width is normalized to fs (0.05 = 5% of the sample rate).
+auto taps = design_halfband<double>(31, 0.05);
 
-// Decimate by 2
-auto output = hb.process_decimate(input);
+// Construct the filter from the designed taps
+HalfBandFilter<double, double, double> hb(taps);
+
+// Block-decimate-by-2: returns a length-N/2 dense_vector
+auto output = hb.process_block_decimate(input);
+
+// Per-sample streaming variant returns std::pair<bool, SampleScalar>:
+//   auto [ready, y] = hb.process_decimate(x);
+//   if (ready) { /* y is the next decimated output */ }
 ```
 
 Cascade two or three half-bands for ↓4 or ↓8 with a transition that
@@ -204,7 +219,7 @@ the complex baseband for demodulation.
 #include <sw/dsp/acquisition/ddc.hpp>
 
 DDC<double, double, double, PolyphaseDecimator<double, double, double>>
-    ddc(/*f_IF/fs=*/0.1, /*1.0=*/1.0, decim);
+    ddc(/*center_frequency=*/0.1, /*sample_rate=*/1.0, decim);
 auto iq_baseband = ddc.process_block(real_input);
 ```
 
