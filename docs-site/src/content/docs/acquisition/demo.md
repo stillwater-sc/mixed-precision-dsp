@@ -6,7 +6,9 @@ description: Capstone walkthrough composing NCO, mixer, polyphase decimation, an
 The library ships a runnable demo at
 [`applications/acquisition_demo/`](https://github.com/stillwater-sc/mixed-precision-dsp/tree/main/applications/acquisition_demo)
 that ties the entire data-acquisition stack together: a simulated ADC,
-a DDC composing NCO + complex mixer + polyphase decimation, and the
+a DDC composing NCO + complex mixer + polyphase decimation, two
+parallel `DecimationChain` instances handling the I and Q baseband
+streams, and the
 [`acquisition_precision`](../../analysis/acquisition-precision/)
 analysis primitives — all swept across a representative range of
 number-system configurations.
@@ -17,22 +19,49 @@ out of mixed-precision constraints, and how to read the output.
 ## Pipeline
 
 ```text
-+------------------------+    +-----------------------------+    +-----------+
-| simulate_adc(N_bits)   | -> | DDC<Coeff,State,Sample> {   | -> | I/Q       |
-|   real cosine + noise  |    |   NCO at f_IF / f_S         |    | baseband  |
-|   N-bit uniform quant  |    |   complex mixer (×conj)     |    |           |
-+------------------------+    |   PolyphaseDecimator ×8     |    +-----------+
-                              | }                           |          |
-                              +-----------------------------+          |
-                                                                       v
-                                                       +------------------------+
-                                                       | snr_db / enob / SFDR   |
-                                                       | vs uniform-double ref  |
-                                                       +------------------------+
-                                                                       |
-                                                                       v
-                                                          acquisition_demo.csv
++------------------------+    +-----------------------------+
+| simulate_adc(N_bits)   | -> | DDC<Coeff,State,Sample> {   |
+|   real cosine + noise  |    |   NCO at f_IF / f_S         |
+|   N-bit uniform quant  |    |   complex mixer (×conj)     |
++------------------------+    |   PolyphaseDecimator ↓2     |
+                              | }                           |
+                              +-----------------------------+
+                                            |
+                                  split into I, Q streams
+                                            |
+                              +-------------+-------------+
+                              v                           v
+              +-----------------------+   +-----------------------+
+              | DecimationChain {     |   | DecimationChain {     |
+              |   CICDecimator ↓2     |   |   CICDecimator ↓2     |
+              |   HalfBandFilter ↓2   |   |   HalfBandFilter ↓2   |
+              |   PolyphaseDecimator  |   |   PolyphaseDecimator  |
+              |     ↓2                |   |     ↓2                |
+              | }                     |   | }                     |
+              +-----------------------+   +-----------------------+
+                              |                           |
+                              +-------------+-------------+
+                                            v
+                                +------------------------+
+                                | I/Q baseband at fs/16  |
+                                +------------------------+
+                                            |
+                                            v
+                                +------------------------+
+                                | snr_db / enob / SFDR   |
+                                | vs uniform-double ref  |
+                                +------------------------+
+                                            |
+                                            v
+                                  acquisition_demo.csv
 ```
+
+The DDC handles the first ↓2 (anti-alias + complex baseband
+conversion). The post-DDC `DecimationChain` does the remaining ↓8 in
+three Hogenauer-classic stages: CIC for the bulk rate change, half-band
+for transition-band shaping, and a polyphase FIR for the final
+channel-defining decimation. Total decimation is ↓16, exercising every
+multistage primitive in the acquisition module.
 
 Each row in the CSV captures one (CoeffScalar, StateScalar,
 SampleScalar) configuration's quality against the reference. The
@@ -52,24 +81,52 @@ uniform quantization to `adc_bits` levels across full scale. The
 quantization step is `1 / 2^(adc_bits-1)` so the SNR floor follows the
 classic $6.02 N + 1.76$ dB ceiling for any later stage downstream.
 
-## DDC composition
+## Pipeline composition
 
 ```cpp
 template <class CoeffScalar, class StateScalar, class SampleScalar>
 std::vector<std::complex<double>>
-run_ddc_pipeline(const mtl::vec::dense_vector<double>& adc_in_double);
+run_pipeline(const mtl::vec::dense_vector<double>& adc_in_double);
 ```
 
 The pipeline projects ADC samples into `SampleScalar`, runs them
-through a `DDC<CoeffScalar, StateScalar, SampleScalar>` with a
-polyphase FIR decimator (decimation factor 8), and casts the complex
-output back to `double` for cross-precision comparison.
+through a `DDC<CoeffScalar, StateScalar, SampleScalar>` (NCO + mixer
++ ↓2 polyphase), splits the complex output into separate I and Q
+real-valued streams, then feeds each stream through its own
+`DecimationChain<SampleScalar, CICDecimator, HalfBandFilter,
+PolyphaseDecimator>` for an additional ↓8. Recombines I and Q at the
+output and casts to `std::complex<double>` for cross-precision
+comparison.
 
-The DDC class itself does the work — see the [DDC reference](./ddc/) for
-the math. The demo's contribution is the configuration sweep
-infrastructure around it.
+Each component does its own work — see the [DDC](./ddc/),
+[Polyphase Decimator](./polyphase-decimator/),
+[CIC](./cic/), [Half-Band](./halfband/), and
+[DecimationChain](./decimation-chain/) references for the math. The
+demo's contribution is the configuration sweep infrastructure that
+threads `(CoeffScalar, StateScalar, SampleScalar)` through every
+stage uniformly.
 
-## Two mixed-precision design decisions
+### Filter design: in `double`, projected to `CoeffScalar`
+
+All three filter designs (DDC anti-alias FIR, half-band, post-DDC
+polyphase) are computed in `double` and then projected to
+`CoeffScalar` via `static_cast`. This deliberately deviates from the
+T-parameterized design pattern the rest of the library follows
+(see the
+[T-parameterization audit](https://github.com/stillwater-sc/mixed-precision-dsp/issues/111))
+because we want the SNR measurement to isolate **streaming
+arithmetic** precision from **filter-design** precision. If we
+designed taps at `CoeffScalar`, the test and the `double` reference
+would run through different taps (Remez at `posit` converges to
+slightly different values than at `double`), so SNR would conflate
+filter-design variance with the arithmetic quality we're trying to
+measure. `fixpnt` is a stronger example: `design_halfband<fixpnt>`
+trips divide-by-zero in the Remez iteration because `fixpnt` doesn't
+have the dynamic range Remez assumes. Design once in `double`,
+project for each test config — every configuration runs through
+identical taps.
+
+## Three mixed-precision design decisions
 
 These come up the moment you try to instantiate the pipeline at
 non-IEEE precision. They're worth understanding because they recur in
@@ -118,70 +175,118 @@ some abstract "32-bit fixed-point". The demo uses `fixpnt<32, 28>`
 - 28 fractional bits → precision $2^{-28} \approx 4 \times 10^{-9}$,
   competitive with IEEE float
 
-Result: Q4.28 fixpnt measures ~24 ENOB through this pipeline, the
-same neighborhood as IEEE float. The lesson is that fixpnt is a
+Result: Q4.28 fixpnt measures ~25 ENOB through this pipeline, the
+best of any configuration. The lesson is that fixpnt is a
 *format choice*, not a number system; pick the integer/fractional
 split based on the signal you'll actually run through it.
 
+### 3. CIC requires fixed-point (or any wrapping) state
+
+The biggest surprise of this demo: with a CIC decimator in the chain,
+**`uniform_fixpnt32` beats every floating-point configuration by
+~100 dB**, and `uniform_posit16` collapses to negative SNR.
+
+The cause is a structural property of CIC. A CIC integrator is
+`y[n] = y[n-1] + x[n]` — an unbounded accumulator. The classical
+Hogenauer derivation works only because **the accumulator wraps in
+two's-complement modular arithmetic**, and the matching comb stage
+subtracts the same wrapped value to recover the bounded result. Any
+state representation that doesn't wrap modularly — `float`, `double`,
+`posit` — accumulates round-off on every DC-bias sample, and that
+error never gets cancelled by the comb. The integrator slowly drifts.
+
+You can see this directly in the table below: float, posit32, and
+cfloat32 (all with ~24 bits of mantissa precision) cluster around
+54 dB SNR — that's the integrator drift floor, not the arithmetic
+ceiling. fixpnt32, with hardware-level two's-complement wrap,
+recovers the full 153 dB the rest of the chain can deliver. posit16's
+4 mantissa bits aren't enough to keep the integrator stable at all,
+hence the -30 dB collapse.
+
+The lesson: **if you have a CIC stage, use fixed-point (or any
+wrapping integer-like type) for the integrator state.** The
+[CIC reference](./cic/) covers the math; this demo is the empirical
+evidence.
+
 ## Reading the output
 
-A clean run with a 16-bit ADC at 1 MHz, IF at 100 kHz, decimating to
-125 kHz:
+A clean run with a 16-bit ADC at 1 MHz, IF at 100 kHz, decimating
+↓16 to a 62.5 kHz baseband:
 
 ```text
 === Number-system sweep (16-bit ADC) ===
 Configuration                   Bits    SNR(dB)    ENOB
 -------------------------------------------------------
 uniform_double                   192        inf     ref
-uniform_float                     96     144.62   23.73
-uniform_posit32                   96     167.60   27.55
-uniform_posit16                   48      71.30   11.55
-uniform_cfloat32                  96     144.68   23.74
-uniform_fixpnt32                  96     147.56   24.22
-mixed_double_p32_p16             112      76.68   12.45
-mixed_double_double_float        160     150.63   24.73
-mixed_double_p32_float           128     150.59   24.72
-mixed_double_float_float         128     144.62   23.73
-mixed_double_fx32_fx32           128     147.56   24.22
+uniform_float                     96      54.48    8.76
+uniform_posit32                   96      54.46    8.75
+uniform_posit16                   48     -29.99   -5.27
+uniform_cfloat32                  96      54.48    8.76
+uniform_fixpnt32                  96     152.67   25.07
+mixed_double_p32_p16             112      53.03    8.52
+mixed_double_double_float        160     147.16   24.15
+mixed_double_p32_float           128      54.46    8.75
+mixed_double_float_float         128      54.48    8.76
+mixed_double_fx32_fx32           128     152.67   25.07
 
 === ADC bit-depth scan (uniform-double pipeline) ===
 ADC bits        SNR(dB)    ENOB
 -------------------------------
-8-bit             54.00    8.68
-12-bit            77.98   12.66
-14-bit            89.49   14.57
-16-bit           101.75   16.61
+8-bit             51.78    8.31
+12-bit            75.60   12.27
+14-bit            87.59   14.26
+16-bit           100.20   16.35
 ```
 
 A few patterns to note:
 
-- **`uniform_posit32` wins on raw quality at 96 bits/config**, beating
-  `uniform_float` by about 23 dB. Posit's tapered precision concentrates
-  precision near unity, exactly where a normalized baseband signal lives
-  after mixing — float spreads its precision across a much wider exponent
-  range that the signal never visits.
-- **`uniform_fixpnt32` (Q4.28) is competitive with float**. With the
-  format chosen for the signal's actual dynamic range, fixpnt is a
-  perfectly reasonable choice for embedded DSP.
-- **The mixed-precision row `mixed_double_p32_p16`** keeps high-precision
-  coefficients but runs state and samples narrower. SNR drops to ~77 dB
-  (~12 ENOB) — that's the floor any 16-bit-streaming pipeline can
-  reach, regardless of how much you spend on the coefficients.
+- **`uniform_fixpnt32` (Q4.28) wins by ~100 dB.** This is the CIC
+  state-precision lesson described above. The Q4.28 format gives
+  enough fractional precision (~28 bits) to match the post-DDC
+  signal range, and the hardware-level two's-complement wrap is
+  exactly what the CIC integrator needs.
+- **All three 32-bit floating-point options cluster at ~54 dB SNR.**
+  `uniform_float`, `uniform_posit32`, and `uniform_cfloat32` are
+  all bounded by the same physics: float-state CIC integrators drift
+  on DC bias, regardless of mantissa precision. This is *not* a flaw
+  in float or posit; it's a CIC design constraint that the demo
+  surfaces empirically.
+- **`uniform_posit16` collapses to negative SNR (-30 dB).** Posit16
+  has 4 mantissa bits at unity. That's nowhere near enough to keep
+  the integrator stable, so the output is dominated by drift noise.
+  This is a useful warning: narrow floating-point types in CIC chains
+  do not gracefully degrade — they fall off a cliff.
+- **`mixed_double_double_float`** keeps state in `double` but samples
+  in `float`. Double-precision integrator state is enough to suppress
+  the drift floor by ~93 dB compared to all-`float`, recovering ~24
+  ENOB. If you must use floating-point, this is the right precision
+  split.
 - **The ADC scan** confirms the textbook $\text{SNR} \approx 6.02 N + 1.76$ dB
-  ceiling propagates end-to-end: the FIR decimation gains a few dB of
-  averaging beyond the raw ADC ceiling, but the slope and intercept
-  match.
+  ceiling propagates end-to-end: the multistage decimation gains a
+  few dB of averaging beyond the raw ADC ceiling, but the slope and
+  intercept match.
 
 ## Running it
 
 ```bash
 cmake -B build
 cmake --build build --target acquisition_demo
-./build/applications/acquisition_demo/acquisition_demo [output.csv]
+./build/applications/acquisition_demo/acquisition_demo [OPTIONS] [csv_path]
 ```
 
-The CSV path is optional; default is `acquisition_demo.csv` in the
-working directory. The console table is printed regardless.
+Options (all are key=value):
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--if-freq=<Hz>` | `100000` | IF frequency of the simulated tone |
+| `--sample-rate=<Hz>` | `1000000` | ADC sample rate |
+| `--adc-bits=8,12,14,16` | `8,12,14,16` | Comma-separated bit depths for the ADC scan |
+| `--num-samples=<N>` | `4096` | Input block length |
+| `--csv=<path>` | `acquisition_demo.csv` | Output CSV path |
+| `-h`, `--help` | — | Print usage |
+
+The CSV path may also be passed positionally for backwards
+compatibility. The console table is printed regardless.
 
 ## Extending the sweep
 
@@ -206,7 +311,9 @@ what makes the SNR column meaningful as a cross-row metric.
 
 ## See also
 
-- [DDC](./ddc/) — the pipeline's core component
-- [Polyphase Decimator](./polyphase-decimator/) — channel-shaping stage
-- [Decimation Chain](./decimation-chain/) — multi-stage rate reduction (alternative to a single-stage polyphase)
+- [DDC](./ddc/) — front-end mixer + polyphase decimator
+- [CIC](./cic/) — first stage of the post-DDC chain
+- [Half-Band Filter](./halfband/) — second stage; transition-band shaping
+- [Polyphase Decimator](./polyphase-decimator/) — channel-defining final stage
+- [Decimation Chain](./decimation-chain/) — variadic-tuple multistage composition used twice (one I, one Q)
 - [Acquisition Precision Analysis](../../analysis/acquisition-precision/) — the SNR/ENOB primitives the demo measures with
