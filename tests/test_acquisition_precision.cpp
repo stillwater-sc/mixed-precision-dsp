@@ -118,6 +118,16 @@ void test_nco_sfdr_double() {
 	std::cout << "  nco_sfdr_double: " << sfdr << " dB, passed\n";
 }
 
+void test_nco_sfdr_zero_size_throws() {
+	NCO<double> nco(1.0, 1024.0);
+	bool threw = false;
+	try { measure_nco_sfdr_db(nco, 0); }
+	catch (const std::invalid_argument&) { threw = true; }
+	if (!threw)
+		throw std::runtime_error("test failed: fft_size=0 should throw");
+	std::cout << "  nco_sfdr_zero_size_throws: passed\n";
+}
+
 void test_nco_sfdr_posit() {
 	using posit_t = sw::universal::posit<32, 2>;
 	const std::size_t N = 4096;
@@ -334,6 +344,7 @@ int main() {
 		test_snr_with_known_noise();
 		test_snr_size_mismatch_throws();
 		test_nco_sfdr_double();
+		test_nco_sfdr_zero_size_throws();
 		test_nco_sfdr_posit();
 		test_cic_bit_growth_dc();
 		test_per_stage_noise_via_snr();

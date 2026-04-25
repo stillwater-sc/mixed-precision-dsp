@@ -96,11 +96,12 @@ double snr_db(const mtl::vec::dense_vector<RefScalar>& reference,
 template <class NCO>
 double measure_nco_sfdr_db(NCO& nco, std::size_t fft_size,
                            std::size_t guard_bins = 2) {
+	if (fft_size == 0)
+		throw std::invalid_argument("measure_nco_sfdr_db: fft_size must be > 0");
+
 	// Round fft_size up to next power of 2 for the FFT.
 	std::size_t N = 1;
 	while (N < fft_size) N <<= 1;
-	if (N == 0)
-		throw std::invalid_argument("measure_nco_sfdr_db: fft_size must be > 0");
 
 	using complex_t = typename NCO::complex_t;
 	mtl::vec::dense_vector<std::complex<double>> data(N);
