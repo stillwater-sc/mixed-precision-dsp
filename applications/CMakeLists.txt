@@ -30,5 +30,8 @@ add_subdirectory(precision_sweep)
 # FFT trade-off analysis (Issue #74)
 add_subdirectory(fft_tradeoff)
 
+# Acquisition pipeline demo (Issue #93)
+add_subdirectory(acquisition_demo)
+
 # Phase 8: Signal conditioning
 # add_subdirectory(conditioning_demo)
