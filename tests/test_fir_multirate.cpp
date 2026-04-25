@@ -423,11 +423,20 @@ void test_polyphase_decompose_helper() {
 		}
 	}
 
-	// Validation
+	// Validation: both preconditions stated in the doc must throw
+	// std::invalid_argument.
 	bool threw = false;
 	try { polyphase_decompose(h, 0); }
 	catch (const std::invalid_argument&) { threw = true; }
 	if (!threw) throw std::runtime_error("test failed: factor=0 should throw");
+
+	threw = false;
+	try {
+		mtl::vec::dense_vector<double> empty;
+		polyphase_decompose(empty, 3);
+	}
+	catch (const std::invalid_argument&) { threw = true; }
+	if (!threw) throw std::runtime_error("test failed: empty taps should throw");
 
 	std::cout << "  polyphase_decompose_helper: passed\n";
 }
