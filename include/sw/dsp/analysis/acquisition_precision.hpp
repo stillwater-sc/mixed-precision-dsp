@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstddef>
 #include <fstream>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -99,9 +100,18 @@ double measure_nco_sfdr_db(NCO& nco, std::size_t fft_size,
 	if (fft_size == 0)
 		throw std::invalid_argument("measure_nco_sfdr_db: fft_size must be > 0");
 
-	// Round fft_size up to next power of 2 for the FFT.
+	// Round fft_size up to next power of 2 for the FFT. Guard against the
+	// shift wrapping N to 0 for pathologically large fft_size — that would
+	// turn the loop infinite (since 0 < fft_size stays true and 0 << 1 = 0).
 	std::size_t N = 1;
-	while (N < fft_size) N <<= 1;
+	constexpr std::size_t shift_limit = std::numeric_limits<std::size_t>::max() >> 1;
+	while (N < fft_size) {
+		if (N > shift_limit)
+			throw std::overflow_error(
+				"measure_nco_sfdr_db: fft_size too large to round up to a "
+				"power of 2 within size_t");
+		N <<= 1;
+	}
 
 	using complex_t = typename NCO::complex_t;
 	mtl::vec::dense_vector<std::complex<double>> data(N);

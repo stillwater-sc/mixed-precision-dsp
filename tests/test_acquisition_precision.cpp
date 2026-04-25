@@ -14,6 +14,7 @@
 #include <sw/dsp/math/constants.hpp>
 #include <sw/dsp/windows/hamming.hpp>
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -289,10 +290,12 @@ void test_csv_writer_schema() {
 	}
 
 	// std::filesystem::temp_directory_path() is portable across Linux/macOS/
-	// Windows; tmpnam triggers a glibc deprecation warning and has known
-	// race issues — overkill here since the test owns the file end-to-end.
+	// Windows; the steady_clock suffix prevents collisions when ctest runs
+	// tests in parallel or when the test process is repeated.
+	const auto unique = std::to_string(
+		std::chrono::steady_clock::now().time_since_epoch().count());
 	const std::string path = (std::filesystem::temp_directory_path() /
-		"test_acquisition_precision.csv").string();
+		("test_acquisition_precision_" + unique + ".csv")).string();
 	write_acquisition_csv(path, rows);
 
 	std::ifstream in(path);
