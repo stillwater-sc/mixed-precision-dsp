@@ -107,7 +107,13 @@ math of why this factorization works.
 The phase-accumulator NCO produces $\cos(2\pi f_0 n / f_s) + j\sin(\ldots)$
 at any frequency exactly representable as a phase increment. Use it
 alone for signal generation, or as the local oscillator for a DDC.
-Posit32 typically delivers >150 dB SFDR.
+At a bin-aligned tone the regression test
+[`tests/test_acquisition_precision.cpp`](https://github.com/stillwater-sc/mixed-precision-dsp/blob/main/tests/test_acquisition_precision.cpp)
+measures **175 dB SFDR** for `posit<32, 2>` and ~319 dB for `double`
+(the latter is FFT-leakage-limited rather than precision-limited).
+Off-bin tones and shorter FFTs reduce these figures, so the test's
+defensive lower bound is `> 60 dB` for posit32 — treat 175 dB as
+the best-case ceiling, not a guarantee.
 
 ### Need to tune a channel down to baseband? → [DDC](./ddc/)
 
