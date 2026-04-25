@@ -81,9 +81,17 @@ and the outputs are emitted in turn. Cost is $\sim N$ multiplies per
 
 ```cpp
 #include <sw/dsp/filter/fir/polyphase.hpp>
+#include <sw/dsp/filter/fir/fir_design.hpp>
+#include <sw/dsp/windows/hamming.hpp>
+using namespace sw::dsp;
+
+// Design an anti-image lowpass for ↑4 (cutoff at fs_in/2 ≈ fs_out/8)
+auto win  = hamming_window<double>(64);
+auto taps = design_fir_lowpass<double>(64, 0.45 / 4.0, win);
 
 PolyphaseInterpolator<double, double, double> interp(taps, /*L=*/4);
-auto output = interp.process_block(input);   // length 4N
+mtl::vec::dense_vector<double> input = ...;   // length-N input
+auto output = interp.process_block(input);    // length 4N
 ```
 
 The class lives in `sw/dsp/filter/fir/polyphase.hpp` alongside
@@ -245,6 +253,11 @@ flow through the tuple in order.
 
 ```cpp
 #include <sw/dsp/acquisition/decimation_chain.hpp>
+#include <sw/dsp/acquisition/halfband.hpp>
+#include <sw/dsp/filter/fir/polyphase.hpp>
+#include <sw/dsp/filter/fir/fir_design.hpp>
+#include <sw/dsp/windows/hamming.hpp>
+using namespace sw::dsp;
 
 // CIC ↓64 -> HalfBand ↓2 -> Polyphase ↓2 = total ↓256
 using Chain = DecimationChain<double,
@@ -252,14 +265,15 @@ using Chain = DecimationChain<double,
     HalfBandFilter<double, double, double>,
     PolyphaseDecimator<double, double, double>>;
 
-// Half-band taps must be designed first; see the "Sharp 2:1
-// decimation" section above for design_halfband details.
-auto hb_taps = design_halfband<double>(31, 0.05);
+// Design taps for the two FIR-based stages (CIC needs none).
+auto hb_taps   = design_halfband<double>(31, 0.05);
+auto poly_win  = hamming_window<double>(64);
+auto poly_taps = design_fir_lowpass<double>(64, 0.45 / 2.0, poly_win);
 
 Chain chain(/*sample_rate=*/100e6,
             CICDecimator<int64_t, int32_t>(64, 4),
             HalfBandFilter<double, double, double>(hb_taps),
-            PolyphaseDecimator<double, double, double>(taps, 2));
+            PolyphaseDecimator<double, double, double>(poly_taps, 2));
 
 auto output = chain.process_block(adc_samples);
 ```
