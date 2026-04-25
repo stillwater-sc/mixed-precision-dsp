@@ -19,6 +19,8 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <system_error>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -127,6 +129,20 @@ void test_nco_sfdr_zero_size_throws() {
 	if (!threw)
 		throw std::runtime_error("test failed: fft_size=0 should throw");
 	std::cout << "  nco_sfdr_zero_size_throws: passed\n";
+}
+
+void test_nco_sfdr_huge_size_throws_overflow() {
+	// Lock in the round-2 fix: a fft_size near size_t max would have
+	// previously wrapped N to 0 and spun forever.
+	NCO<double> nco(1.0, 1024.0);
+	bool threw = false;
+	try {
+		measure_nco_sfdr_db(nco, std::numeric_limits<std::size_t>::max());
+	}
+	catch (const std::overflow_error&) { threw = true; }
+	if (!threw)
+		throw std::runtime_error("test failed: huge fft_size should throw overflow_error");
+	std::cout << "  nco_sfdr_huge_size_throws_overflow: passed\n";
 }
 
 void test_nco_sfdr_low_bin_circular_guard() {
@@ -346,7 +362,16 @@ void test_csv_writer_schema() {
 	if (r2.find("posit<32,2>") == std::string::npos)
 		throw std::runtime_error("test failed: posit type string not preserved");
 
-	std::remove(path.c_str());
+	// Close all ifstream handles before unlinking the file. On Linux this
+	// isn't strictly necessary (you can unlink open files), but on Windows
+	// std::filesystem::remove fails for files that are still held open.
+	in.close();
+	in2.close();
+	std::error_code ec;
+	std::filesystem::remove(path, ec);
+	if (ec)
+		throw std::runtime_error("test failed: temp CSV cleanup failed: " +
+			ec.message());
 	std::cout << "  csv_writer_schema: passed\n";
 }
 
@@ -364,6 +389,7 @@ int main() {
 		test_snr_size_mismatch_throws();
 		test_nco_sfdr_double();
 		test_nco_sfdr_zero_size_throws();
+		test_nco_sfdr_huge_size_throws_overflow();
 		test_nco_sfdr_low_bin_circular_guard();
 		test_nco_sfdr_posit();
 		test_cic_bit_growth_dc();

@@ -52,6 +52,7 @@ inline double enob_from_snr_db(double snr_db) {
 // is below the double-precision underflow boundary, signalling a
 // bit-identical match.
 template <class RefScalar, class TestScalar>
+	requires ConvertibleToDouble<RefScalar> && ConvertibleToDouble<TestScalar>
 double snr_db(std::span<const RefScalar> reference,
               std::span<const TestScalar> test) {
 	if (reference.size() != test.size())
@@ -75,6 +76,7 @@ double snr_db(std::span<const RefScalar> reference,
 
 // Convenience overload for mtl::vec::dense_vector.
 template <class RefScalar, class TestScalar>
+	requires ConvertibleToDouble<RefScalar> && ConvertibleToDouble<TestScalar>
 double snr_db(const mtl::vec::dense_vector<RefScalar>& reference,
               const mtl::vec::dense_vector<TestScalar>& test) {
 	return snr_db(std::span<const RefScalar>(reference.data(), reference.size()),
@@ -172,6 +174,8 @@ struct CICBitGrowthReport {
 // width — the standard CIC analysis assumes 2's-complement wrap is
 // preserved, which `int`/`fixpnt` accumulators naturally provide.
 template <class CIC, class Sample>
+	requires ConvertibleToDouble<Sample> &&
+	         requires(const CIC& c) { static_cast<double>(c.output()); }
 CICBitGrowthReport check_cic_bit_growth(CIC& cic,
                                          std::span<const Sample> input) {
 	double max_abs = 0.0;
