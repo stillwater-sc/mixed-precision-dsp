@@ -227,6 +227,16 @@ reference at `posit<32, 2>`:
 | Gaussian ($\sigma = 0.4$) | 2.9e-9 |
 | Dolph-Chebyshev (80 dB) | 4.8e-6 |
 
-All within posit<32,2> ULP at unit magnitude. Dolph-Chebyshev's
-larger residual reflects the $O(N^2)$ IDFT accumulation in its
-construction.
+A single posit<32,2> ULP near unit magnitude is approximately
+$2^{-28} \approx 3.7 \times 10^{-9}$, so most of these residuals
+reflect accumulated rounding across the per-sample computation rather
+than a single rounding step. Gaussian's tight bound (single
+exponential per sample, no accumulation) lands close to one ULP;
+Hamming and Kaiser show a few-ULP cumulative effect from the
+multi-term cosine sums and the Bessel series. Dolph-Chebyshev is the
+outlier — its $O(N^2)$ IDFT in the window construction accumulates
+~$N^2 = 4096$ products at $N = 64$, and the result still agrees with
+the `double` reference to better than ${\sim}5 \times 10^{-6}$. The
+test tolerances (1e-7 for the single-formula windows, 1e-5 for
+Dolph-Chebyshev) are set with modest headroom over the measured
+values to absorb cross-toolchain libm variance.

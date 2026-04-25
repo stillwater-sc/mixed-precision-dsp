@@ -133,33 +133,50 @@ double cic_contribution_db = snr_db(out_ref, out_with_cic_at_posit);
 ## CSV Export
 
 `AcquisitionPrecisionRow` and `write_acquisition_csv` produce CSV
-output whose first six columns align exactly with the existing
+output that intentionally reuses identifier columns from the
 [`precision_sweep.csv`](https://github.com/stillwater-sc/mixed-precision-dsp/tree/main/applications/precision_sweep)
-schema (used by the library's Python visualization tooling), with
-acquisition-specific columns appended:
+schema (used by the library's Python visualization tooling), then
+diverges into acquisition-specific metrics. The schemas are siblings,
+not super/subsets — IIR precision sweeps and acquisition pipelines
+care about different quality measures.
 
-| Column | Type | Origin |
+The full headers:
+
+```text
+precision_sweep.csv:
+  pipeline, config, coeff_type, state_type, sample_type,
+  sqnr_db, max_coeff_error, pole_displacement, stability_margin,
+  passband_ripple_db, stopband_attenuation_db, condition_number
+
+acquisition_precision.csv:
+  pipeline, config_name, coeff_type, state_type, sample_type,
+  total_bits, output_snr_db, output_enob, nco_sfdr_db,
+  cic_overflow_margin_bits
+```
+
+Four identifier columns (`pipeline`, `coeff_type`, `state_type`,
+`sample_type`) carry bit-identical names and meanings across both
+schemas, so a visualization that groups by configuration tuple can
+ingest either file. Column 2 is `config` in precision_sweep and
+`config_name` here (same role, different name). The metric columns
+are different by design and a unifying tool needs to switch on which
+schema it's reading.
+
+The acquisition columns:
+
+| Column | Type | Notes |
 |---|---|---|
-| `pipeline` | string | shared with precision_sweep |
-| `config_name` | string | shared |
-| `coeff_type` | string | shared |
-| `state_type` | string | shared |
-| `sample_type` | string | shared |
-| `total_bits` | int | shared |
-| `output_snr_db` | double | shared |
-| `output_enob` | double | acquisition-specific |
-| `nco_sfdr_db` | double | acquisition-specific (`-1` = N/A) |
-| `cic_overflow_margin_bits` | double | acquisition-specific (`-1` = N/A) |
+| `total_bits` | int | sum of bit-widths across coeff / state / sample scalars |
+| `output_snr_db` | double | end-to-end SNR vs a high-precision reference |
+| `output_enob` | double | `enob_from_snr_db(output_snr_db)` |
+| `nco_sfdr_db` | double | `-1` when N/A (no NCO in this configuration) |
+| `cic_overflow_margin_bits` | double | `-1` when N/A (no CIC in this configuration) |
 
 ```cpp
 std::vector<AcquisitionPrecisionRow> rows;
 // ... populate one row per (pipeline, config) sweep point
 write_acquisition_csv("acquisition_precision.csv", rows);
 ```
-
-Existing visualization scripts that read the precision_sweep schema
-will see the common columns; any tool that wants to plot ENOB or SFDR
-specifically can consume the appended columns.
 
 ## Reference: Standard Pipeline ENOB Floors
 
