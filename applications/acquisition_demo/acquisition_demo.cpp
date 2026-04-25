@@ -137,8 +137,11 @@ mtl::vec::dense_vector<double> simulate_adc(int adc_bits, unsigned seed = 0xACDC
 //          DecimationChain<CIC ↓2 → HalfBand ↓2 → Polyphase ↓2>
 //     -> baseband I/Q at fs / 16
 //
-// All filter design is done at CoeffScalar precision (T-parameterized
-// per the library's design-time-precision invariant).
+// All filter design is done in double and projected to CoeffScalar
+// (see the comment block in Stage 1 below). This deliberately
+// deviates from the library's design-time-precision invariant so
+// that cross-configuration SNR isolates streaming-arithmetic
+// precision from filter-design variance.
 template <class CoeffScalar, class StateScalar, class SampleScalar>
 std::vector<std::complex<double>>
 run_pipeline(const mtl::vec::dense_vector<double>& adc_in_double) {
@@ -280,7 +283,7 @@ AcquisitionPrecisionRow measure_config(
 	row.sample_type = sample_label;
 	row.total_bits  = total_bits;
 	row.nco_sfdr_db = -1.0;                  // not measured per config here
-	row.cic_overflow_margin_bits = -1.0;     // CIC not used in this pipeline
+	row.cic_overflow_margin_bits = -1.0;     // CIC metric not measured per config
 
 	auto test_out = run_pipeline<CoeffScalar, StateScalar, SampleScalar>(adc_in);
 	const double s = measure_baseband_snr_db(reference_out, test_out);
@@ -447,13 +450,23 @@ void print_usage(const char* prog) {
 		<< "  -h, --help              This message\n";
 }
 
+// Parse a comma-separated list of ints. Throws std::invalid_argument
+// with a clear message identifying the offending token, instead of
+// letting std::stoi's bare exceptions propagate up to terminate().
 std::vector<int> parse_int_list(const std::string& s) {
 	std::vector<int> out;
 	std::size_t pos = 0;
 	while (pos < s.size()) {
 		const std::size_t comma = s.find(',', pos);
 		const std::string tok = s.substr(pos, comma - pos);
-		if (!tok.empty()) out.push_back(std::stoi(tok));
+		if (!tok.empty()) {
+			try {
+				out.push_back(std::stoi(tok));
+			} catch (const std::exception&) {
+				throw std::invalid_argument(
+					"could not parse '" + tok + "' as an integer");
+			}
+		}
 		if (comma == std::string::npos) break;
 		pos = comma + 1;
 	}
@@ -462,34 +475,64 @@ std::vector<int> parse_int_list(const std::string& s) {
 
 int main(int argc, char** argv) {
 	std::string csv_path = "acquisition_demo.csv";
-	for (int i = 1; i < argc; ++i) {
-		const std::string arg = argv[i];
-		if (arg == "-h" || arg == "--help") {
-			print_usage(argv[0]);
-			return 0;
+	try {
+		for (int i = 1; i < argc; ++i) {
+			const std::string arg = argv[i];
+			if (arg == "-h" || arg == "--help") {
+				print_usage(argv[0]);
+				return 0;
+			}
+			if (arg.rfind("--if-freq=", 0) == 0) {
+				params.if_frequency_hz = std::stod(arg.substr(10));
+			} else if (arg.rfind("--sample-rate=", 0) == 0) {
+				params.sample_rate_hz = std::stod(arg.substr(14));
+			} else if (arg.rfind("--adc-bits=", 0) == 0) {
+				params.adc_scan_bits = parse_int_list(arg.substr(11));
+			} else if (arg.rfind("--num-samples=", 0) == 0) {
+				params.num_samples = static_cast<std::size_t>(std::stoull(arg.substr(14)));
+			} else if (arg.rfind("--csv=", 0) == 0) {
+				csv_path = arg.substr(6);
+			} else if (arg.rfind("--", 0) == 0) {
+				std::cerr << "Unknown flag: " << arg << "\n";
+				print_usage(argv[0]);
+				return 1;
+			} else {
+				// Positional CSV path (legacy)
+				csv_path = arg;
+			}
 		}
-		if (arg.rfind("--if-freq=", 0) == 0) {
-			params.if_frequency_hz = std::stod(arg.substr(10));
-		} else if (arg.rfind("--sample-rate=", 0) == 0) {
-			params.sample_rate_hz = std::stod(arg.substr(14));
-		} else if (arg.rfind("--adc-bits=", 0) == 0) {
-			params.adc_scan_bits = parse_int_list(arg.substr(11));
-		} else if (arg.rfind("--num-samples=", 0) == 0) {
-			params.num_samples = static_cast<std::size_t>(std::stoull(arg.substr(14)));
-		} else if (arg.rfind("--csv=", 0) == 0) {
-			csv_path = arg.substr(6);
-		} else if (arg.rfind("--", 0) == 0) {
-			std::cerr << "Unknown flag: " << arg << "\n";
-			print_usage(argv[0]);
-			return 1;
-		} else {
-			// Positional CSV path (legacy)
-			csv_path = arg;
-		}
+	} catch (const std::exception& ex) {
+		std::cerr << "Error parsing arguments: " << ex.what() << "\n";
+		print_usage(argv[0]);
+		return 1;
+	}
+
+	// Validate parameters before doing any pipeline math. Catches the
+	// obvious failure modes (zero sample rate, IF outside Nyquist,
+	// empty bit-scan list) early with a clear error.
+	auto fail = [&](const std::string& msg) {
+		std::cerr << "Invalid parameter: " << msg << "\n";
+		print_usage(argv[0]);
+		return 1;
+	};
+	if (!(params.sample_rate_hz > 0.0))
+		return fail("--sample-rate must be positive");
+	if (!(params.if_frequency_hz >= 0.0 &&
+	      params.if_frequency_hz < params.sample_rate_hz / 2.0))
+		return fail("--if-freq must satisfy 0 <= IF < sample_rate/2 (Nyquist)");
+	if (params.num_samples == 0)
+		return fail("--num-samples must be > 0");
+	if (params.adc_scan_bits.empty())
+		return fail("--adc-bits must list at least one bit depth");
+	for (int b : params.adc_scan_bits) {
+		if (b < 1 || b > 64)
+			return fail("--adc-bits values must be in [1, 64]");
 	}
 
 	const std::size_t total_decim =
 		params.ddc_decimation * params.cic_ratio * 2 * params.poly_decimation;
+	if (total_decim == 0)
+		return fail("internal: total decimation factor is 0 (check PipelineParams)");
 
 	std::cout << "=== Acquisition Pipeline Demo (Issue #93) ===\n";
 	std::cout << "Pipeline: ADC -> DDC(NCO + mixer + polyphase ↓"

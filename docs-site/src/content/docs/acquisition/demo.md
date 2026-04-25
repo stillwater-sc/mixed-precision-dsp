@@ -48,7 +48,7 @@ out of mixed-precision constraints, and how to read the output.
                                             |
                                             v
                                 +------------------------+
-                                | snr_db / enob / SFDR   |
+                                | snr_db / enob          |
                                 | vs uniform-double ref  |
                                 +------------------------+
                                             |
