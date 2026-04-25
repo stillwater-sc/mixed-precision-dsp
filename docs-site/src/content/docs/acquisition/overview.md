@@ -1,14 +1,14 @@
 ---
-title: Data Acquisition Overview
-description: Module overview, pipeline architecture, and per-stage component selection for the high-rate acquisition module
+title: SDR Receiver Front-End Overview
+description: Module overview, pipeline architecture, and per-stage component selection for the SDR / IF-receiver front-end module
 ---
 
-The acquisition module collects the primitives needed to take a real
-high-rate ADC stream and produce a low-rate complex baseband suitable
-for downstream processing. It is the receiver-side counterpart to the
-filter and spectral modules: where those operate on signals that are
-already at a tractable rate, this module focuses on the *rate-reduction
-front end* that gets you there efficiently.
+This module implements the digital receiver front-end of a
+software-defined radio (SDR): the chain that takes a real-valued
+high-rate ADC stream containing one or more modulated channels at an
+intermediate frequency (IF), tunes the channel of interest down to
+zero frequency, and decimates to a tractable baseband rate ready for
+demodulation.
 
 The module's umbrella header brings everything in:
 
@@ -19,12 +19,44 @@ The module's umbrella header brings everything in:
 Or include only what you use — every component lives behind a small
 focused header (`cic.hpp`, `nco.hpp`, etc.).
 
+## Scope: what this module is and isn't
+
+**This module IS:**
+- An SDR / IF-sampling receiver front end
+- Multirate decimation primitives (CIC, half-band, polyphase) usable
+  in any context that needs efficient rate reduction
+- A numerically-controlled oscillator (NCO) and complex mixer for
+  digital down-conversion
+- A composable `DecimationChain` for cascading the above
+
+**This module is NOT:**
+- An instrument-style data-acquisition front end. If you're building a
+  digital oscilloscope or a spectrum analyzer, you'll need primitives
+  this module doesn't ship: edge/level/slope **trigger logic**,
+  **pre/post-trigger ring buffers**, **peak-detect (min/max)
+  decimation** for glitch capture, **segmented memory** capture,
+  **multi-channel time alignment**, sweep-tuned local oscillators,
+  RBW/VBW filters, detector modes (peak/sample/average/quasi-peak),
+  trace averaging, and front-end calibration. Those primitives are
+  tracked in their own roadmap (search the issue tracker for
+  *"instrument data acquisition"*).
+- An ADC driver. The samples are assumed to already be in memory.
+- A demodulator. The complex baseband output of this chain is the
+  *input* to a demodulator (FM, QAM, OFDM, GMSK, ...) which lives
+  elsewhere.
+
+The CIC, half-band, and polyphase decimators are the most reusable
+piece — they're the same primitives an instrument front end would
+use for bulk rate reduction. The NCO + mixer + DDC composition is
+what makes this specifically a *receiver* rather than a general
+acquisition chain.
+
 ## What lives in this module
 
 | Component | Header | Role |
 |---|---|---|
-| [NCO](./nco/) | `nco.hpp` | Phase-accumulator complex sinusoid generator |
-| [DDC](./ddc/) | `ddc.hpp` | NCO + complex mixer + first decimator (band selection) |
+| [NCO](./nco/) | `nco.hpp` | Phase-accumulator complex sinusoid generator (the local oscillator) |
+| [DDC](./ddc/) | `ddc.hpp` | NCO + complex mixer + first decimator (channel selection) |
 | [CIC Decimator](./cic/) | `cic.hpp` | Multiplier-free bulk rate reduction at the highest sample rate |
 | [Half-Band Filter](./halfband/) | `halfband.hpp` | Sharp ↓2 stage with ~75% zero taps |
 | [Polyphase Decimator](./polyphase-decimator/) | `polyphase_decimator.hpp` | Final channel-shaping FIR decimation |
@@ -35,12 +67,12 @@ The matching analysis primitives — SNR, ENOB, NCO SFDR, CIC bit-growth
 verification — live in
 [`analysis/acquisition_precision.hpp`](../../analysis/acquisition-precision/).
 
-## Pipeline architecture
+## Receiver architecture
 
-A canonical IF-sampling receiver looks like this:
+A canonical IF-sampling SDR receiver looks like this:
 
 ```text
-ADC (10s of MHz)
+ADC (10s of MHz, real samples at IF)
    │
    ▼
 NCO ──►  complex mixer  ──►  ↓K1  (DDC: tunes a channel down to 0 Hz)
@@ -52,10 +84,10 @@ NCO ──►  complex mixer  ──►  ↓K1  (DDC: tunes a channel down to 0 
                        Half-Band ↓2     (sharp transition with free decimation)
                               │
                               ▼
-                      Polyphase FIR ↓Kn (final shaping at the lowest rate)
+                      Polyphase FIR ↓Kn (final channel shaping at the lowest rate)
                               │
                               ▼
-                    I/Q baseband (kHz range)
+                    I/Q baseband (kHz range, ready for demodulation)
 ```
 
 The total decimation `K1 × K2 × 2 × Kn` typically ranges from $2^4$ to
@@ -69,12 +101,12 @@ math of why this factorization works.
 
 ## When to use each component
 
-### Need a complex sinusoid? → [NCO](./nco/)
+### Need a complex local oscillator? → [NCO](./nco/)
 
 The phase-accumulator NCO produces $\cos(2\pi f_0 n / f_s) + j\sin(\ldots)$
 at any frequency exactly representable as a phase increment. Use it
-alone for signal generation, or as the local oscillator for a DDC or
-modulator. Posit32 typically delivers >150 dB SFDR.
+alone for signal generation, or as the local oscillator for a DDC.
+Posit32 typically delivers >150 dB SFDR.
 
 ### Need to tune a channel down to baseband? → [DDC](./ddc/)
 
@@ -113,19 +145,19 @@ tuple wrapper that chains arbitrary heterogeneous decimator types,
 threading samples through each stage. The end-to-end demo uses it to
 build the post-DDC `CIC → HalfBand → Polyphase` cascade.
 
-## The three-scalar model in acquisition
+## The three-scalar model in an SDR front end
 
 Every component in this module follows the same `(CoeffScalar,
 StateScalar, SampleScalar)` parameterization as the filter and
 spectral modules:
 
-| Scalar | Role in acquisition | Typical choice |
+| Scalar | Role in this module | Typical choice |
 |---|---|---|
 | `CoeffScalar` | Filter taps, NCO twiddle constants | `double`, `posit<32,2>` |
 | `StateScalar` | Accumulator state inside each stage | `double`, `fixpnt<32,28>` |
 | `SampleScalar` | Inter-stage I/Q stream | `float`, `posit<16,1>`, `fixpnt<16,12>` |
 
-Where acquisition differs from filter design is that **the scalar
+Where this module differs from filter design is that **the scalar
 choice is not uniform across the chain**. The CIC's accumulator has
 to absorb $M \lceil \log_2(RD) \rceil$ bits of growth and (per the
 constraint above) wants two's-complement wrap, so `fixpnt` is the
@@ -145,7 +177,7 @@ For empirical SNR/ENOB measurements across the chain, use the
 primitives. They reuse identifier columns from the
 [`precision_sweep`](https://github.com/stillwater-sc/mixed-precision-dsp/tree/main/applications/precision_sweep)
 CSV schema, so the same Python tools that visualize IIR sweeps work
-on acquisition sweeps.
+on receiver-chain sweeps.
 
 ## Worked-example reference numbers
 
@@ -173,7 +205,7 @@ the CIC reference covers the underlying math.
 - [Filter Design Overview](../../filter/overview/) — the three-scalar
   model and FIR/IIR pipelines this module builds on
 - [DFT and FFT](../../spectral/dft-fft/) — what you typically run
-  *after* the acquisition front-end has reduced the rate
+  *after* the receiver chain has reduced the rate
 - [Acquisition Precision Analysis](../../analysis/acquisition-precision/)
   — measurement primitives (SNR, ENOB, NCO SFDR, CIC bit-growth)
 - Per-component pages: [NCO](./nco/), [DDC](./ddc/),
