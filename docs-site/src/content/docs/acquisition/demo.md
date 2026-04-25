@@ -77,9 +77,11 @@ mtl::vec::dense_vector<double> simulate_adc(int adc_bits, unsigned seed = 0xACDC
 ```
 
 A real-valued cosine at the IF frequency, plus low-level AWGN, then
-uniform quantization to `adc_bits` levels across full scale. The
-quantization step is `1 / 2^(adc_bits-1)` so the SNR floor follows the
-classic $6.02 N + 1.76$ dB ceiling for any later stage downstream.
+uniform quantization to a signed N-bit ADC's $2^N$ codes (range
+$[-2^{N-1}, 2^{N-1}-1]$ — the standard two's-complement layout). The
+quantization step is $1 / 2^{N-1}$, the full-scale signed step for
+N-bit signed representation, so the SNR floor follows the classic
+$6.02 N + 1.76$ dB ceiling for any later stage downstream.
 
 ## Pipeline composition
 
@@ -143,10 +145,10 @@ sample rate saturates.
 The fix is mathematically trivial:
 
 ```cpp
-const double f_norm = params::kIfFrequencyHz / params::kSampleRateHz;
+const double f_norm = params.if_frequency_hz / params.sample_rate_hz;
 DDC_t ddc(static_cast<StateScalar>(f_norm),
           static_cast<StateScalar>(1.0),
-          decim);
+          ddc_decim);
 ```
 
 Pass `(IF/fs, 1.0)` instead of `(IF, fs)`. The phase increment ends up
@@ -175,16 +177,16 @@ some abstract "32-bit fixed-point". The demo uses `fixpnt<32, 28>`
 - 28 fractional bits → precision $2^{-28} \approx 4 \times 10^{-9}$,
   competitive with IEEE float
 
-Result: Q4.28 fixpnt measures ~25 ENOB through this pipeline, the
-best of any configuration. The lesson is that fixpnt is a
-*format choice*, not a number system; pick the integer/fractional
+Result: Q4.28 fixpnt measures ~15 ENOB through this pipeline, the
+best of any non-double configuration. The lesson is that fixpnt is
+a *format choice*, not a number system; pick the integer/fractional
 split based on the signal you'll actually run through it.
 
 ### 3. CIC requires fixed-point (or any wrapping) state
 
 The biggest surprise of this demo: with a CIC decimator in the chain,
 **`uniform_fixpnt32` beats every floating-point configuration by
-~100 dB**, and `uniform_posit16` collapses to negative SNR.
+~40 dB**, and `uniform_posit16` collapses to negative SNR.
 
 The cause is a structural property of CIC. A CIC integrator is
 `y[n] = y[n-1] + x[n]` — an unbounded accumulator. The classical
@@ -199,9 +201,8 @@ You can see this directly in the table below: float, posit32, and
 cfloat32 (all with ~24 bits of mantissa precision) cluster around
 54 dB SNR — that's the integrator drift floor, not the arithmetic
 ceiling. fixpnt32, with hardware-level two's-complement wrap,
-recovers the full 153 dB the rest of the chain can deliver. posit16's
-4 mantissa bits aren't enough to keep the integrator stable at all,
-hence the -30 dB collapse.
+recovers ~93 dB. posit16's 4 mantissa bits aren't enough to keep
+the integrator stable at all, hence the -30 dB collapse.
 
 The lesson: **if you have a CIC stage, use fixed-point (or any
 wrapping integer-like type) for the integrator state.** The
@@ -218,29 +219,38 @@ A clean run with a 16-bit ADC at 1 MHz, IF at 100 kHz, decimating
 Configuration                   Bits    SNR(dB)    ENOB
 -------------------------------------------------------
 uniform_double                   192        inf     ref
-uniform_float                     96      54.48    8.76
+uniform_float                     96      54.44    8.75
 uniform_posit32                   96      54.46    8.75
-uniform_posit16                   48     -29.99   -5.27
-uniform_cfloat32                  96      54.48    8.76
-uniform_fixpnt32                  96     152.67   25.07
+uniform_posit16                   48     -30.06   -5.29
+uniform_cfloat32                  96      54.44    8.75
+uniform_fixpnt32                  96      92.76   15.12
 mixed_double_p32_p16             112      53.03    8.52
-mixed_double_double_float        160     147.16   24.15
+mixed_double_double_float        160     146.95   24.12
 mixed_double_p32_float           128      54.46    8.75
-mixed_double_float_float         128      54.48    8.76
-mixed_double_fx32_fx32           128     152.67   25.07
+mixed_double_float_float         128      54.44    8.75
+mixed_double_fx32_fx32           128      92.76   15.12
 
 === ADC bit-depth scan (uniform-double pipeline) ===
 ADC bits        SNR(dB)    ENOB
 -------------------------------
-8-bit             51.78    8.31
-12-bit            75.60   12.27
-14-bit            87.59   14.26
-16-bit           100.20   16.35
+8-bit             48.72    7.80
+12-bit            72.57   11.76
+14-bit            84.75   13.79
+16-bit            96.99   15.82
 ```
+
+These numbers measure the **complex-residual SNR** between the test
+configuration's I/Q output and the uniform-double reference's I/Q
+output (i.e., the demo computes
+$10 \log_{10} \frac{\sum |r_i|^2}{\sum |r_i - t_i|^2}$ on the
+complex baseband stream). That captures both magnitude and phase
+errors. An earlier version reduced each stream to its magnitude
+envelope before comparison, which silently masked phase-only error
+and over-stated `fixpnt32` quality by ~60 dB.
 
 A few patterns to note:
 
-- **`uniform_fixpnt32` (Q4.28) wins by ~100 dB.** This is the CIC
+- **`uniform_fixpnt32` (Q4.28) wins by ~40 dB.** This is the CIC
   state-precision lesson described above. The Q4.28 format gives
   enough fractional precision (~28 bits) to match the post-DDC
   signal range, and the hardware-level two's-complement wrap is

@@ -242,28 +242,40 @@ run_pipeline(const mtl::vec::dense_vector<double>& adc_in_double) {
 
 // ============================================================================
 // Measurement: run reference (uniform double) and a test configuration; compute
-// SNR/ENOB on the magnitude streams.
+// SNR/ENOB on the complex residual.
 // ============================================================================
 
-// Compare two complex baseband streams' magnitude envelopes after skipping
-// `skip` transient samples (the polyphase delay line takes ~num_taps/decim
-// samples to fill — using 16 to be safe). Returns NaN if sizes mismatch or
-// there aren't enough samples; NaN unambiguously says "no measurement",
-// distinguishing it from a legitimate poor SNR (e.g., 0 dB or -3 dB).
+// Compare two complex baseband streams via the complex error after skipping
+// `skip` transient samples (the multistage chain delay line takes ~30 output
+// samples to fill — using 40 to be safe).
+//
+// Power is computed on the complex signal directly:
+//   signal_power = sum |reference[i]|^2
+//   noise_power  = sum |reference[i] - test[i]|^2
+// This captures both magnitude AND phase errors. An earlier version reduced
+// each stream to its magnitude envelope before comparison, which silently
+// masked any pure-phase error (the magnitudes can be identical even when the
+// I/Q vectors point in different directions).
+//
+// Returns NaN if sizes mismatch or there aren't enough samples; NaN
+// unambiguously says "no measurement", distinguishing it from a legitimate
+// poor SNR (e.g., 0 dB or -3 dB). Clamps at 300 dB on noise underflow to
+// match snr_db's behavior for bit-identical matches.
 double measure_baseband_snr_db(
 		const std::vector<std::complex<double>>& reference_out,
 		const std::vector<std::complex<double>>& test_out,
-		std::size_t skip = 40) {  // multistage chain transient is ~30 outputs
+		std::size_t skip = 40) {
 	if (test_out.size() != reference_out.size() || test_out.size() <= skip)
 		return std::numeric_limits<double>::quiet_NaN();
-	std::vector<double> ref_mag(test_out.size() - skip);
-	std::vector<double> tst_mag(test_out.size() - skip);
+	double signal_power = 0.0;
+	double noise_power  = 0.0;
 	for (std::size_t i = skip; i < test_out.size(); ++i) {
-		ref_mag[i - skip] = std::abs(reference_out[i]);
-		tst_mag[i - skip] = std::abs(test_out[i]);
+		signal_power += std::norm(reference_out[i]);                 // |r|^2
+		noise_power  += std::norm(reference_out[i] - test_out[i]);   // |r-t|^2
 	}
-	return snr_db(std::span<const double>(ref_mag.data(), ref_mag.size()),
-	              std::span<const double>(tst_mag.data(), tst_mag.size()));
+	if (signal_power <= 0.0) return 0.0;
+	if (noise_power < 1e-300) return 300.0;
+	return 10.0 * std::log10(signal_power / noise_power);
 }
 
 template <class CoeffScalar, class StateScalar, class SampleScalar>
@@ -450,23 +462,67 @@ void print_usage(const char* prog) {
 		<< "  -h, --help              This message\n";
 }
 
-// Parse a comma-separated list of ints. Throws std::invalid_argument
-// with a clear message identifying the offending token, instead of
-// letting std::stoi's bare exceptions propagate up to terminate().
+// Strict numeric parsers: each one throws std::invalid_argument with a clear
+// message naming the offending token, and rejects partial parses (e.g.,
+// "12abc" → just 12) by checking that std::sto* consumed the entire token.
+// parse_uint additionally rejects leading '+' or '-' since std::stoull
+// silently wraps negatives to huge unsigned values.
+int parse_int(const std::string& tok, const char* flag = "value") {
+	std::size_t idx = 0;
+	int v = 0;
+	try {
+		v = std::stoi(tok, &idx);
+	} catch (const std::exception&) {
+		throw std::invalid_argument(
+			std::string(flag) + ": could not parse '" + tok + "' as an integer");
+	}
+	if (idx != tok.size())
+		throw std::invalid_argument(
+			std::string(flag) + ": trailing characters in '" + tok + "'");
+	return v;
+}
+
+double parse_double(const std::string& tok, const char* flag = "value") {
+	std::size_t idx = 0;
+	double v = 0.0;
+	try {
+		v = std::stod(tok, &idx);
+	} catch (const std::exception&) {
+		throw std::invalid_argument(
+			std::string(flag) + ": could not parse '" + tok + "' as a number");
+	}
+	if (idx != tok.size())
+		throw std::invalid_argument(
+			std::string(flag) + ": trailing characters in '" + tok + "'");
+	return v;
+}
+
+unsigned long long parse_uint(const std::string& tok, const char* flag = "value") {
+	if (tok.empty() || tok.front() == '-' || tok.front() == '+')
+		throw std::invalid_argument(
+			std::string(flag) + ": '" + tok + "' must be a non-negative integer");
+	std::size_t idx = 0;
+	unsigned long long v = 0;
+	try {
+		v = std::stoull(tok, &idx);
+	} catch (const std::exception&) {
+		throw std::invalid_argument(
+			std::string(flag) + ": could not parse '" + tok + "' as an integer");
+	}
+	if (idx != tok.size())
+		throw std::invalid_argument(
+			std::string(flag) + ": trailing characters in '" + tok + "'");
+	return v;
+}
+
+// Parse a comma-separated list of ints, rejecting partial parses.
 std::vector<int> parse_int_list(const std::string& s) {
 	std::vector<int> out;
 	std::size_t pos = 0;
 	while (pos < s.size()) {
 		const std::size_t comma = s.find(',', pos);
 		const std::string tok = s.substr(pos, comma - pos);
-		if (!tok.empty()) {
-			try {
-				out.push_back(std::stoi(tok));
-			} catch (const std::exception&) {
-				throw std::invalid_argument(
-					"could not parse '" + tok + "' as an integer");
-			}
-		}
+		if (!tok.empty()) out.push_back(parse_int(tok, "--adc-bits"));
 		if (comma == std::string::npos) break;
 		pos = comma + 1;
 	}
@@ -483,13 +539,14 @@ int main(int argc, char** argv) {
 				return 0;
 			}
 			if (arg.rfind("--if-freq=", 0) == 0) {
-				params.if_frequency_hz = std::stod(arg.substr(10));
+				params.if_frequency_hz = parse_double(arg.substr(10), "--if-freq");
 			} else if (arg.rfind("--sample-rate=", 0) == 0) {
-				params.sample_rate_hz = std::stod(arg.substr(14));
+				params.sample_rate_hz = parse_double(arg.substr(14), "--sample-rate");
 			} else if (arg.rfind("--adc-bits=", 0) == 0) {
 				params.adc_scan_bits = parse_int_list(arg.substr(11));
 			} else if (arg.rfind("--num-samples=", 0) == 0) {
-				params.num_samples = static_cast<std::size_t>(std::stoull(arg.substr(14)));
+				params.num_samples = static_cast<std::size_t>(
+					parse_uint(arg.substr(14), "--num-samples"));
 			} else if (arg.rfind("--csv=", 0) == 0) {
 				csv_path = arg.substr(6);
 			} else if (arg.rfind("--", 0) == 0) {
