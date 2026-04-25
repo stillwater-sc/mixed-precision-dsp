@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <cstddef>
 #include <fstream>
 #include <limits>
@@ -116,13 +117,14 @@ double measure_nco_sfdr_db(NCO& nco, std::size_t fft_size,
 	}
 
 	using complex_t = typename NCO::complex_t;
-	mtl::vec::dense_vector<std::complex<double>> data(N);
+	using fft_complex_t = complex_for_t<double>;
+	mtl::vec::dense_vector<fft_complex_t> data(N);
 	for (std::size_t n = 0; n < fft_size; ++n) {
 		complex_t z = nco.generate_sample();
-		data[n] = std::complex<double>(static_cast<double>(z.real()),
-		                                static_cast<double>(z.imag()));
+		data[n] = fft_complex_t(static_cast<double>(z.real()),
+		                         static_cast<double>(z.imag()));
 	}
-	for (std::size_t n = fft_size; n < N; ++n) data[n] = std::complex<double>(0, 0);
+	for (std::size_t n = fft_size; n < N; ++n) data[n] = fft_complex_t(0, 0);
 
 	sw::dsp::spectral::fft_forward<double>(data);
 
