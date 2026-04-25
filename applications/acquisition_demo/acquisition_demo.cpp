@@ -36,6 +36,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <string>
 #include <vector>
@@ -83,7 +84,10 @@ mtl::vec::dense_vector<double> simulate_adc(int adc_bits, unsigned seed = 0xACDC
 	std::normal_distribution<double> noise(0.0, params::kNoiseRms);
 
 	const double full_scale = 1.0;
-	const double levels = static_cast<double>(1 << (adc_bits - 1));
+	// std::ldexp(1.0, n) computes 2^n as a double for any non-negative n,
+	// avoiding the UB of `1 << 63` (the literal `1` is a 32-bit int) when
+	// the ADC scan calls simulate_adc(64) for the unquantized reference.
+	const double levels = std::ldexp(1.0, adc_bits - 1);
 	const double q_step = full_scale / levels;
 
 	for (std::size_t n = 0; n < params::kNumSamples; ++n) {
@@ -152,6 +156,27 @@ run_ddc_pipeline(const mtl::vec::dense_vector<double>& adc_in_double) {
 // SNR/ENOB on the magnitude streams.
 // ============================================================================
 
+// Compare two complex baseband streams' magnitude envelopes after skipping
+// `skip` transient samples (the polyphase delay line takes ~num_taps/decim
+// samples to fill — using 16 to be safe). Returns NaN if sizes mismatch or
+// there aren't enough samples; NaN unambiguously says "no measurement",
+// distinguishing it from a legitimate poor SNR (e.g., 0 dB or -3 dB).
+double measure_baseband_snr_db(
+		const std::vector<std::complex<double>>& reference_out,
+		const std::vector<std::complex<double>>& test_out,
+		std::size_t skip = 16) {
+	if (test_out.size() != reference_out.size() || test_out.size() <= skip)
+		return std::numeric_limits<double>::quiet_NaN();
+	std::vector<double> ref_mag(test_out.size() - skip);
+	std::vector<double> tst_mag(test_out.size() - skip);
+	for (std::size_t i = skip; i < test_out.size(); ++i) {
+		ref_mag[i - skip] = std::abs(reference_out[i]);
+		tst_mag[i - skip] = std::abs(test_out[i]);
+	}
+	return snr_db(std::span<const double>(ref_mag.data(), ref_mag.size()),
+	              std::span<const double>(tst_mag.data(), tst_mag.size()));
+}
+
 template <class CoeffScalar, class StateScalar, class SampleScalar>
 AcquisitionPrecisionRow measure_config(
 		const std::string& config_name,
@@ -172,26 +197,11 @@ AcquisitionPrecisionRow measure_config(
 	row.cic_overflow_margin_bits = -1.0;     // CIC not used in this pipeline
 
 	auto test_out = run_ddc_pipeline<CoeffScalar, StateScalar, SampleScalar>(adc_in);
-
-	// Compare magnitude envelopes — they're the meaningful baseband output of a
-	// real-IF DDC. Skip the first few samples to let the polyphase delay line
-	// fill (roughly num_taps / decimation = 65/8 ≈ 8 samples).
-	const std::size_t skip = 16;
-	if (test_out.size() != reference_out.size() || test_out.size() <= skip) {
-		row.output_snr_db = 0.0;
-		row.output_enob   = 0.0;
-		return row;
-	}
-	std::vector<double> ref_mag(test_out.size() - skip);
-	std::vector<double> tst_mag(test_out.size() - skip);
-	for (std::size_t i = skip; i < test_out.size(); ++i) {
-		ref_mag[i - skip] = std::abs(reference_out[i]);
-		tst_mag[i - skip] = std::abs(test_out[i]);
-	}
-	const double s = snr_db(std::span<const double>(ref_mag.data(), ref_mag.size()),
-	                         std::span<const double>(tst_mag.data(), tst_mag.size()));
+	const double s = measure_baseband_snr_db(reference_out, test_out);
 	row.output_snr_db = s;
-	row.output_enob   = enob_from_snr_db(s);
+	row.output_enob   = std::isnan(s)
+		? std::numeric_limits<double>::quiet_NaN()
+		: enob_from_snr_db(s);
 	return row;
 }
 
@@ -264,7 +274,10 @@ void print_sweep_table(const std::vector<AcquisitionPrecisionRow>& rows) {
 	for (const auto& r : rows) {
 		std::cout << std::left  << std::setw(28) << r.config_name
 		          << std::right << std::setw(8)  << r.total_bits;
-		if (r.output_snr_db >= 299.0) {
+		if (std::isnan(r.output_snr_db)) {
+			std::cout << std::right << std::setw(11) << "FAIL"
+			          << std::right << std::setw(8)  << "—";
+		} else if (r.output_snr_db >= 299.0) {
 			std::cout << std::right << std::setw(11) << "inf"
 			          << std::right << std::setw(8)  << "ref";
 		} else {
@@ -302,17 +315,8 @@ void scan_adc_bit_depths(std::vector<AcquisitionPrecisionRow>& rows) {
 	for (int bits : {8, 12, 14, 16}) {
 		auto adc_in = simulate_adc(bits);
 		auto out_d = run_ddc_pipeline<double, double, double>(adc_in);
-		const std::size_t skip = 16;
-		if (out_d.size() != reference_out.size() || out_d.size() <= skip)
-			continue;
-		std::vector<double> ref_mag(out_d.size() - skip);
-		std::vector<double> tst_mag(out_d.size() - skip);
-		for (std::size_t i = skip; i < out_d.size(); ++i) {
-			ref_mag[i - skip] = std::abs(reference_out[i]);
-			tst_mag[i - skip] = std::abs(out_d[i]);
-		}
-		double s = snr_db(std::span<const double>(ref_mag.data(), ref_mag.size()),
-		                   std::span<const double>(tst_mag.data(), tst_mag.size()));
+		const double s = measure_baseband_snr_db(reference_out, out_d);
+		if (std::isnan(s)) continue;
 
 		AcquisitionPrecisionRow row;
 		row.pipeline = "ddc_adc_scan";
