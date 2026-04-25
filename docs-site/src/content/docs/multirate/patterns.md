@@ -19,7 +19,7 @@ see the [Multirate Overview](./overview/).
 | [Bulk rate reduction at high rate](#bulk-rate-reduction-cic) | First-stage decimation after a GHz ADC | `CICDecimator` | `acquisition/cic.hpp` |
 | [IF → baseband](#if-to-baseband-ddc) | Pull a band of interest down to 0 Hz | `DDC` | `acquisition/ddc.hpp` |
 | [Multi-stage decimation cascade](#multi-stage-cascade) | CIC → HB → polyphase chain | `DecimationChain` | `acquisition/decimation_chain.hpp` |
-| [Channelizer (M-channel filter bank)](#channelizer) | Split a wideband signal into channels | **gap** — compose from `PolyphaseDecimator` + FFT |
+| [Channelizer (M-channel filter bank)](#channelizer) | Split a wideband signal into channels | **gap** — compose from `PolyphaseDecimator` + FFT | `filter/fir/polyphase.hpp` + `spectral/dft.hpp` |
 
 Every row except the last has a first-class library API. The
 channelizer is a documented composition gap — see that section for
