@@ -198,3 +198,45 @@ Window coefficients are typically computed once and reused. Because the
 cosine sums involve subtractions of nearly equal values, computing them
 in `double` or a high-precision posit avoids coefficient errors that
 would raise the effective side lobe floor.
+
+### T-Parameterized Computation
+
+Every window function template runs its **intermediate math in the
+caller's scalar type `T`**, not in `double` cast to `T` at the end.
+Constants (`a0`, `a1`, etc.) are built from constructors of `T`; trig
+calls dispatch via ADL, so `sw::universal::cos` is selected for posit
+and `std::cos` for native float/double.
+
+That means an embedded target without hardware double can compute
+window coefficients on-target at posit/cfloat/fixpnt precision,
+including the more elaborate windows:
+
+- **Kaiser** uses a `bessel_I0<T>` template — the modified-Bessel
+  series runs in `T`, not `double`.
+- **Dolph-Chebyshev** uses a Chebyshev-polynomial recurrence in `T`
+  for $|x| \le 1$ and the `cosh(n \cdot acosh(|x|))` form for
+  $|x| > 1$ (also in `T`, via ADL `cosh` / `acosh`).
+
+The library's regression tests measure agreement against a `double`
+reference at `posit<32, 2>`:
+
+| Window | Max diff vs double |
+|---|---|
+| Hamming | 3.2e-8 |
+| Kaiser ($\beta = 8.6$) | 8.0e-8 |
+| Gaussian ($\sigma = 0.4$) | 2.9e-9 |
+| Dolph-Chebyshev (80 dB) | 4.8e-6 |
+
+A single posit<32,2> ULP near unit magnitude is approximately
+$2^{-28} \approx 3.7 \times 10^{-9}$, so most of these residuals
+reflect accumulated rounding across the per-sample computation rather
+than a single rounding step. Gaussian's tight bound (single
+exponential per sample, no accumulation) lands close to one ULP;
+Hamming and Kaiser show a few-ULP cumulative effect from the
+multi-term cosine sums and the Bessel series. Dolph-Chebyshev is the
+outlier — its $O(N^2)$ IDFT in the window construction accumulates
+~$N^2 = 4096$ products at $N = 64$, and the result still agrees with
+the `double` reference to better than ${\sim}5 \times 10^{-6}$. The
+test tolerances (1e-7 for the single-formula windows, 1e-5 for
+Dolph-Chebyshev) are set with modest headroom over the measured
+values to absorb cross-toolchain libm variance.
