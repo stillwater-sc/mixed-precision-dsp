@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT
 
 #include <sw/dsp/filter/fir/fir.hpp>
+#include <sw/dsp/acquisition/polyphase_decimator.hpp>
 #include <sw/dsp/signals/sampling.hpp>
 
 #include <cmath>
@@ -11,6 +12,9 @@
 #include <iostream>
 #include <random>
 #include <stdexcept>
+
+#include <universal/number/posit/posit.hpp>
+#include <universal/number/cfloat/cfloat.hpp>
 
 using namespace sw::dsp;
 
@@ -299,6 +303,135 @@ void test_overlap_convolver_state_persistence() {
 	std::cout << "  overlap_convolver_state_persistence: passed\n";
 }
 
+// ============================================================================
+// Issue #91: Polyphase decimator with non-native CoeffScalar
+//
+// Acceptance criterion calls for unit tests at posit and cfloat. Each test
+// designs taps in double, casts to T, runs the decimator at T, and compares
+// against an at-T reference (FIR-then-downsample). Tolerance is set to the
+// type's ULP scale; structurally these are identical computations, so any
+// drift signals an actual bug rather than precision loss.
+// ============================================================================
+
+namespace {
+
+template <typename T>
+mtl::vec::dense_vector<T> cast_signal(const mtl::vec::dense_vector<double>& x) {
+	mtl::vec::dense_vector<T> y(x.size());
+	for (std::size_t i = 0; i < x.size(); ++i) y[i] = T(x[i]);
+	return y;
+}
+
+template <typename T>
+mtl::vec::dense_vector<T> reference_decimate_T(const mtl::vec::dense_vector<T>& x,
+                                                 const mtl::vec::dense_vector<T>& h,
+                                                 std::size_t M) {
+	FIRFilter<T> f(h);
+	mtl::vec::dense_vector<T> y_full(x.size(), T{});
+	for (std::size_t i = 0; i < x.size(); ++i) y_full[i] = f.process(x[i]);
+	return downsample(y_full, M);
+}
+
+template <typename T>
+double max_diff_to_double(const mtl::vec::dense_vector<T>& a,
+                          const mtl::vec::dense_vector<T>& b) {
+	if (a.size() != b.size()) return 1e30;
+	double m = 0.0;
+	for (std::size_t i = 0; i < a.size(); ++i) {
+		double d = std::abs(static_cast<double>(a[i]) - static_cast<double>(b[i]));
+		if (d > m) m = d;
+	}
+	return m;
+}
+
+} // anonymous namespace
+
+void test_polyphase_decimator_in_posit() {
+	using posit_t = sw::universal::posit<32, 2>;
+
+	for (std::size_t M : {2u, 3u, 4u, 5u}) {
+		auto h_d = lowpass_taps(31);
+		auto x_d = random_signal(300, 11);
+		std::size_t trimmed = (x_d.size() / M) * M;
+		mtl::vec::dense_vector<double> x_t(trimmed);
+		for (std::size_t i = 0; i < trimmed; ++i) x_t[i] = x_d[i];
+
+		auto h_p = cast_signal<posit_t>(h_d);
+		auto x_p = cast_signal<posit_t>(x_t);
+
+		PolyphaseDecimator<posit_t> dec(h_p, M);
+		auto y_poly = dec.process_block(std::span<const posit_t>(x_p.data(), x_p.size()));
+		auto y_ref  = reference_decimate_T(x_p, h_p, M);
+
+		double err = max_diff_to_double(y_poly, y_ref);
+		// posit<32,2> has ~28 mantissa bits near unity. With 31 taps, accumulated
+		// rounding stays within ~1e-7 — same as the structural double bound but
+		// scaled to posit ULP.
+		if (err > 1e-7)
+			throw std::runtime_error("test failed: posit decimator M=" +
+				std::to_string(M) + " max error " + std::to_string(err));
+	}
+	std::cout << "  polyphase_decimator_in_posit: passed\n";
+}
+
+void test_polyphase_decimator_in_cfloat() {
+	// cfloat<32,8>: same width as IEEE float, useful as a sanity check that
+	// the decimator works with cfloat's representation even at native widths.
+	using cfloat32 = sw::universal::cfloat<32, 8, std::uint32_t, true, false, false>;
+
+	for (std::size_t M : {2u, 3u, 4u}) {
+		auto h_d = lowpass_taps(21);
+		auto x_d = random_signal(200, 17);
+		std::size_t trimmed = (x_d.size() / M) * M;
+		mtl::vec::dense_vector<double> x_t(trimmed);
+		for (std::size_t i = 0; i < trimmed; ++i) x_t[i] = x_d[i];
+
+		auto h_c = cast_signal<cfloat32>(h_d);
+		auto x_c = cast_signal<cfloat32>(x_t);
+
+		PolyphaseDecimator<cfloat32> dec(h_c, M);
+		auto y_poly = dec.process_block(std::span<const cfloat32>(x_c.data(), x_c.size()));
+		auto y_ref  = reference_decimate_T(x_c, h_c, M);
+
+		double err = max_diff_to_double(y_poly, y_ref);
+		// cfloat<32,8> ULP near unity is ~1e-7 (same as IEEE float)
+		if (err > 1e-6)
+			throw std::runtime_error("test failed: cfloat decimator M=" +
+				std::to_string(M) + " max error " + std::to_string(err));
+	}
+	std::cout << "  polyphase_decimator_in_cfloat: passed\n";
+}
+
+void test_polyphase_decompose_helper() {
+	// The public polyphase_decompose helper should match the per-element
+	// formula sub_taps[q][p] = h[p*M + q] with zero padding at the tail.
+	mtl::vec::dense_vector<double> h({1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0});
+	auto sub = polyphase_decompose(h, 3);
+
+	if (sub.size() != 3)
+		throw std::runtime_error("test failed: decompose factor count");
+	const std::size_t expected_len = (h.size() + 3 - 1) / 3;  // ceil(7/3) = 3
+	for (std::size_t q = 0; q < 3; ++q) {
+		if (sub[q].size() != expected_len)
+			throw std::runtime_error("test failed: decompose sub-length");
+		for (std::size_t p = 0; p < expected_len; ++p) {
+			std::size_t src = p * 3 + q;
+			double expected = (src < h.size()) ? h[src] : 0.0;
+			if (sub[q][p] != expected)
+				throw std::runtime_error("test failed: decompose sub[" +
+					std::to_string(q) + "][" + std::to_string(p) + "]");
+		}
+	}
+
+	// Validation
+	bool threw = false;
+	try { polyphase_decompose(h, 0); }
+	catch (const std::invalid_argument&) { threw = true; }
+	if (!threw) throw std::runtime_error("test failed: factor=0 should throw");
+
+	std::cout << "  polyphase_decompose_helper: passed\n";
+}
+
 int main() {
 	try {
 		std::cout << "FIR Multirate Tests\n";
@@ -307,6 +440,9 @@ int main() {
 		test_polyphase_interpolator_equivalence();
 		test_polyphase_decimator_equivalence();
 		test_polyphase_reset();
+		test_polyphase_decimator_in_posit();
+		test_polyphase_decimator_in_cfloat();
+		test_polyphase_decompose_helper();
 		test_overlap_add_equivalence();
 		test_overlap_save_equivalence();
 		test_overlap_add_default_block();
