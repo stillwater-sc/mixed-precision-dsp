@@ -64,8 +64,9 @@ acquisition chain.
 | [End-to-End Demo](./demo/) | `applications/acquisition_demo` | Full receiver, sweep across number systems |
 
 The matching analysis primitives — SNR, ENOB, NCO SFDR, CIC bit-growth
-verification — live in
-[`analysis/acquisition_precision.hpp`](../../analysis/acquisition-precision/).
+verification — are documented in
+[Acquisition Precision Analysis](../../analysis/acquisition-precision/)
+(implemented in `sw/dsp/analysis/acquisition_precision.hpp`).
 
 ## Receiver architecture
 
@@ -142,8 +143,10 @@ channel-shaping requirements set the filter length.
 
 `DecimationChain<SampleScalar, Stage1, Stage2, ...>` is a variadic
 tuple wrapper that chains arbitrary heterogeneous decimator types,
-threading samples through each stage. The end-to-end demo uses it to
-build the post-DDC `CIC → HalfBand → Polyphase` cascade.
+threading samples through each stage **in the order you provide**.
+The end-to-end demo shows one canonical post-DDC choice —
+`CIC → HalfBand → Polyphase` — but the chain accepts any tuple
+ordering and processes the sequence exactly as supplied.
 
 ## The three-scalar model in an SDR front end
 
@@ -181,24 +184,35 @@ on receiver-chain sweeps.
 
 ## Worked-example reference numbers
 
-The library's regression tests measure these end-to-end SNR floors
-for a 3-stage CIC → half-band → polyphase chain:
+The end-to-end demo
+([`applications/acquisition_demo/acquisition_demo.cpp`](https://github.com/stillwater-sc/mixed-precision-dsp/blob/main/applications/acquisition_demo/acquisition_demo.cpp))
+measures these SNR floors for a 16-bit ADC at 1 MHz feeding the full
+DDC + CIC↓2 → half-band ↓2 → polyphase ↓2 chain (total ↓16). Run the
+binary at any commit to reproduce them:
 
 | Pipeline scalar (uniform) | Measured SNR | Measured ENOB |
 |---|---|---|
 | `double` | ref (clipped at 300 dB) | ref |
-| `posit<32, 2>` | ~98 dB | ~16 |
-| `fixpnt<32, 28>` (Q4.28) | ~153 dB | ~25 |
 | `float` (IEEE) | ~54 dB | ~9 |
+| `posit<32, 2>` | ~54 dB | ~9 |
+| `cfloat<32, 8>` | ~54 dB | ~9 |
+| `fixpnt<32, 28>` (Q4.28) | ~153 dB | ~25 |
 | `posit<16, 2>` | -30 dB (collapse) | — |
 
-The `float` and `posit<32,2>` numbers look surprisingly low until you
-realize they're not measuring arithmetic precision — they're
-measuring CIC integrator drift on the DC component of the
-post-mixer signal. `fixpnt` wins by ~100 dB because it provides the
-two's-complement wrap that the CIC algorithm structurally requires.
-The [end-to-end demo](./demo/) walks through this measurement and
-the CIC reference covers the underlying math.
+The three 32-bit floating-point rows clustering at ~54 dB look
+surprisingly low until you realize they're not measuring arithmetic
+precision — they're measuring CIC integrator drift on the DC
+component of the post-mixer signal. `fixpnt` wins by ~100 dB because
+it provides the two's-complement wrap that the CIC algorithm
+structurally requires. The [end-to-end demo](./demo/) walks through
+this measurement and the CIC reference covers the underlying math.
+
+A separate, narrower regression test in
+[`tests/test_acquisition_precision.cpp`](https://github.com/stillwater-sc/mixed-precision-dsp/blob/main/tests/test_acquisition_precision.cpp)
+measures `posit<32,2>` at ~98 dB on a 3-stage CIC → half-band →
+polyphase chain with no DC bias in the input — illustrating that the
+54 dB demo number is specific to the IF-receiver workload, not a
+hard ceiling on `posit<32,2>` in this kind of chain.
 
 ## See also
 
