@@ -57,6 +57,10 @@ export default defineConfig({
           autogenerate: { directory: 'acquisition' },
         },
         {
+          label: 'Analysis',
+          autogenerate: { directory: 'analysis' },
+        },
+        {
           label: 'State Estimation',
           autogenerate: { directory: 'estimation' },
         },

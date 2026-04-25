@@ -198,3 +198,35 @@ Window coefficients are typically computed once and reused. Because the
 cosine sums involve subtractions of nearly equal values, computing them
 in `double` or a high-precision posit avoids coefficient errors that
 would raise the effective side lobe floor.
+
+### T-Parameterized Computation
+
+Every window function template runs its **intermediate math in the
+caller's scalar type `T`**, not in `double` cast to `T` at the end.
+Constants (`a0`, `a1`, etc.) are built from constructors of `T`; trig
+calls dispatch via ADL, so `sw::universal::cos` is selected for posit
+and `std::cos` for native float/double.
+
+That means an embedded target without hardware double can compute
+window coefficients on-target at posit/cfloat/fixpnt precision,
+including the more elaborate windows:
+
+- **Kaiser** uses a `bessel_I0<T>` template — the modified-Bessel
+  series runs in `T`, not `double`.
+- **Dolph-Chebyshev** uses a Chebyshev-polynomial recurrence in `T`
+  for $|x| \le 1$ and the `cosh(n \cdot acosh(|x|))` form for
+  $|x| > 1$ (also in `T`, via ADL `cosh` / `acosh`).
+
+The library's regression tests measure agreement against a `double`
+reference at `posit<32, 2>`:
+
+| Window | Max diff vs double |
+|---|---|
+| Hamming | 3.2e-8 |
+| Kaiser ($\beta = 8.6$) | 8.0e-8 |
+| Gaussian ($\sigma = 0.4$) | 2.9e-9 |
+| Dolph-Chebyshev (80 dB) | 4.8e-6 |
+
+All within posit<32,2> ULP at unit magnitude. Dolph-Chebyshev's
+larger residual reflects the $O(N^2)$ IDFT accumulation in its
+construction.
