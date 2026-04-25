@@ -122,8 +122,8 @@ run_ddc_pipeline(const mtl::vec::dense_vector<double>& adc_in_double) {
 		0.45 / static_cast<double>(params::kDecimation),
 		win);
 	mtl::vec::dense_vector<CoeffScalar> taps(taps_d.size());
-	for (std::size_t i = 0; i < taps_d.size(); ++i)
-		taps[i] = static_cast<CoeffScalar>(taps_d[i]);
+	std::transform(taps_d.begin(), taps_d.end(), taps.begin(),
+	               [](double d) { return static_cast<CoeffScalar>(d); });
 
 	PolyphaseDecimator<CoeffScalar, StateScalar, SampleScalar> decim(
 		taps, params::kDecimation);
@@ -137,17 +137,19 @@ run_ddc_pipeline(const mtl::vec::dense_vector<double>& adc_in_double) {
 
 	// Project ADC samples into SampleScalar for streaming.
 	mtl::vec::dense_vector<SampleScalar> adc_in(adc_in_double.size());
-	for (std::size_t i = 0; i < adc_in_double.size(); ++i)
-		adc_in[i] = static_cast<SampleScalar>(adc_in_double[i]);
+	std::transform(adc_in_double.begin(), adc_in_double.end(), adc_in.begin(),
+	               [](double d) { return static_cast<SampleScalar>(d); });
 
 	auto out = ddc.process_block(adc_in);
 
 	// Cast back to double for cross-precision comparison.
 	std::vector<std::complex<double>> out_d(out.size());
-	for (std::size_t i = 0; i < out.size(); ++i) {
-		out_d[i] = std::complex<double>(static_cast<double>(out[i].real()),
-		                                 static_cast<double>(out[i].imag()));
-	}
+	std::transform(out.begin(), out.end(), out_d.begin(),
+	               [](const auto& z) {
+	                   return std::complex<double>(
+	                       static_cast<double>(z.real()),
+	                       static_cast<double>(z.imag()));
+	               });
 	return out_d;
 }
 
