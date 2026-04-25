@@ -129,6 +129,22 @@ void test_nco_sfdr_zero_size_throws() {
 	std::cout << "  nco_sfdr_zero_size_throws: passed\n";
 }
 
+void test_nco_sfdr_low_bin_circular_guard() {
+	// Tone at bin 1 — wrap-adjacent bin N-1 must be excluded by the
+	// circular guard. With the previous linear-distance code, bin N-1
+	// would slip through and the SFDR floor would collapse.
+	const std::size_t N = 4096;
+	const double fs = static_cast<double>(N);
+	const double f_tone = 1.0;  // exactly bin 1
+	NCO<double> nco(f_tone, fs);
+	double sfdr = measure_nco_sfdr_db(nco, N, /*guard_bins=*/2);
+	if (!(sfdr > 80.0))
+		throw std::runtime_error("test failed: low-bin SFDR = " +
+			std::to_string(sfdr) +
+			" dB (expected > 80; circular guard not working?)");
+	std::cout << "  nco_sfdr_low_bin_circular_guard: " << sfdr << " dB, passed\n";
+}
+
 void test_nco_sfdr_posit() {
 	using posit_t = sw::universal::posit<32, 2>;
 	const std::size_t N = 4096;
@@ -348,6 +364,7 @@ int main() {
 		test_snr_size_mismatch_throws();
 		test_nco_sfdr_double();
 		test_nco_sfdr_zero_size_throws();
+		test_nco_sfdr_low_bin_circular_guard();
 		test_nco_sfdr_posit();
 		test_cic_bit_growth_dc();
 		test_per_stage_noise_via_snr();

@@ -134,10 +134,13 @@ double measure_nco_sfdr_db(NCO& nco, std::size_t fft_size,
 	if (peak_mag <= 0.0)
 		throw std::runtime_error("measure_nco_sfdr_db: signal has zero magnitude");
 
-	// Max spur outside guard around peak.
+	// Max spur outside guard around peak. Use circular bin distance so
+	// peaks near bin 1 or N-1 don't treat their wrap-adjacent neighbours
+	// as far-away spurs.
 	double spur_mag = 0.0;
 	for (std::size_t k = 1; k < N; ++k) {
-		const std::size_t dist = (k > peak_bin) ? (k - peak_bin) : (peak_bin - k);
+		const std::size_t diff = (k > peak_bin) ? (k - peak_bin) : (peak_bin - k);
+		const std::size_t dist = std::min(diff, N - diff);
 		if (dist <= guard_bins) continue;
 		const double m = std::abs(data[k]);
 		if (m > spur_mag) spur_mag = m;
