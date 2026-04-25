@@ -59,7 +59,7 @@ acquisition chain.
 | [DDC](./ddc/) | `ddc.hpp` | NCO + complex mixer + first decimator (channel selection) |
 | [CIC Decimator](./cic/) | `cic.hpp` | Multiplier-free bulk rate reduction at the highest sample rate |
 | [Half-Band Filter](./halfband/) | `halfband.hpp` | Sharp ↓2 stage with ~75% zero taps |
-| [Polyphase Decimator](./polyphase-decimator/) | `polyphase_decimator.hpp` | Final channel-shaping FIR decimation |
+| [Polyphase Decimator](./polyphase-decimator/) | `polyphase_decimator.hpp` *(re-exports `filter/fir/polyphase.hpp`)* | Final channel-shaping FIR decimation |
 | [Decimation Chain](./decimation-chain/) | `decimation_chain.hpp` | Variadic-tuple multistage composition |
 | [End-to-End Demo](./demo/) | `applications/acquisition_demo` | Full receiver, sweep across number systems |
 
@@ -187,8 +187,10 @@ on receiver-chain sweeps.
 The end-to-end demo
 ([`applications/acquisition_demo/acquisition_demo.cpp`](https://github.com/stillwater-sc/mixed-precision-dsp/blob/main/applications/acquisition_demo/acquisition_demo.cpp))
 measures these SNR floors for a 16-bit ADC at 1 MHz feeding the full
-DDC + CIC↓2 → half-band ↓2 → polyphase ↓2 chain (total ↓16). Run the
-binary at any commit to reproduce them:
+DDC + CIC↓2 → half-band ↓2 → polyphase ↓2 chain (total ↓16). The
+numbers below were captured against current `main`; reproduce by
+running the binary at this revision (or pin a specific commit in your
+own copy) — implementation changes can shift the values:
 
 | Pipeline scalar (uniform) | Measured SNR | Measured ENOB |
 |---|---|---|
@@ -196,13 +198,13 @@ binary at any commit to reproduce them:
 | `float` (IEEE) | ~54 dB | ~9 |
 | `posit<32, 2>` | ~54 dB | ~9 |
 | `cfloat<32, 8>` | ~54 dB | ~9 |
-| `fixpnt<32, 28>` (Q4.28) | ~153 dB | ~25 |
+| `fixpnt<32, 28>` (Q4.28) | ~93 dB | ~15 |
 | `posit<16, 2>` | -30 dB (collapse) | — |
 
 The three 32-bit floating-point rows clustering at ~54 dB look
 surprisingly low until you realize they're not measuring arithmetic
 precision — they're measuring CIC integrator drift on the DC
-component of the post-mixer signal. `fixpnt` wins by ~100 dB because
+component of the post-mixer signal. `fixpnt` wins by ~40 dB because
 it provides the two's-complement wrap that the CIC algorithm
 structurally requires. The [end-to-end demo](./demo/) walks through
 this measurement and the CIC reference covers the underlying math.
