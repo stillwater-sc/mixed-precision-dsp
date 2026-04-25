@@ -99,3 +99,6 @@ dsp_add_test(test_ddc)
 
 # Multi-stage decimation chain (Issue #90)
 dsp_add_test(test_decimation_chain)
+
+# Acquisition pipeline precision analysis (Issue #92)
+dsp_add_test(test_acquisition_precision)
