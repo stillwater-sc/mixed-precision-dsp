@@ -3,6 +3,8 @@ title: CIC Filters
 description: Cascaded Integrator-Comb decimation and interpolation filters for high-rate data acquisition
 ---
 
+*Part of the [Multirate Signal Processing](../multirate/overview/) section — see the overview for the broader theory and the [pattern catalog](../multirate/patterns/) for problem→API mapping.*
+
 ## History and Motivation
 
 The Cascaded Integrator-Comb (CIC) filter was introduced by Eugene Hogenauer

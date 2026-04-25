@@ -3,6 +3,8 @@ title: Polyphase Decimator
 description: Efficient FIR-based decimation through polyphase decomposition for high-rate acquisition pipelines
 ---
 
+*Part of the [Multirate Signal Processing](../multirate/overview/) section — see the overview for the broader theory and the [pattern catalog](../multirate/patterns/) for problem→API mapping.*
+
 ## What and Why
 
 A polyphase decimator implements **decimation by M** with an N-tap FIR

@@ -224,6 +224,11 @@ hard ceiling on `posit<32,2>` in this kind of chain.
 
 ## See also
 
+- [Multirate Signal Processing Overview](../../multirate/overview/) —
+  the broader multirate theory (Noble identity, polyphase
+  decomposition theorem) and the pattern catalog mapping multirate
+  problems to library APIs. The SDR primitives in this module are
+  the receiver-specific specialization of those general patterns.
 - [Filter Design Overview](../../filter/overview/) — the three-scalar
   model and FIR/IIR pipelines this module builds on
 - [DFT and FFT](../../spectral/dft-fft/) — what you typically run
