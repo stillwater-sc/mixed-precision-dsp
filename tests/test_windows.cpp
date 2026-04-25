@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 #include <universal/number/posit/posit.hpp>
@@ -334,6 +335,16 @@ void test_windows_in_posit_precision() {
 	try { dolph_chebyshev_window<double>(N, 0.0); }
 	catch (const std::invalid_argument&) { threw = true; }
 	if (!threw) throw std::runtime_error("test failed: zero atten should throw");
+
+	threw = false;
+	try { dolph_chebyshev_window<double>(N, std::numeric_limits<double>::quiet_NaN()); }
+	catch (const std::invalid_argument&) { threw = true; }
+	if (!threw) throw std::runtime_error("test failed: NaN atten should throw");
+
+	threw = false;
+	try { dolph_chebyshev_window<double>(N, std::numeric_limits<double>::infinity()); }
+	catch (const std::invalid_argument&) { threw = true; }
+	if (!threw) throw std::runtime_error("test failed: inf atten should throw");
 
 	std::cout << "  windows_in_posit_precision: hamming=" << ham_diff
 	          << " kaiser=" << kai_diff
