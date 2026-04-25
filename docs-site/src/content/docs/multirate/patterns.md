@@ -19,7 +19,7 @@ see the [Multirate Overview](./overview/).
 | [Bulk rate reduction at high rate](#bulk-rate-reduction-cic) | First-stage decimation after a GHz ADC | `CICDecimator` | `acquisition/cic.hpp` |
 | [IF → baseband](#if-to-baseband-ddc) | Pull a band of interest down to 0 Hz | `DDC` | `acquisition/ddc.hpp` |
 | [Multi-stage decimation cascade](#multi-stage-cascade) | CIC → HB → polyphase chain | `DecimationChain` | `acquisition/decimation_chain.hpp` |
-| [Channelizer (M-channel filter bank)](#channelizer) | Split a wideband signal into channels | **gap** — compose from `PolyphaseDecimator` + FFT | `filter/fir/polyphase.hpp` + `spectral/dft.hpp` |
+| [Channelizer (M-channel filter bank)](#channelizer) | Split a wideband signal into channels | **gap** — compose from `PolyphaseDecimator` + FFT | `filter/fir/polyphase.hpp` + `spectral/fft.hpp` |
 
 Every row except the last has a first-class library API. The
 channelizer is a documented composition gap — see that section for
@@ -252,10 +252,14 @@ using Chain = DecimationChain<double,
     HalfBandFilter<double, double, double>,
     PolyphaseDecimator<double, double, double>>;
 
+// Half-band taps must be designed first; see the "Sharp 2:1
+// decimation" section above for design_halfband details.
+auto hb_taps = design_halfband<double>(31, 0.05);
+
 Chain chain(/*sample_rate=*/100e6,
-            CICDecimator<...>(64, 4),
-            HalfBandFilter<...>(31),
-            PolyphaseDecimator<...>(taps, 2));
+            CICDecimator<int64_t, int32_t>(64, 4),
+            HalfBandFilter<double, double, double>(hb_taps),
+            PolyphaseDecimator<double, double, double>(taps, 2));
 
 auto output = chain.process_block(adc_samples);
 ```
