@@ -45,6 +45,8 @@ per input sample.
 
 ```cpp
 #include <sw/dsp/filter/fir/polyphase.hpp>
+#include <sw/dsp/filter/fir/fir_design.hpp>
+#include <sw/dsp/windows/hamming.hpp>
 using namespace sw::dsp;
 
 // Design an anti-alias lowpass for ↓4 (cutoff just below fs/8)
@@ -225,9 +227,19 @@ the complex baseband for demodulation.
 
 ```cpp
 #include <sw/dsp/acquisition/ddc.hpp>
+#include <sw/dsp/filter/fir/polyphase.hpp>
+#include <sw/dsp/filter/fir/fir_design.hpp>
+#include <sw/dsp/windows/hamming.hpp>
+using namespace sw::dsp;
+
+// Anti-alias / channel-shaping FIR for the embedded polyphase decimator
+auto win  = hamming_window<double>(32);
+auto taps = design_fir_lowpass<double>(32, 0.2, win);
+PolyphaseDecimator<double, double, double> decim(taps, 2);
 
 DDC<double, double, double, PolyphaseDecimator<double, double, double>>
     ddc(/*center_frequency=*/0.1, /*sample_rate=*/1.0, decim);
+mtl::vec::dense_vector<double> real_input = ...;   // length-N ADC stream
 auto iq_baseband = ddc.process_block(real_input);
 ```
 
