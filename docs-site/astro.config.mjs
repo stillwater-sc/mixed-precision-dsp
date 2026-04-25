@@ -53,7 +53,7 @@ export default defineConfig({
           autogenerate: { directory: 'filter' },
         },
         {
-          label: 'Data Acquisition',
+          label: 'Software-Defined Radio',
           autogenerate: { directory: 'acquisition' },
         },
         {
