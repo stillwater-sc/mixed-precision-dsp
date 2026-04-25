@@ -26,6 +26,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <stdexcept>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
@@ -80,6 +81,13 @@ mtl::vec::dense_vector<T> dolph_chebyshev_window(std::size_t length,
 			"dolph_chebyshev_window: attenuation_db must be > 0");
 	mtl::vec::dense_vector<T> w(length);
 	if (length <= 1) { if (length == 1) w[0] = T(1); return w; }
+	// length flows through int N (used as the order argument to
+	// chebyshev_poly and as a loop bound). Guard the narrowing cast so
+	// pathologically large inputs fail loudly instead of silently
+	// overflowing N and corrupting allocations.
+	if (length > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+		throw std::invalid_argument(
+			"dolph_chebyshev_window: length exceeds INT_MAX");
 
 	const int N = static_cast<int>(length);
 	const int order = N - 1;

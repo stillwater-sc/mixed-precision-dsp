@@ -324,11 +324,16 @@ void test_windows_in_posit_precision() {
 		throw std::runtime_error("test failed: dolph_chebyshev posit peak = " +
 			std::to_string(dc_max_abs) + " (expected 1.0)");
 
-	// Negative attenuation must throw
+	// Contract: attenuation_db must be > 0. Both negative and zero must throw.
 	bool threw = false;
 	try { dolph_chebyshev_window<double>(N, -10.0); }
 	catch (const std::invalid_argument&) { threw = true; }
 	if (!threw) throw std::runtime_error("test failed: negative atten should throw");
+
+	threw = false;
+	try { dolph_chebyshev_window<double>(N, 0.0); }
+	catch (const std::invalid_argument&) { threw = true; }
+	if (!threw) throw std::runtime_error("test failed: zero atten should throw");
 
 	std::cout << "  windows_in_posit_precision: hamming=" << ham_diff
 	          << " kaiser=" << kai_diff
