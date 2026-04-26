@@ -102,3 +102,6 @@ dsp_add_test(test_decimation_chain)
 
 # Acquisition pipeline precision analysis (Issue #92)
 dsp_add_test(test_acquisition_precision)
+
+# Instrument trigger primitives (Issue #140)
+dsp_add_test(test_instrument_trigger)
