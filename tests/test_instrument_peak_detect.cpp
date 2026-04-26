@@ -4,10 +4,10 @@
 // Coverage:
 //   - Streaming API: emits std::nullopt while accumulating, pair on
 //     window completion
-//   - Block API: returns floor(N/R) outputs; partial trailing window
-//     correctly dropped
-//   - Edge cases: R=1 (passthrough), R > N (no outputs), reset() clears
-//     window state
+//   - Block API: returns floor((count_ + N) / R) outputs and retains
+//     any incomplete trailing samples in count_ for subsequent calls
+//   - Edge cases: R=1 (passthrough), R > N (no outputs, samples held
+//     in count_), reset() clears window state
 //   - **Glitch survival**: a 50 MHz square wave with a 5-sample-wide
 //     narrow positive glitch buried in it. The glitch's peak amplitude
 //     must show up in the max stream at every decimation factor we test
@@ -20,12 +20,12 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 #include <sw/dsp/instrument/peak_detect.hpp>
 
@@ -99,7 +99,7 @@ void test_constructor_zero_throws() {
 // ============================================================================
 
 void test_block_basic() {
-	std::vector<int> in = {3, 7, 1, 5, 10, 2, 9, 8};
+	std::array<int, 8> in = {3, 7, 1, 5, 10, 2, 9, 8};
 	PeakDetectDecimator<int> d(4);
 	auto env = d.process_block(std::span<const int>(in.data(), in.size()));
 	REQUIRE(env.mins.size() == 2);
@@ -111,20 +111,30 @@ void test_block_basic() {
 	std::cout << "  block_basic: passed\n";
 }
 
-void test_block_drops_partial_trailing_window() {
-	std::vector<int> in = {1, 2, 3, 4, 5, 6, 7};   // 7 samples, R=4 → 1 output
+void test_block_retains_partial_trailing_window_in_state() {
+	// 7 samples, R=4 → only one complete window; the trailing 3 samples
+	// (5,6,7) form a partial window that is NOT dropped — they're held
+	// in count_ for the next process() / process_block() call.
+	std::array<int, 7> in = {1, 2, 3, 4, 5, 6, 7};
 	PeakDetectDecimator<int> d(4);
 	auto env = d.process_block(std::span<const int>(in.data(), in.size()));
 	REQUIRE(env.mins.size() == 1);
 	REQUIRE(env.mins[0] == 1);
 	REQUIRE(env.maxs[0] == 4);
-	// The trailing 3 samples (5,6,7) are dropped — they form a partial window.
-	std::cout << "  block_drops_partial_trailing_window: passed\n";
+	// The trailing 3 samples (5,6,7) are retained in state, NOT dropped.
+	REQUIRE(d.samples_in_window() == 3);
+	// Push one more sample; it should complete the partial window using
+	// 5,6,7 from the prior call.
+	auto p = d.process(8);
+	REQUIRE(p.has_value());
+	REQUIRE(p->first  == 5);
+	REQUIRE(p->second == 8);
+	std::cout << "  block_retains_partial_trailing_window_in_state: passed\n";
 }
 
 void test_block_input_smaller_than_factor() {
 	// Input length 3, R=4 — no complete window, zero outputs.
-	std::vector<int> in = {1, 2, 3};
+	std::array<int, 3> in = {1, 2, 3};
 	PeakDetectDecimator<int> d(4);
 	auto env = d.process_block(std::span<const int>(in.data(), in.size()));
 	REQUIRE(env.mins.size() == 0);
@@ -135,7 +145,7 @@ void test_block_input_smaller_than_factor() {
 void test_separate_min_max_block_apis() {
 	// process_block_min / process_block_max should agree with
 	// the unified process_block.
-	std::vector<int> in = {3, 7, 1, 5, 10, 2, 9, 8};
+	std::array<int, 8> in = {3, 7, 1, 5, 10, 2, 9, 8};
 	PeakDetectDecimator<int> d_a(4);
 	auto mins = d_a.process_block_min(std::span<const int>(in.data(), in.size()));
 	PeakDetectDecimator<int> d_b(4);
@@ -159,7 +169,7 @@ void test_block_after_partial_streaming_window() {
 	//
 	// Three parallel test bodies — one per block API — to lock down all
 	// three state-aware-alloc paths.
-	std::vector<int> in = {40, 1, 2, 3, 4};
+	std::array<int, 5> in = {40, 1, 2, 3, 4};
 
 	// process_block (returns both)
 	{
@@ -238,12 +248,13 @@ void test_reset_drops_partial_window() {
 // glitch out at sufficient decimation; peak-detect MUST preserve it.
 // ============================================================================
 
-std::vector<float> make_square_wave_with_glitch() {
-	const std::size_t N = 4096;        // total samples
-	std::vector<float> stream(N, 0.0f);
+constexpr std::size_t kGlitchStreamSize = 4096;
+
+std::array<float, kGlitchStreamSize> make_square_wave_with_glitch() {
+	std::array<float, kGlitchStreamSize> stream{};
 
 	// 50 MHz square wave at fs=1 GSPS = 20 samples per period
-	for (std::size_t n = 0; n < N; ++n) {
+	for (std::size_t n = 0; n < kGlitchStreamSize; ++n) {
 		stream[n] = ((n / 10) % 2 == 0) ? 1.0f : -1.0f;
 	}
 	// 5-sample-wide positive glitch buried in a LOW phase (e.g., samples
@@ -299,7 +310,7 @@ int main() {
 		test_constructor_zero_throws();
 
 		test_block_basic();
-		test_block_drops_partial_trailing_window();
+		test_block_retains_partial_trailing_window_in_state();
 		test_block_input_smaller_than_factor();
 		test_separate_min_max_block_apis();
 		test_block_after_partial_streaming_window();
