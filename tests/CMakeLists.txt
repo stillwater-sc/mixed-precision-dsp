@@ -116,3 +116,6 @@ target_compile_definitions(test_instrument_calibration PRIVATE
 
 # Instrument peak-detect (min/max) decimation (Issue #146)
 dsp_add_test(test_instrument_peak_detect)
+
+# Instrument display-rate envelope (Issue #149)
+dsp_add_test(test_instrument_display_envelope)
