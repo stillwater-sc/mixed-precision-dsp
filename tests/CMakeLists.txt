@@ -105,3 +105,6 @@ dsp_add_test(test_acquisition_precision)
 
 # Instrument trigger primitives (Issue #140)
 dsp_add_test(test_instrument_trigger)
+
+# Instrument trigger ring buffer + segmented capture (Issue #141)
+dsp_add_test(test_instrument_ring_buffer)
