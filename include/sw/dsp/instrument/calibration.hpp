@@ -7,7 +7,7 @@
 // imprint a non-flat magnitude/phase response onto the captured signal.
 // This header provides:
 //
-//   CalibrationProfile<CoeffScalar>
+//   CalibrationProfile (not templated)
 //     Stores a measured frequency-response correction as tabulated
 //     (frequency, gain_dB, phase_rad) triples. Linear interpolation between
 //     tabulated points; clamps to endpoints outside the calibrated band.
@@ -236,7 +236,7 @@ public:
 		fir_.process_block(input, output);
 	}
 
-	std::size_t num_taps() const { return fir_.order() + 1; }
+	std::size_t num_taps() const { return fir_.num_taps(); }
 
 private:
 	static mtl::vec::dense_vector<CoeffScalar>

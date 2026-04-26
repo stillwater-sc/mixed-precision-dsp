@@ -213,13 +213,15 @@ void test_eq_clamps_inverse_at_deep_null() {
 	                                            /*max_gain_dB=*/20.0);
 
 	// Stream a unit-amplitude tone away from the null. Output should not
-	// be wildly larger than the input.
-	const double pi = std::numbers::pi_v<double>;
+	// be wildly larger than the input. Skip the FIR's transient (one
+	// num_taps span) so we measure steady-state amplitude.
+	const double      pi   = std::numbers::pi_v<double>;
+	const std::size_t skip = eq.num_taps();
 	double max_out = 0.0;
 	for (std::size_t n = 0; n < 1024; ++n) {
 		const double x = std::cos(2.0 * pi * 5.0e4 * n / 1e6);
 		const double y = eq.process(x);
-		if (n > 65 && std::abs(y) > max_out) max_out = std::abs(y);
+		if (n > skip && std::abs(y) > max_out) max_out = std::abs(y);
 	}
 	// With max_gain_dB=20, the equalizer's response near the null is
 	// bounded by 10× input. Including FIR ripple and overshoot, allow up
