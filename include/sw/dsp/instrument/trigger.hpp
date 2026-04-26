@@ -434,9 +434,20 @@ private:
 //            clock is high".)
 //   BnotA  — symmetric.
 //
-// `window_samples` is the maximum age (in samples) at which a prior fire of
-// the OTHER channel is still considered "recent". Default 1 — a same-sample
-// AandB requires window=0; the default 1 admits one-sample-apart pairs.
+// `window_samples` is the maximum allowed age (in samples) of a prior
+// fire on the OTHER channel for it to count as "recent". The check is
+// inclusive: `since_other <= window_samples` means "still recent."
+//
+//   window_samples = 0 → only same-sample (both fires must land on the
+//                         same `process()` call, since=0 for both)
+//   window_samples = 1 (default) → admits same-sample AND one-sample-apart
+//   window_samples = N → admits ages 0..N inclusive
+//
+// `window_samples == std::numeric_limits<std::size_t>::max()` is rejected
+// because it collides with the internal "never fired" sentinel (would
+// cause AandB/AnotB/etc. to fire spuriously before any inner trigger has
+// fired). Callers wanting an effectively-unlimited window should use
+// `max() - 1` instead.
 //
 // Sample synchronization: this wrapper assumes channels A and B are sample-
 // aligned (same rate, same time origin). Sub-sample alignment between
@@ -472,7 +483,17 @@ public:
 		  mode_(mode),
 		  window_(window_samples),
 		  since_a_(kInf),
-		  since_b_(kInf) {}
+		  since_b_(kInf) {
+		// kInf is the internal "never fired" sentinel. If a caller passes
+		// kInf as window_samples, the `since_X <= window_` checks become
+		// trivially true even for the sentinel and AandB/AnotB/etc. would
+		// fire before any inner trigger has fired. Reject explicitly.
+		if (window_samples == kInf)
+			throw std::invalid_argument(
+				"CrossChannelTrigger: window_samples must be < "
+				"std::numeric_limits<std::size_t>::max() "
+				"(use max() - 1 for an effectively-unlimited window)");
+	}
 
 	bool process(sample_a xa, sample_b xb) {
 		// Increment age counters BEFORE running inner triggers, so a fire

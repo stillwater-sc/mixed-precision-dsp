@@ -18,6 +18,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -602,6 +603,43 @@ void test_cct_bnota_mirror() {
 	std::cout << "  cct_bnota_mirror: passed\n";
 }
 
+void test_cct_window_kinf_throws() {
+	// window_samples == kInf collides with the "never fired" sentinel; the
+	// constructor must reject it.
+	bool threw = false;
+	try {
+		CrossChannelTrigger<TA, TB> q(
+			TA(0.5, Slope::Rising), TB(0.5, Slope::Rising),
+			CrossChannelMode::AandB,
+			std::numeric_limits<std::size_t>::max());
+	} catch (const std::invalid_argument&) { threw = true; }
+	REQUIRE(threw);
+	std::cout << "  cct_window_kinf_throws: passed\n";
+}
+
+void test_cct_mixed_scalar_types() {
+	// Smoke test: heterogeneous inner-trigger scalar types. The wrapper
+	// should accept TrigA::sample_scalar = float and
+	// TrigB::sample_scalar = posit<16,2> with no coupling between the
+	// two channels.
+	using TAH = EdgeTrigger<float>;
+	using TBH = EdgeTrigger<sw::universal::posit<16, 2>>;
+	using P16 = sw::universal::posit<16, 2>;
+
+	CrossChannelTrigger<TAH, TBH> q(
+		TAH(0.5f, Slope::Rising),
+		TBH(P16(0.5), Slope::Rising),
+		CrossChannelMode::AorB);
+
+	// Prime both inner triggers to "below" state via a fully-typed call.
+	(void)q.process(0.0f, P16(0.0));
+	// A up-cross via float; B stays at zero.
+	REQUIRE(q.process(0.7f, P16(0.0)));
+	// B up-cross via posit; A back to zero.
+	REQUIRE(q.process(0.0f, P16(0.7)));
+	std::cout << "  cct_mixed_scalar_types: passed\n";
+}
+
 void test_cct_reset() {
 	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
 	                               TB(0.5, Slope::Rising),
@@ -723,6 +761,8 @@ int main() {
 		test_cct_anotb_a_within_window_of_b_suppressed();
 		test_cct_anotb_a_outside_window_of_b_fires();
 		test_cct_bnota_mirror();
+		test_cct_window_kinf_throws();
+		test_cct_mixed_scalar_types();
 		test_cct_reset();
 		test_precision_sweep_minimum_detectable();
 
