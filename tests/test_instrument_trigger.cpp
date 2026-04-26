@@ -380,6 +380,22 @@ void test_qualifier_and_outside_window() {
 	std::cout << "  qualifier_and_outside_window: passed\n";
 }
 
+void test_qualifier_and_window_kinf_throws() {
+	// window_samples == kInf collides with the "never fired" sentinel —
+	// would fire AandB before either inner trigger fires. Same guard
+	// pattern as CrossChannelTrigger; same regression test.
+	using TA = EdgeTrigger<double>;
+	using TB = EdgeTrigger<double>;
+	bool threw = false;
+	try {
+		QualifierAnd<TA, TB> q(TA(0.5, Slope::Rising),
+		                       TB(0.5, Slope::Rising),
+		                       std::numeric_limits<std::size_t>::max());
+	} catch (const std::invalid_argument&) { threw = true; }
+	REQUIRE(threw);
+	std::cout << "  qualifier_and_window_kinf_throws: passed\n";
+}
+
 // ============================================================================
 // QualifierOr
 // ============================================================================
@@ -745,6 +761,7 @@ int main() {
 		test_qualifier_and_coincidence();
 		test_qualifier_and_within_window();
 		test_qualifier_and_outside_window();
+		test_qualifier_and_window_kinf_throws();
 		test_qualifier_or();
 		test_cct_only_a();
 		test_cct_only_b();

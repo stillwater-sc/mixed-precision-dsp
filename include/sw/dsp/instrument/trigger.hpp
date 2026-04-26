@@ -349,7 +349,17 @@ public:
 		  b_(std::move(b)),
 		  window_(window_samples),
 		  since_a_(kInf),
-		  since_b_(kInf) {}
+		  since_b_(kInf) {
+		// kInf is the internal "never fired" sentinel. window_samples ==
+		// kInf would make `since_X <= window_` trivially true for the
+		// sentinel, firing AandB before either inner trigger has fired.
+		// Reject explicitly. Same guard pattern as CrossChannelTrigger.
+		if (window_samples == kInf)
+			throw std::invalid_argument(
+				"QualifierAnd: window_samples must be < "
+				"std::numeric_limits<std::size_t>::max() "
+				"(use max() - 1 for an effectively-unlimited window)");
+	}
 
 	bool process(sample_a xa, sample_b xb) {
 		if (since_a_ != kInf && since_a_ < kInf - 1) ++since_a_;
