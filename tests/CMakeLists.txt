@@ -108,3 +108,8 @@ dsp_add_test(test_instrument_trigger)
 
 # Instrument trigger ring buffer + segmented capture (Issue #141)
 dsp_add_test(test_instrument_ring_buffer)
+
+# Instrument calibration / equalization (Issue #142)
+dsp_add_test(test_instrument_calibration)
+target_compile_definitions(test_instrument_calibration PRIVATE
+	TESTS_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")
