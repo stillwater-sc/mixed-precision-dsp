@@ -14,10 +14,11 @@
 // SPDX-License-Identifier: MIT
 
 #include <array>
+#include <initializer_list>
 #include <iostream>
+#include <span>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 #include <sw/dsp/instrument/ring_buffer.hpp>
 #include <sw/dsp/instrument/trigger.hpp>
@@ -33,22 +34,26 @@ using namespace sw::dsp::instrument;
 // Helpers
 // ============================================================================
 
-// Compare a captured span to an expected vector.
+// Compare a captured span to an expected sequence. Takes the expected
+// sequence as a std::initializer_list so brace-init call sites stay
+// concise without forcing std::vector heap allocations.
 template <class T>
 void require_segment_equals(std::span<const T> got,
-                            const std::vector<T>& expected,
+                            std::initializer_list<T> expected,
                             const char* tag) {
 	if (got.size() != expected.size())
 		throw std::runtime_error(std::string(tag) +
 			": segment size mismatch, got=" +
 			std::to_string(got.size()) + " want=" +
 			std::to_string(expected.size()));
-	for (std::size_t i = 0; i < expected.size(); ++i) {
-		if (got[i] != expected[i])
+	std::size_t i = 0;
+	for (const T& want : expected) {
+		if (got[i] != want)
 			throw std::runtime_error(std::string(tag) +
 				": segment[" + std::to_string(i) + "] = " +
 				std::to_string(got[i]) + " want " +
-				std::to_string(expected[i]));
+				std::to_string(want));
+		++i;
 	}
 }
 
