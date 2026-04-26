@@ -241,6 +241,85 @@ void test_holdoff_drives_inner() {
 }
 
 // ============================================================================
+// AutoTriggerWrapper
+// ============================================================================
+
+void test_auto_trigger_real_preempts_auto() {
+	// A real inner-trigger fire BEFORE the timeout expires should fire
+	// the wrapper and reset the timer. After the real fire, the timeout
+	// counter starts from zero.
+	using Inner = EdgeTrigger<double>;
+	AutoTriggerWrapper<Inner> t(Inner(/*level=*/0.5, Slope::Rising),
+	                             /*timeout=*/100);
+
+	REQUIRE(!t.process(0.0));   // below — counter=1
+	REQUIRE(t.process(0.7));    // up-cross — real fire, counter resets to 0
+	REQUIRE(!t.process(0.0));   // counter=1
+	REQUIRE(!t.process(0.0));   // counter=2
+	REQUIRE(t.samples_since_trigger() == 2);
+	std::cout << "  auto_trigger_real_preempts_auto: passed\n";
+}
+
+void test_auto_trigger_force_fires_after_timeout() {
+	// On a flat signal that never crosses the threshold, the wrapper
+	// should force-fire exactly at the configured timeout.
+	using Inner = EdgeTrigger<double>;
+	AutoTriggerWrapper<Inner> t(Inner(/*level=*/0.5, Slope::Rising),
+	                             /*timeout=*/5);
+
+	// First 4 samples: no real fire, no auto-fire yet (since_fire_ < timeout)
+	REQUIRE(!t.process(0.0));   // 1
+	REQUIRE(!t.process(0.0));   // 2
+	REQUIRE(!t.process(0.0));   // 3
+	REQUIRE(!t.process(0.0));   // 4
+	// 5th sample: timeout reached, force auto-fire
+	REQUIRE(t.process(0.0));
+	// Counter resets after auto-fire — next 4 samples no fire
+	REQUIRE(!t.process(0.0));
+	REQUIRE(!t.process(0.0));
+	REQUIRE(!t.process(0.0));
+	REQUIRE(!t.process(0.0));
+	// 5th sample after the previous auto-fire: another auto-fire
+	REQUIRE(t.process(0.0));
+	std::cout << "  auto_trigger_force_fires_after_timeout: passed\n";
+}
+
+void test_auto_trigger_real_fire_resets_timer() {
+	// After a real fire, the timer restarts — auto-fire shouldn't trip
+	// just because we're past the original "would-have-auto-fired" mark.
+	using Inner = EdgeTrigger<double>;
+	AutoTriggerWrapper<Inner> t(Inner(0.5, Slope::Rising), /*timeout=*/4);
+
+	// 3 below samples — counter=3
+	REQUIRE(!t.process(0.0));
+	REQUIRE(!t.process(0.0));
+	REQUIRE(!t.process(0.0));
+	// real fire on sample 4 — counter resets
+	REQUIRE(t.process(0.7));
+	// Now another 3 below samples; with timer reset, no auto-fire yet
+	REQUIRE(!t.process(0.0));
+	REQUIRE(!t.process(0.0));
+	REQUIRE(!t.process(0.0));
+	// 4th post-fire sample: auto-fire (counter hits timeout=4)
+	REQUIRE(t.process(0.0));
+	std::cout << "  auto_trigger_real_fire_resets_timer: passed\n";
+}
+
+void test_auto_trigger_reset() {
+	// reset() must clear the timer and reset the inner trigger.
+	using Inner = EdgeTrigger<double>;
+	AutoTriggerWrapper<Inner> t(Inner(0.5, Slope::Rising), /*timeout=*/3);
+	REQUIRE(!t.process(0.0));
+	REQUIRE(!t.process(0.0));
+	t.reset();
+	// After reset, timer is 0 — should take another full timeout to auto-fire
+	REQUIRE(!t.process(0.0));   // 1
+	REQUIRE(!t.process(0.0));   // 2
+	REQUIRE(t.process(0.0));    // 3 — first auto-fire post-reset
+	std::cout << "  auto_trigger_reset: passed\n";
+}
+
+// ============================================================================
 // QualifierAnd
 // ============================================================================
 
@@ -388,6 +467,10 @@ int main() {
 		test_slope_negative_threshold_throws();
 		test_holdoff_basic();
 		test_holdoff_drives_inner();
+		test_auto_trigger_real_preempts_auto();
+		test_auto_trigger_force_fires_after_timeout();
+		test_auto_trigger_real_fire_resets_timer();
+		test_auto_trigger_reset();
 		test_qualifier_and_coincidence();
 		test_qualifier_and_within_window();
 		test_qualifier_and_outside_window();

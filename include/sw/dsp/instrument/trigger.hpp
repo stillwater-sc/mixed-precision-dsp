@@ -15,6 +15,9 @@
 //   HoldoffWrapper  — wraps any trigger and suppresses re-triggering for
 //                     N samples after a fire (the inner trigger is still
 //                     driven during the holdoff so its state stays sane)
+//   AutoTriggerWrapper — wraps any trigger and force-fires after N samples
+//                     of inactivity. A real inner fire preempts the auto-fire
+//                     and resets the timeout counter.
 //   QualifierAnd    — fires when two triggers both fire within a window
 //   QualifierOr     — fires when either of two triggers fires
 //
@@ -255,6 +258,61 @@ private:
 	std::size_t holdoff_;
 	std::size_t remaining_;
 	std::size_t samples_since_;
+};
+
+// =============================================================================
+// AutoTriggerWrapper
+//
+// Wraps any trigger primitive and force-fires after `timeout_samples` of
+// inactivity if no real fire has occurred. Without this, a scope viewing
+// a slow or absent signal would sit blank forever waiting for the trigger
+// condition; with it, the user always sees something — a recent capture,
+// even if no edge crossed the threshold.
+//
+// The inner trigger is always driven so its internal state stays sane.
+// A real fire from the inner trigger preempts any pending auto-fire and
+// resets the timeout counter; an auto-fire on timeout also resets the
+// counter, so on a flat signal auto-fires happen at regular intervals
+// (one every `timeout_samples` samples after the first one).
+// =============================================================================
+template <class Inner>
+class AutoTriggerWrapper {
+public:
+	using sample_scalar = typename Inner::sample_scalar;
+
+	AutoTriggerWrapper(Inner inner, std::size_t timeout_samples)
+		: inner_(std::move(inner)),
+		  timeout_(timeout_samples),
+		  since_fire_(0) {}
+
+	bool process(sample_scalar x) {
+		// Always drive inner so its state is current.
+		const bool real_fire = inner_.process(x);
+		++since_fire_;
+
+		if (real_fire) {
+			since_fire_ = 0;
+			return true;
+		}
+		// No real fire — has the timeout elapsed?
+		if (since_fire_ >= timeout_) {
+			since_fire_ = 0;
+			return true;   // forced auto-fire
+		}
+		return false;
+	}
+
+	std::size_t samples_since_trigger() const { return since_fire_; }
+
+	void reset() {
+		inner_.reset();
+		since_fire_ = 0;
+	}
+
+private:
+	Inner       inner_;
+	std::size_t timeout_;
+	std::size_t since_fire_;
 };
 
 // =============================================================================
