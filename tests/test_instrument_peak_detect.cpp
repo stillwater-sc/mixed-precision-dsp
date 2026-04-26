@@ -156,23 +156,49 @@ void test_block_after_partial_streaming_window() {
 	// Earlier code computed n_out = input.size() / R_ = 5/4 = 1, which
 	// would have under-allocated the output buffer and silently dropped
 	// the second output (or written out of bounds — undefined behavior).
-	PeakDetectDecimator<int> d(4);
-	(void)d.process(10);
-	(void)d.process(20);
-	(void)d.process(30);
-	REQUIRE(d.samples_in_window() == 3);
-
+	//
+	// Three parallel test bodies — one per block API — to lock down all
+	// three state-aware-alloc paths.
 	std::vector<int> in = {40, 1, 2, 3, 4};
-	auto env = d.process_block(std::span<const int>(in.data(), in.size()));
-	REQUIRE(env.mins.size() == 2);
-	REQUIRE(env.maxs.size() == 2);
-	// First completed window: {10, 20, 30, 40} -> (10, 40)
-	REQUIRE(env.mins[0] == 10);
-	REQUIRE(env.maxs[0] == 40);
-	// Second window: {1, 2, 3, 4} -> (1, 4)
-	REQUIRE(env.mins[1] == 1);
-	REQUIRE(env.maxs[1] == 4);
-	std::cout << "  block_after_partial_streaming_window: passed\n";
+
+	// process_block (returns both)
+	{
+		PeakDetectDecimator<int> d(4);
+		(void)d.process(10);
+		(void)d.process(20);
+		(void)d.process(30);
+		REQUIRE(d.samples_in_window() == 3);
+		auto env = d.process_block(std::span<const int>(in.data(), in.size()));
+		REQUIRE(env.mins.size() == 2);
+		REQUIRE(env.maxs.size() == 2);
+		REQUIRE(env.mins[0] == 10 && env.maxs[0] == 40);   // {10,20,30,40}
+		REQUIRE(env.mins[1] ==  1 && env.maxs[1] ==  4);   // {1,2,3,4}
+	}
+	// process_block_min
+	{
+		PeakDetectDecimator<int> d(4);
+		(void)d.process(10);
+		(void)d.process(20);
+		(void)d.process(30);
+		auto mins = d.process_block_min(
+			std::span<const int>(in.data(), in.size()));
+		REQUIRE(mins.size() == 2);
+		REQUIRE(mins[0] == 10);
+		REQUIRE(mins[1] ==  1);
+	}
+	// process_block_max
+	{
+		PeakDetectDecimator<int> d(4);
+		(void)d.process(10);
+		(void)d.process(20);
+		(void)d.process(30);
+		auto maxs = d.process_block_max(
+			std::span<const int>(in.data(), in.size()));
+		REQUIRE(maxs.size() == 2);
+		REQUIRE(maxs[0] == 40);
+		REQUIRE(maxs[1] ==  4);
+	}
+	std::cout << "  block_after_partial_streaming_window: passed (all 3 block APIs)\n";
 }
 
 // ============================================================================

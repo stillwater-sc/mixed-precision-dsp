@@ -39,12 +39,20 @@ namespace sw::dsp::instrument {
 // std::nullopt while accumulating a window and the (min, max) pair on the
 // sample that completes the window.
 //
-// Block APIs `process_block_min/max(input)` are convenience wrappers that
-// return separate min and max vectors of length floor(input.size() / R).
-// Any partial trailing window (input.size() % R != 0) is dropped — the
-// streaming `process()` would still be in the std::nullopt state for those
-// samples. The `process_block(input)` overload returns both vectors as a
-// PeakDetectEnvelope struct in a single call.
+// Block APIs `process_block_min/max(input)` and `process_block(input)`
+// are convenience wrappers around the streaming `process()`. They are
+// **state-aware**: the output vector length is the number of complete
+// windows this call will close given the decimator's current partial-
+// window state, i.e.
+//
+//   n_out = floor((count_ + input.size()) / R)
+//
+// where `count_` is the number of samples already pushed into the
+// current incomplete window via prior streaming calls. Any partial
+// leading or trailing window is left in `count_` for the next call;
+// streaming `process()` would return std::nullopt for those samples
+// until a full window accumulates. The `process_block(input)` overload
+// returns both vectors as a PeakDetectEnvelope struct in a single call.
 // =============================================================================
 
 template <DspScalar SampleScalar>
