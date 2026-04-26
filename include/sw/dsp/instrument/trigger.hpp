@@ -348,19 +348,29 @@ public:
 		: a_(std::move(a)),
 		  b_(std::move(b)),
 		  window_(window_samples),
-		  since_a_(kInf),
-		  since_b_(kInf) {}
+		  since_a_(kNeverFired),
+		  since_b_(kNeverFired) {
+		// kNeverFired is the internal "never fired" sentinel. window_samples ==
+		// kNeverFired would make `since_X <= window_` trivially true for the
+		// sentinel, firing AandB before either inner trigger has fired.
+		// Reject explicitly. Same guard pattern as CrossChannelTrigger.
+		if (window_samples == kNeverFired)
+			throw std::invalid_argument(
+				"QualifierAnd: window_samples must be < "
+				"std::numeric_limits<std::size_t>::max() "
+				"(use max() - 1 for an effectively-unlimited window)");
+	}
 
 	bool process(sample_a xa, sample_b xb) {
-		if (since_a_ != kInf && since_a_ < kInf - 1) ++since_a_;
-		if (since_b_ != kInf && since_b_ < kInf - 1) ++since_b_;
+		if (since_a_ != kNeverFired && since_a_ < kNeverFired - 1) ++since_a_;
+		if (since_b_ != kNeverFired && since_b_ < kNeverFired - 1) ++since_b_;
 
 		if (a_.process(xa)) since_a_ = 0;
 		if (b_.process(xb)) since_b_ = 0;
 
 		if (since_a_ <= window_ && since_b_ <= window_) {
-			since_a_ = kInf;
-			since_b_ = kInf;
+			since_a_ = kNeverFired;
+			since_b_ = kNeverFired;
 			return true;
 		}
 		return false;
@@ -369,12 +379,12 @@ public:
 	void reset() {
 		a_.reset();
 		b_.reset();
-		since_a_ = kInf;
-		since_b_ = kInf;
+		since_a_ = kNeverFired;
+		since_b_ = kNeverFired;
 	}
 
 private:
-	static constexpr std::size_t kInf = std::numeric_limits<std::size_t>::max();
+	static constexpr std::size_t kNeverFired = std::numeric_limits<std::size_t>::max();
 	TrigA       a_;
 	TrigB       b_;
 	std::size_t window_;
@@ -482,13 +492,13 @@ public:
 		  b_(std::move(b)),
 		  mode_(mode),
 		  window_(window_samples),
-		  since_a_(kInf),
-		  since_b_(kInf) {
-		// kInf is the internal "never fired" sentinel. If a caller passes
-		// kInf as window_samples, the `since_X <= window_` checks become
+		  since_a_(kNeverFired),
+		  since_b_(kNeverFired) {
+		// kNeverFired is the internal "never fired" sentinel. If a caller passes
+		// kNeverFired as window_samples, the `since_X <= window_` checks become
 		// trivially true even for the sentinel and AandB/AnotB/etc. would
 		// fire before any inner trigger has fired. Reject explicitly.
-		if (window_samples == kInf)
+		if (window_samples == kNeverFired)
 			throw std::invalid_argument(
 				"CrossChannelTrigger: window_samples must be < "
 				"std::numeric_limits<std::size_t>::max() "
@@ -498,8 +508,8 @@ public:
 	bool process(sample_a xa, sample_b xb) {
 		// Increment age counters BEFORE running inner triggers, so a fire
 		// this sample lands at since_X = 0.
-		if (since_a_ != kInf && since_a_ < kInf - 1) ++since_a_;
-		if (since_b_ != kInf && since_b_ < kInf - 1) ++since_b_;
+		if (since_a_ != kNeverFired && since_a_ < kNeverFired - 1) ++since_a_;
+		if (since_b_ != kNeverFired && since_b_ < kNeverFired - 1) ++since_b_;
 
 		// Drive both inner triggers unconditionally so their state stays
 		// current regardless of which channel the wrapper "cares about".
@@ -516,8 +526,8 @@ public:
 				if (since_a_ <= window_ && since_b_ <= window_) {
 					// Coincidence consumed — clear both so the same pair
 					// can't fire repeatedly while both ages are < window.
-					since_a_ = kInf;
-					since_b_ = kInf;
+					since_a_ = kNeverFired;
+					since_b_ = kNeverFired;
 					return true;
 				}
 				return false;
@@ -547,12 +557,12 @@ public:
 	void reset() {
 		a_.reset();
 		b_.reset();
-		since_a_ = kInf;
-		since_b_ = kInf;
+		since_a_ = kNeverFired;
+		since_b_ = kNeverFired;
 	}
 
 private:
-	static constexpr std::size_t kInf = std::numeric_limits<std::size_t>::max();
+	static constexpr std::size_t kNeverFired = std::numeric_limits<std::size_t>::max();
 	TrigA            a_;
 	TrigB            b_;
 	CrossChannelMode mode_;
