@@ -30,6 +30,7 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 
 namespace sw::dsp::instrument {
@@ -95,11 +96,12 @@ public:
 	TriggerRingBuffer(std::size_t pre_trigger_samples,
 	                  std::size_t post_trigger_samples)
 		: pre_size_(pre_trigger_samples),
-		  post_size_(post_trigger_samples) {
-		// Pre-allocate the ring (size = pre_size_ + 1 + post_size_) so
-		// captured_segment() can hand back a contiguous span.
-		segment_.resize(pre_size_ + 1 + post_size_);
-		ring_.resize(pre_size_);
+		  post_size_(post_trigger_samples),
+		  // Pre-allocate the ring and segment buffers via the size ctor
+		  // (mtl::vec::dense_vector does not support .resize() — fixed
+		  // dimension sizes are decided at construction).
+		  ring_(pre_size_),
+		  segment_(pre_size_ + 1 + post_size_) {
 		reset_state();
 	}
 
@@ -225,10 +227,10 @@ private:
 		captured_length_ = 0;
 	}
 
-	std::size_t              pre_size_;
-	std::size_t              post_size_;
-	std::vector<SampleScalar> ring_;       // size == pre_size_
-	std::vector<SampleScalar> segment_;    // size == pre_size_+1+post_size_
+	std::size_t                          pre_size_;
+	std::size_t                          post_size_;
+	mtl::vec::dense_vector<SampleScalar> ring_;     // size == pre_size_
+	mtl::vec::dense_vector<SampleScalar> segment_;  // size == pre_size_+1+post_size_
 	std::size_t              write_pos_   = 0;  // ring write head
 	std::size_t              pre_count_   = 0;  // valid samples in ring
 	std::size_t              segment_pos_ = 0;  // next write index in segment_
@@ -263,6 +265,7 @@ public:
 		if (max_segments == 0)
 			throw std::invalid_argument(
 				"SegmentedCapture: max_segments must be >= 1");
+		segments_.reserve(max_segments_);
 	}
 
 	void push(SampleScalar x) {
@@ -300,14 +303,16 @@ private:
 	void harvest_if_complete() {
 		if (buf_.capture_complete()) {
 			auto seg = buf_.captured_segment();
-			segments_.emplace_back(seg.begin(), seg.end());
+			mtl::vec::dense_vector<SampleScalar> copy(seg.size());
+			for (std::size_t i = 0; i < seg.size(); ++i) copy[i] = seg[i];
+			segments_.emplace_back(std::move(copy));
 			buf_.rearm();
 		}
 	}
 
-	std::size_t                            max_segments_;
-	TriggerRingBuffer<SampleScalar>        buf_;
-	std::vector<std::vector<SampleScalar>> segments_;
+	std::size_t                                       max_segments_;
+	TriggerRingBuffer<SampleScalar>                   buf_;
+	std::vector<mtl::vec::dense_vector<SampleScalar>> segments_;
 };
 
 } // namespace sw::dsp::instrument

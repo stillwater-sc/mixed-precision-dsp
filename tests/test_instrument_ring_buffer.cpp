@@ -13,6 +13,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <array>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -328,8 +329,10 @@ void test_integration_with_edge_trigger() {
 	EdgeTrigger<float> trig(/*level=*/0.5f, Slope::Rising);
 	TriggerRingBuffer<float> buf(/*pre=*/8, /*post=*/16);
 
-	std::vector<float> stream;
-	for (int i = 0; i < 64; ++i) stream.push_back(i / 64.0f);  // ramp 0 -> ~1
+	std::array<float, 64> stream{};
+	for (std::size_t i = 0; i < stream.size(); ++i) {
+		stream[i] = static_cast<float>(i) / 64.0f;  // ramp 0 -> ~1
+	}
 
 	for (float x : stream) {
 		if (trig.process(x)) {
