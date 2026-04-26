@@ -113,3 +113,6 @@ dsp_add_test(test_instrument_ring_buffer)
 dsp_add_test(test_instrument_calibration)
 target_compile_definitions(test_instrument_calibration PRIVATE
 	TESTS_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")
+
+# Instrument peak-detect (min/max) decimation (Issue #146)
+dsp_add_test(test_instrument_peak_detect)
