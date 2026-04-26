@@ -16,8 +16,10 @@
 // display_envelope.hpp / issue #149).
 //
 // Precision-insensitive: min/max are reductions, not arithmetic. The
-// SampleScalar parameter only controls the type of the values being
-// compared and emitted.
+// SampleScalar type only controls the values being compared and emitted.
+// Constrained on DspOrderedField (the < / > comparisons require ordering),
+// matching the convention used elsewhere in the library for min/max-using
+// primitives — see morphology.hpp, agc.hpp, generators.hpp.
 //
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
@@ -55,13 +57,13 @@ namespace sw::dsp::instrument {
 // returns both vectors as a PeakDetectEnvelope struct in a single call.
 // =============================================================================
 
-template <DspScalar SampleScalar>
+template <DspOrderedField SampleScalar>
 struct PeakDetectEnvelope {
 	mtl::vec::dense_vector<SampleScalar> mins;
 	mtl::vec::dense_vector<SampleScalar> maxs;
 };
 
-template <DspScalar SampleScalar>
+template <DspOrderedField SampleScalar>
 class PeakDetectDecimator {
 public:
 	using sample_scalar = SampleScalar;
