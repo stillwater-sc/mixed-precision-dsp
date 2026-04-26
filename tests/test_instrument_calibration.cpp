@@ -21,6 +21,8 @@
 #include <array>
 #include <cmath>
 #include <complex>
+#include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <numbers>
 #include <stdexcept>
@@ -129,6 +131,33 @@ void test_profile_csv_missing_file_throws() {
 	std::cout << "  profile_csv_missing_file_throws: passed\n";
 }
 
+// Helper: write a small CSV to a temp path and try to load it.
+// Returns true if from_csv threw std::invalid_argument; false if it loaded.
+bool csv_load_throws(const std::string& body) {
+	const std::string path = std::string(TESTS_DATA_DIR) +
+	                          "/_temp_test_csv.csv";
+	{
+		std::ofstream out(path);
+		out << body;
+	}
+	bool threw = false;
+	try { (void)CalibrationProfile::from_csv(path); }
+	catch (const std::invalid_argument&) { threw = true; }
+	std::remove(path.c_str());
+	return threw;
+}
+
+void test_profile_csv_rejects_malformed_data_row() {
+	// A first non-comment line that DOES parse as a number but has an
+	// extra trailing column should NOT be treated as a header — it's
+	// data with an extra field, almost certainly a bug in the producer.
+	REQUIRE(csv_load_throws("1000,0.0,0.0,extra\n2000,-1.0,-0.1\n"));
+	// Same, where the first column isn't a number — that IS a header,
+	// should be skipped, and the rest should parse fine.
+	REQUIRE(!csv_load_throws("freq,gain,phase\n1000,0.0,0.0\n2000,-1.0,-0.1\n"));
+	std::cout << "  profile_csv_rejects_malformed_data_row: passed\n";
+}
+
 // ============================================================================
 // EqualizerFilter — synthetic-profile flattening test
 // ============================================================================
@@ -196,6 +225,51 @@ void test_eq_flattens_synthetic_profile() {
 				" dB (expected within ±2 dB of flat)");
 	}
 	std::cout << "  eq_flattens_synthetic_profile: passed\n";
+}
+
+void test_eq_preserves_magnitude_at_dc_with_nonzero_phase() {
+	// A profile with phase != 0 at DC should not silently lose magnitude
+	// when the equalizer's frequency-sampling design forces the DC bin
+	// real. Earlier code took H_d[0].real(), which goes to zero at
+	// phase=π/2. Now we preserve magnitude and discard phase — the
+	// only physically meaningful behavior at a real-only bin.
+	//
+	// Probe the DC bin DIRECTLY by feeding a DC step. A DC sinusoid has
+	// no phase to rotate, so the steady-state output equals the DC
+	// magnitude response = inv_mag at DC. We use a flat 0 dB profile
+	// so inv_mag at DC = 1.0; we run two equalizers (phase=0 and
+	// phase=π/2 at DC) and compare their steady-state outputs. With the
+	// bug, the π/2 case would settle near 0 instead of 1.0; with the
+	// fix, both settle near 1.0.
+	auto steady_state_dc = [](const std::vector<double>& phases) {
+		std::vector<double> freqs = {0.0, 1e5, 5e5};
+		std::vector<double> gains = {0.0, 0.0, 0.0};
+		CalibrationProfile profile(freqs, gains, phases);
+		EqualizerFilter<double, double, double> eq(profile,
+		                                            /*num_taps=*/65,
+		                                            /*fs=*/1e6);
+		// Stream a constant 1.0 for several num_taps spans; return the
+		// last output (post-transient).
+		double last = 0.0;
+		for (std::size_t n = 0; n < 4 * eq.num_taps(); ++n) {
+			last = eq.process(1.0);
+		}
+		return last;
+	};
+	const double dc_zero = steady_state_dc({0.0, 0.0, 0.0});
+	const double dc_pi2  = steady_state_dc({std::numbers::pi_v<double>/2.0,
+	                                         0.0, 0.0});
+
+	// Both should settle clearly above zero. The non-DC bins still have
+	// phase variation between the two profiles (linear interp from π/2
+	// down to 0 across the low-freq range), so the two windowed FIRs
+	// don't have identical DC responses — but with the fix, both are
+	// well above 0.3, while with the bug the π/2 case would collapse
+	// near 0.1 (DC bin contribution went to zero).
+	REQUIRE(dc_zero > 0.3);
+	REQUIRE(dc_pi2  > 0.3);
+	std::cout << "  eq_preserves_magnitude_at_dc_with_nonzero_phase: passed "
+	             "(dc_zero=" << dc_zero << " dc_pi2=" << dc_pi2 << ")\n";
 }
 
 void test_eq_clamps_inverse_at_deep_null() {
@@ -291,8 +365,10 @@ int main() {
 		test_profile_validation();
 		test_profile_csv_round_trip();
 		test_profile_csv_missing_file_throws();
+		test_profile_csv_rejects_malformed_data_row();
 
 		test_eq_flattens_synthetic_profile();
+		test_eq_preserves_magnitude_at_dc_with_nonzero_phase();
 		test_eq_clamps_inverse_at_deep_null();
 
 		test_precision_sweep();

@@ -106,26 +106,39 @@ public:
 		while (std::getline(in, line)) {
 			if (line.empty() || line.front() == '#') continue;
 
-			// Try to parse as three comma-separated doubles. If the first
-			// row fails to parse, treat it as a header and skip.
+			// Try to parse as three comma-separated doubles. The header-
+			// skip logic only kicks in when the FIRST TOKEN fails to parse
+			// as a double. A row like "1,2,3,4" parses freq=1 successfully
+			// — that's data, not a header, so it's rejected by the strict
+			// trailing-token check below regardless of first_line_seen.
 			//
 			// Strict: after extracting (freq , gain , phase) the rest of
 			// the line must contain only whitespace. Trailing tokens are
-			// rejected — it's almost always a sign of a malformed row
-			// (e.g., an extra column from an ill-formed exporter), and
-			// silently dropping them hides bugs.
-			double  freq, gain, phase;
-			char    c1, c2;
+			// rejected — almost always a sign of a malformed row (e.g.,
+			// extra column from an ill-formed exporter), and silently
+			// dropping them hides bugs.
 			std::istringstream iss(line);
-			iss >> freq >> c1 >> gain >> c2 >> phase;
+			double freq;
+			iss >> freq;
+			if (iss.fail()) {
+				// Couldn't parse the first token as a number. This is a
+				// header iff we haven't seen the first data row yet.
+				if (!first_line_seen) { first_line_seen = true; continue; }
+				throw std::invalid_argument(
+					"CalibrationProfile::from_csv: bad row in '" + path +
+					"': '" + line + "'");
+			}
+			// freq parsed — this is a data row, not a header. Any further
+			// failure is a hard error.
+			double gain, phase;
+			char   c1, c2;
+			iss >> c1 >> gain >> c2 >> phase;
 			bool ok = !iss.fail() && c1 == ',' && c2 == ',';
 			if (ok) {
-				// Anything left on the line other than whitespace is bad.
 				char trailing;
 				if (iss >> trailing) ok = false;
 			}
 			if (!ok) {
-				if (!first_line_seen) { first_line_seen = true; continue; }
 				throw std::invalid_argument(
 					"CalibrationProfile::from_csv: bad row in '" + path +
 					"': '" + line + "'");
@@ -281,13 +294,24 @@ private:
 		}
 		// For a real impulse response, both DC (k=0) and Nyquist (k=N/2 for
 		// even N) bins must be real. If the profile reports a non-zero phase
-		// at f=0 (rare but possible — e.g., a DC offset at the front-end),
-		// silently letting the imaginary part survive would inject a phase
-		// shift that the inverse DFT then drops via .real(), producing a
-		// magnitude smaller than requested. Force both bins real explicitly.
-		H_d[0] = std::complex<double>(H_d[0].real(), 0.0);
+		// at f=0 or fs/2 (rare — e.g., a DC offset at the front-end —
+		// but possible), we keep the requested magnitude and discard the
+		// phase. Two refinements over a naive `.real()` projection:
+		//   - `.real()` would collapse the bin to inv_mag*cos(inv_phase),
+		//     which goes to ZERO at phase=π/2 (not what the user asked
+		//     for). std::abs preserves the full magnitude.
+		//   - The bin's value can be legitimately negative (e.g., when
+		//     phase is near π, the user is asking for a sign flip).
+		//     std::copysign(magnitude, cos(phase)) snaps the sign of the
+		//     real-only bin to whichever side of zero the original
+		//     real component pointed at, while keeping full magnitude.
+		auto force_real = [](const std::complex<double>& z) {
+			return std::complex<double>(
+				std::copysign(std::abs(z), z.real()), 0.0);
+		};
+		H_d[0] = force_real(H_d[0]);
 		if (N % 2 == 0) {
-			H_d[N / 2] = std::complex<double>(H_d[N / 2].real(), 0.0);
+			H_d[N / 2] = force_real(H_d[N / 2]);
 		}
 		// Conjugate symmetry for the upper half:
 		//   H_d[N - k] = conj(H_d[k]) for k = 1..floor((N-1)/2)
