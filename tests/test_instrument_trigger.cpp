@@ -399,6 +399,225 @@ void test_qualifier_or() {
 }
 
 // ============================================================================
+// CrossChannelTrigger
+// ============================================================================
+//
+// Test pattern for each mode: positive case (fires when expected),
+// negative case (doesn't fire when not expected), and (where applicable)
+// windowing semantics. All tests use rising-edge triggers on level=0.5
+// so the inputs are easy to read.
+
+using TA = EdgeTrigger<double>;
+using TB = EdgeTrigger<double>;
+
+template <class CCT>
+void prime_below(CCT& q) {
+	// Establish "below" state in both inner triggers so the next
+	// up-cross is a real fire (EdgeTrigger requires a prior Below state).
+	(void)q.process(0.0, 0.0);
+}
+
+void test_cct_only_a() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::OnlyA);
+	prime_below(q);
+	REQUIRE(q.process(0.7, 0.0));    // A up-cross — fires
+	REQUIRE(!q.process(0.0, 0.7));   // B up-cross alone — ignored
+	std::cout << "  cct_only_a: passed\n";
+}
+
+void test_cct_only_b() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::OnlyB);
+	prime_below(q);
+	REQUIRE(!q.process(0.7, 0.0));   // A — ignored
+	REQUIRE(q.process(0.0, 0.7));    // B — fires
+	std::cout << "  cct_only_b: passed\n";
+}
+
+void test_cct_aandb_same_sample() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AandB,
+	                               /*window=*/0);
+	prime_below(q);
+	REQUIRE(q.process(0.7, 0.7));    // both fire same sample — fires
+	std::cout << "  cct_aandb_same_sample: passed\n";
+}
+
+void test_cct_aandb_within_window() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AandB,
+	                               /*window=*/3);
+	prime_below(q);
+	REQUIRE(!q.process(0.7, 0.0));   // A fires; no B yet
+	REQUIRE(!q.process(0.8, 0.0));   // 1 sample later
+	REQUIRE(!q.process(0.9, 0.0));   // 2 samples later
+	REQUIRE(q.process(0.9, 0.7));    // 3 samples later — B fires, in window
+	std::cout << "  cct_aandb_within_window: passed\n";
+}
+
+void test_cct_aandb_outside_window() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AandB,
+	                               /*window=*/2);
+	prime_below(q);
+	REQUIRE(!q.process(0.7, 0.0));   // A fires
+	REQUIRE(!q.process(0.8, 0.0));   // 1
+	REQUIRE(!q.process(0.9, 0.0));   // 2 — still in window
+	REQUIRE(!q.process(0.9, 0.0));   // 3 — out of window
+	REQUIRE(!q.process(0.9, 0.7));   // 4 — B fires, but A is outside
+	std::cout << "  cct_aandb_outside_window: passed\n";
+}
+
+void test_cct_aandb_no_double_fire_on_same_coincidence() {
+	// After AandB fires, both `since_` counters reset to "never". So a
+	// subsequent sample where neither inner fires must NOT re-trigger
+	// AandB just because the previous fires are still mathematically
+	// "in window".
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AandB,
+	                               /*window=*/5);
+	prime_below(q);
+	REQUIRE(q.process(0.7, 0.7));    // coincidence — fires
+	REQUIRE(!q.process(0.8, 0.8));   // both still high — no inner fire,
+	                                  // no AandB re-fire either
+	REQUIRE(!q.process(0.9, 0.9));
+	std::cout << "  cct_aandb_no_double_fire_on_same_coincidence: passed\n";
+}
+
+void test_cct_aorb() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AorB);
+	prime_below(q);
+	REQUIRE(q.process(0.7, 0.0));    // A alone — fires
+	REQUIRE(q.process(0.0, 0.7));    // B alone — fires (after both fall)
+	REQUIRE(!q.process(0.0, 0.0));   // neither — no fire
+	REQUIRE(q.process(0.7, 0.7));    // both same sample — fires
+	std::cout << "  cct_aorb: passed\n";
+}
+
+void test_cct_axorb_same_sample_no_fire() {
+	// XOR: same-sample firings of both should NOT fire (both are active).
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AxorB,
+	                               /*window=*/0);
+	prime_below(q);
+	REQUIRE(!q.process(0.7, 0.7));   // both same sample — no fire
+	std::cout << "  cct_axorb_same_sample_no_fire: passed\n";
+}
+
+void test_cct_axorb_a_alone_fires() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AxorB,
+	                               /*window=*/3);
+	prime_below(q);
+	REQUIRE(q.process(0.7, 0.0));    // A alone — fires (B has never fired)
+	std::cout << "  cct_axorb_a_alone_fires: passed\n";
+}
+
+void test_cct_axorb_b_within_window_suppressed() {
+	// After A fires solo, a B fire within the window is "coincident with
+	// A" and should NOT fire as solo.
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AxorB,
+	                               /*window=*/5);
+	prime_below(q);
+	REQUIRE(q.process(0.7, 0.0));    // A solo — fires
+	REQUIRE(!q.process(0.0, 0.0));   // gap
+	REQUIRE(!q.process(0.0, 0.7));   // B — within A's 5-sample window — suppressed
+	std::cout << "  cct_axorb_b_within_window_suppressed: passed\n";
+}
+
+void test_cct_axorb_b_outside_window_fires() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AxorB,
+	                               /*window=*/2);
+	prime_below(q);
+	REQUIRE(q.process(0.7, 0.0));    // A solo — fires
+	REQUIRE(!q.process(0.0, 0.0));   // 1
+	REQUIRE(!q.process(0.0, 0.0));   // 2 — A still active
+	REQUIRE(!q.process(0.0, 0.0));   // 3 — A out of window
+	REQUIRE(q.process(0.0, 0.7));    // 4 — B solo, A is outside window
+	std::cout << "  cct_axorb_b_outside_window_fires: passed\n";
+}
+
+void test_cct_anotb_a_alone_fires() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AnotB,
+	                               /*window=*/3);
+	prime_below(q);
+	REQUIRE(q.process(0.7, 0.0));    // A fires, B has never — fires
+	std::cout << "  cct_anotb_a_alone_fires: passed\n";
+}
+
+void test_cct_anotb_a_within_window_of_b_suppressed() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AnotB,
+	                               /*window=*/5);
+	prime_below(q);
+	REQUIRE(!q.process(0.0, 0.7));   // B fires (no A) — AnotB requires A
+	REQUIRE(!q.process(0.0, 0.0));   // gap
+	REQUIRE(!q.process(0.7, 0.0));   // A fires, but B is in window — suppressed
+	std::cout << "  cct_anotb_a_within_window_of_b_suppressed: passed\n";
+}
+
+void test_cct_anotb_a_outside_window_of_b_fires() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AnotB,
+	                               /*window=*/2);
+	prime_below(q);
+	REQUIRE(!q.process(0.0, 0.7));   // B fires
+	REQUIRE(!q.process(0.0, 0.0));   // 1 (B still active)
+	REQUIRE(!q.process(0.0, 0.0));   // 2 (B at boundary, still active)
+	REQUIRE(!q.process(0.0, 0.0));   // 3 (B out of window)
+	REQUIRE(q.process(0.7, 0.0));    // A fires, B outside window — fires
+	std::cout << "  cct_anotb_a_outside_window_of_b_fires: passed\n";
+}
+
+void test_cct_bnota_mirror() {
+	// Single mirror test: B fires + A absent → fires; B fires + A recent → no.
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::BnotA,
+	                               /*window=*/3);
+	prime_below(q);
+	REQUIRE(q.process(0.0, 0.7));    // B alone — fires
+	REQUIRE(!q.process(0.7, 0.0));   // A fires; BnotA only fires on B
+	REQUIRE(!q.process(0.0, 0.0));   // 1 (A active)
+	REQUIRE(!q.process(0.0, 0.7));   // B fires but A is at age 2 ≤ 3 → no fire
+	std::cout << "  cct_bnota_mirror: passed\n";
+}
+
+void test_cct_reset() {
+	CrossChannelTrigger<TA, TB> q(TA(0.5, Slope::Rising),
+	                               TB(0.5, Slope::Rising),
+	                               CrossChannelMode::AandB,
+	                               /*window=*/3);
+	prime_below(q);
+	REQUIRE(!q.process(0.7, 0.0));   // A fires
+	q.reset();
+	prime_below(q);
+	// After reset, since_a is back to "never". A subsequent B fire should
+	// NOT pair with the pre-reset A fire.
+	REQUIRE(!q.process(0.0, 0.7));   // B fires; A's prior fire forgotten
+	std::cout << "  cct_reset: passed\n";
+}
+
+// ============================================================================
 // Precision sweep — minimum-detectable-edge across types
 // ============================================================================
 
@@ -489,6 +708,22 @@ int main() {
 		test_qualifier_and_within_window();
 		test_qualifier_and_outside_window();
 		test_qualifier_or();
+		test_cct_only_a();
+		test_cct_only_b();
+		test_cct_aandb_same_sample();
+		test_cct_aandb_within_window();
+		test_cct_aandb_outside_window();
+		test_cct_aandb_no_double_fire_on_same_coincidence();
+		test_cct_aorb();
+		test_cct_axorb_same_sample_no_fire();
+		test_cct_axorb_a_alone_fires();
+		test_cct_axorb_b_within_window_suppressed();
+		test_cct_axorb_b_outside_window_fires();
+		test_cct_anotb_a_alone_fires();
+		test_cct_anotb_a_within_window_of_b_suppressed();
+		test_cct_anotb_a_outside_window_of_b_fires();
+		test_cct_bnota_mirror();
+		test_cct_reset();
 		test_precision_sweep_minimum_detectable();
 
 		std::cout << "all tests passed\n";
