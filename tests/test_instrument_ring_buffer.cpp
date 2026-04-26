@@ -199,11 +199,9 @@ void test_rearm_preserves_ring() {
 	REQUIRE(buf.capture_complete());
 	buf.rearm();
 	REQUIRE(!buf.capture_complete());
-	// Trigger again WITHOUT new push() calls — pre-ring should still have
-	// the post-trigger samples that flowed through it (100, 101) plus the
-	// trigger sample that was rotated into the ring? No — the ring is only
-	// fed by push(), not by post-trigger samples in the segment buffer.
-	// So after the first capture, the ring still has 1,2,3.
+	// Trigger again WITHOUT new push() calls. The ring is only fed by
+	// push() while armed/prefill, so after the first capture it still
+	// contains the originally pushed 1, 2, 3.
 	buf.push_trigger(200);
 	buf.push(201); buf.push(202);
 	REQUIRE(buf.capture_complete());
