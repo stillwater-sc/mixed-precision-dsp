@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <span>
 #include <stdexcept>
 #include <string>
 
@@ -101,7 +102,7 @@ void test_constructor_zero_throws() {
 void test_block_basic() {
 	std::array<int, 8> in = {3, 7, 1, 5, 10, 2, 9, 8};
 	PeakDetectDecimator<int> d(4);
-	auto env = d.process_block(std::span<const int>(in.data(), in.size()));
+	auto env = d.process_block(std::span<const int>{in});
 	REQUIRE(env.mins.size() == 2);
 	REQUIRE(env.maxs.size() == 2);
 	REQUIRE(env.mins[0] == 1);
@@ -117,7 +118,7 @@ void test_block_retains_partial_trailing_window_in_state() {
 	// in count_ for the next process() / process_block() call.
 	std::array<int, 7> in = {1, 2, 3, 4, 5, 6, 7};
 	PeakDetectDecimator<int> d(4);
-	auto env = d.process_block(std::span<const int>(in.data(), in.size()));
+	auto env = d.process_block(std::span<const int>{in});
 	REQUIRE(env.mins.size() == 1);
 	REQUIRE(env.mins[0] == 1);
 	REQUIRE(env.maxs[0] == 4);
@@ -136,7 +137,7 @@ void test_block_input_smaller_than_factor() {
 	// Input length 3, R=4 — no complete window, zero outputs.
 	std::array<int, 3> in = {1, 2, 3};
 	PeakDetectDecimator<int> d(4);
-	auto env = d.process_block(std::span<const int>(in.data(), in.size()));
+	auto env = d.process_block(std::span<const int>{in});
 	REQUIRE(env.mins.size() == 0);
 	REQUIRE(env.maxs.size() == 0);
 	std::cout << "  block_input_smaller_than_factor: passed\n";
@@ -147,9 +148,9 @@ void test_separate_min_max_block_apis() {
 	// the unified process_block.
 	std::array<int, 8> in = {3, 7, 1, 5, 10, 2, 9, 8};
 	PeakDetectDecimator<int> d_a(4);
-	auto mins = d_a.process_block_min(std::span<const int>(in.data(), in.size()));
+	auto mins = d_a.process_block_min(std::span<const int>{in});
 	PeakDetectDecimator<int> d_b(4);
-	auto maxs = d_b.process_block_max(std::span<const int>(in.data(), in.size()));
+	auto maxs = d_b.process_block_max(std::span<const int>{in});
 	REQUIRE(mins.size() == 2 && maxs.size() == 2);
 	REQUIRE(mins[0] == 1 && maxs[0] == 7);
 	REQUIRE(mins[1] == 2 && maxs[1] == 10);
@@ -178,7 +179,7 @@ void test_block_after_partial_streaming_window() {
 		(void)d.process(20);
 		(void)d.process(30);
 		REQUIRE(d.samples_in_window() == 3);
-		auto env = d.process_block(std::span<const int>(in.data(), in.size()));
+		auto env = d.process_block(std::span<const int>{in});
 		REQUIRE(env.mins.size() == 2);
 		REQUIRE(env.maxs.size() == 2);
 		REQUIRE(env.mins[0] == 10 && env.maxs[0] == 40);   // {10,20,30,40}
@@ -191,7 +192,7 @@ void test_block_after_partial_streaming_window() {
 		(void)d.process(20);
 		(void)d.process(30);
 		auto mins = d.process_block_min(
-			std::span<const int>(in.data(), in.size()));
+			std::span<const int>{in});
 		REQUIRE(mins.size() == 2);
 		REQUIRE(mins[0] == 10);
 		REQUIRE(mins[1] ==  1);
@@ -203,7 +204,7 @@ void test_block_after_partial_streaming_window() {
 		(void)d.process(20);
 		(void)d.process(30);
 		auto maxs = d.process_block_max(
-			std::span<const int>(in.data(), in.size()));
+			std::span<const int>{in});
 		REQUIRE(maxs.size() == 2);
 		REQUIRE(maxs[0] == 40);
 		REQUIRE(maxs[1] ==  4);
@@ -273,7 +274,7 @@ void test_glitch_survives_at_all_decimation_factors() {
 	                       std::size_t{16}, std::size_t{32}}) {
 		PeakDetectDecimator<float> d(R);
 		auto env = d.process_block(
-			std::span<const float>(stream.data(), stream.size()));
+			std::span<const float>{stream});
 
 		// Find the max-stream peak. With the glitch present, this should
 		// be exactly the glitch's amplitude (1.5), not the square wave's
