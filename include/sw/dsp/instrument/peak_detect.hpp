@@ -91,10 +91,15 @@ public:
 		return std::nullopt;
 	}
 
-	// Block APIs. Each returns a vector of length floor(input.size() / R).
+	// Block APIs. Each returns a vector of length equal to the number of
+	// complete windows that this call (plus any prior partial-window
+	// state from streaming process() calls) will close. That count is
+	// (count_ + input.size()) / R_ — must include count_, otherwise a
+	// caller mixing streaming and block usage gets an under-allocated
+	// buffer.
 	mtl::vec::dense_vector<SampleScalar>
 	process_block_min(std::span<const SampleScalar> input) {
-		const std::size_t n_out = input.size() / R_;
+		const std::size_t n_out = (count_ + input.size()) / R_;
 		mtl::vec::dense_vector<SampleScalar> out(n_out);
 		std::size_t out_idx = 0;
 		for (auto x : input) {
@@ -107,7 +112,7 @@ public:
 
 	mtl::vec::dense_vector<SampleScalar>
 	process_block_max(std::span<const SampleScalar> input) {
-		const std::size_t n_out = input.size() / R_;
+		const std::size_t n_out = (count_ + input.size()) / R_;
 		mtl::vec::dense_vector<SampleScalar> out(n_out);
 		std::size_t out_idx = 0;
 		for (auto x : input) {
@@ -121,7 +126,7 @@ public:
 	// Convenience: return both vectors in one pass.
 	PeakDetectEnvelope<SampleScalar>
 	process_block(std::span<const SampleScalar> input) {
-		const std::size_t n_out = input.size() / R_;
+		const std::size_t n_out = (count_ + input.size()) / R_;
 		PeakDetectEnvelope<SampleScalar> env{
 			mtl::vec::dense_vector<SampleScalar>(n_out),
 			mtl::vec::dense_vector<SampleScalar>(n_out)};

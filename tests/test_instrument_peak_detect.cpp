@@ -146,6 +146,35 @@ void test_separate_min_max_block_apis() {
 	std::cout << "  separate_min_max_block_apis: passed\n";
 }
 
+void test_block_after_partial_streaming_window() {
+	// Mix streaming and block: push 3 samples via process() (R=4 so the
+	// window is incomplete with count_=3), then call process_block on a
+	// 5-sample input. The first input sample completes the prior window
+	// (one output), then 4 more samples form a new complete window
+	// (another output). Total: 2 outputs from the 5 input samples.
+	//
+	// Earlier code computed n_out = input.size() / R_ = 5/4 = 1, which
+	// would have under-allocated the output buffer and silently dropped
+	// the second output (or written out of bounds — undefined behavior).
+	PeakDetectDecimator<int> d(4);
+	(void)d.process(10);
+	(void)d.process(20);
+	(void)d.process(30);
+	REQUIRE(d.samples_in_window() == 3);
+
+	std::vector<int> in = {40, 1, 2, 3, 4};
+	auto env = d.process_block(std::span<const int>(in.data(), in.size()));
+	REQUIRE(env.mins.size() == 2);
+	REQUIRE(env.maxs.size() == 2);
+	// First completed window: {10, 20, 30, 40} -> (10, 40)
+	REQUIRE(env.mins[0] == 10);
+	REQUIRE(env.maxs[0] == 40);
+	// Second window: {1, 2, 3, 4} -> (1, 4)
+	REQUIRE(env.mins[1] == 1);
+	REQUIRE(env.maxs[1] == 4);
+	std::cout << "  block_after_partial_streaming_window: passed\n";
+}
+
 // ============================================================================
 // reset()
 // ============================================================================
@@ -247,6 +276,7 @@ int main() {
 		test_block_drops_partial_trailing_window();
 		test_block_input_smaller_than_factor();
 		test_separate_min_max_block_apis();
+		test_block_after_partial_streaming_window();
 
 		test_reset_drops_partial_window();
 
