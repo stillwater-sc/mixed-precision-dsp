@@ -108,11 +108,22 @@ public:
 
 			// Try to parse as three comma-separated doubles. If the first
 			// row fails to parse, treat it as a header and skip.
+			//
+			// Strict: after extracting (freq , gain , phase) the rest of
+			// the line must contain only whitespace. Trailing tokens are
+			// rejected — it's almost always a sign of a malformed row
+			// (e.g., an extra column from an ill-formed exporter), and
+			// silently dropping them hides bugs.
 			double  freq, gain, phase;
 			char    c1, c2;
 			std::istringstream iss(line);
 			iss >> freq >> c1 >> gain >> c2 >> phase;
-			const bool ok = !iss.fail() && c1 == ',' && c2 == ',';
+			bool ok = !iss.fail() && c1 == ',' && c2 == ',';
+			if (ok) {
+				// Anything left on the line other than whitespace is bad.
+				char trailing;
+				if (iss >> trailing) ok = false;
+			}
 			if (!ok) {
 				if (!first_line_seen) { first_line_seen = true; continue; }
 				throw std::invalid_argument(
@@ -268,17 +279,22 @@ private:
 				inv_mag * std::cos(inv_phase),
 				inv_mag * std::sin(inv_phase));
 		}
-		// Conjugate symmetry for the upper half:
-		//   H_d[N - k] = conj(H_d[k]) for k = 1..floor((N-1)/2)
-		for (std::size_t k = 1; k < (N + 1) / 2; ++k) {
-			H_d[N - k] = std::conj(H_d[k]);
-		}
-		// Nyquist bin (k = N/2) for even N must be real; the loop above
-		// already wrote a complex value but its imag should be zero (or
-		// negligible) since cos/sin of inv_phase + conjugate. For safety
-		// when N is even, force the imaginary part to zero:
+		// For a real impulse response, both DC (k=0) and Nyquist (k=N/2 for
+		// even N) bins must be real. If the profile reports a non-zero phase
+		// at f=0 (rare but possible — e.g., a DC offset at the front-end),
+		// silently letting the imaginary part survive would inject a phase
+		// shift that the inverse DFT then drops via .real(), producing a
+		// magnitude smaller than requested. Force both bins real explicitly.
+		H_d[0] = std::complex<double>(H_d[0].real(), 0.0);
 		if (N % 2 == 0) {
 			H_d[N / 2] = std::complex<double>(H_d[N / 2].real(), 0.0);
+		}
+		// Conjugate symmetry for the upper half:
+		//   H_d[N - k] = conj(H_d[k]) for k = 1..floor((N-1)/2)
+		// ADL-friendly call (matches project convention from CLAUDE.md).
+		using std::conj;
+		for (std::size_t k = 1; k < (N + 1) / 2; ++k) {
+			H_d[N - k] = conj(H_d[k]);
 		}
 
 		// 4: Inverse DFT (direct sum). h[n] = (1/N) Σ H_d[k] exp(j 2πkn/N).

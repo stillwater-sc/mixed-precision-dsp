@@ -10,7 +10,8 @@
 //     against a known sinusoidal-magnitude profile, verify the equalized
 //     response is flat to within target dB across the calibrated band)
 //   - Precision sweep: characterize equalization quality across the
-//     three-scalar matrix (double / float / posit32 / posit16 / fixpnt)
+//     three-scalar matrix (double / float / posit<32,2>) — the
+//     intersection that all the library's number types support today
 //
 // Per CLAUDE.md, tests use `if (!cond) throw std::runtime_error(...)`.
 //
