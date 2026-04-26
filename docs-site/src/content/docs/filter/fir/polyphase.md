@@ -3,6 +3,8 @@ title: Polyphase Decomposition
 description: Efficient multirate filtering via polyphase interpolation and decimation in sw::dsp
 ---
 
+*Part of the [Multirate Signal Processing](../../multirate/overview/) section — see the overview for the broader theory and the [pattern catalog](../../multirate/patterns/) for problem→API mapping.*
+
 **Polyphase decomposition** splits a single FIR filter into a bank of smaller
 sub-filters, enabling multirate operations (interpolation and decimation) at
 dramatically lower computational cost.

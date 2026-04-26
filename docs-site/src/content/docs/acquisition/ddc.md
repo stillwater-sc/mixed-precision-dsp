@@ -3,6 +3,8 @@ title: Digital Down-Converter (DDC)
 description: Composing NCO, complex mixer, and decimation filter for band selection at high sample rates
 ---
 
+*Part of the [Multirate Signal Processing](../multirate/overview/) section — see the overview for the broader theory and the [pattern catalog](../multirate/patterns/) for problem→API mapping.*
+
 ## History and Motivation
 
 ### From Superheterodyne to All-Digital Receivers

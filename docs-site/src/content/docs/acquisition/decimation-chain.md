@@ -3,6 +3,8 @@ title: Multi-Stage Decimation Chain
 description: Cascading CIC, half-band, and polyphase filters to achieve large decimation ratios efficiently
 ---
 
+*Part of the [Multirate Signal Processing](../multirate/overview/) section — see the overview for the broader theory and the [pattern catalog](../multirate/patterns/) for problem→API mapping.*
+
 ## History and Motivation
 
 ### Why Cascaded Filters?

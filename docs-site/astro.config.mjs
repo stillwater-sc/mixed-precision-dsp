@@ -53,6 +53,10 @@ export default defineConfig({
           autogenerate: { directory: 'filter' },
         },
         {
+          label: 'Multirate Signal Processing',
+          autogenerate: { directory: 'multirate' },
+        },
+        {
           label: 'Software-Defined Radio',
           autogenerate: { directory: 'acquisition' },
         },
