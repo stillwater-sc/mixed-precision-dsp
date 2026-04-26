@@ -32,7 +32,7 @@
 
 namespace sw::dsp::instrument {
 
-template <DspScalar SampleScalar>
+template <DspOrderedField SampleScalar>
 struct DisplayEnvelope {
 	mtl::vec::dense_vector<SampleScalar> mins;  // length == pixel_width
 	mtl::vec::dense_vector<SampleScalar> maxs;  // length == pixel_width
@@ -62,7 +62,7 @@ struct DisplayEnvelope {
 //       (remainder) pixels each cover ⌈N/W⌉ samples and the trailing
 //       (pixel_width - remainder) pixels each cover ⌊N/W⌋ samples.
 // =============================================================================
-template <DspScalar SampleScalar>
+template <DspOrderedField SampleScalar>
 DisplayEnvelope<SampleScalar> render_envelope(
 		std::span<const SampleScalar> samples,
 		std::size_t                   pixel_width) {
@@ -70,21 +70,22 @@ DisplayEnvelope<SampleScalar> render_envelope(
 		throw std::invalid_argument(
 			"render_envelope: pixel_width must be > 0");
 
+	const std::size_t N = samples.size();
+
+	// Empty input — return an envelope with zero-length vectors so callers
+	// can detect "nothing to render" via env.mins.size() == 0. Avoid
+	// allocating pixel_width up front in this path; the allocation could
+	// be large (e.g., 10K pixels for a wide display) and there's nothing
+	// to put into it.
+	if (N == 0) {
+		return DisplayEnvelope<SampleScalar>{
+			mtl::vec::dense_vector<SampleScalar>(0),
+			mtl::vec::dense_vector<SampleScalar>(0)};
+	}
+
 	DisplayEnvelope<SampleScalar> env{
 		mtl::vec::dense_vector<SampleScalar>(pixel_width),
 		mtl::vec::dense_vector<SampleScalar>(pixel_width)};
-
-	const std::size_t N = samples.size();
-
-	// Empty input — return empty envelope (we still report pixel_width
-	// in the allocated vectors, but they have no meaningful content).
-	// Prefer to surface this by returning an envelope with size 0 so
-	// callers can detect "nothing to render."
-	if (N == 0) {
-		env.mins = mtl::vec::dense_vector<SampleScalar>(0);
-		env.maxs = mtl::vec::dense_vector<SampleScalar>(0);
-		return env;
-	}
 
 	// Sparse case: one input sample per pixel (or fewer). Pad trailing
 	// pixels with the last sample's value so the trace flat-lines at the

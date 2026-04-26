@@ -74,16 +74,21 @@ void test_inexact_division() {
 }
 
 void test_inexact_division_large_remainder() {
-	// 10 samples, 3 pixels — base_span=3, remainder=1
-	// Leading 1 pixel gets span=4, trailing 2 pixels get span=3.
-	// Pixel 0: samples[0..3]   = {0,1,2,3} → (0, 3)
-	// Pixel 1: samples[4..6]   = {4,5,6}   → (4, 6)
-	// Pixel 2: samples[7..9]   = {7,8,9}   → (7, 9)
-	std::array<int, 10> in = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-	auto env = render_envelope<int>(std::span<const int>{in}, 3);
-	REQUIRE(env.mins[0] == 0 && env.maxs[0] == 3);
-	REQUIRE(env.mins[1] == 4 && env.maxs[1] == 6);
-	REQUIRE(env.mins[2] == 7 && env.maxs[2] == 9);
+	// 11 samples, 4 pixels — base_span=2, remainder=3
+	// Leading 3 pixels get span=3 (cover 3 samples each), trailing 1
+	// pixel gets span=2. Verifies the extra-sample distribution is
+	// correctly applied to ALL `remainder` leading pixels, not just one.
+	// Pixel 0: samples[0..2]   = {0,1,2}   → (0, 2)
+	// Pixel 1: samples[3..5]   = {3,4,5}   → (3, 5)
+	// Pixel 2: samples[6..8]   = {6,7,8}   → (6, 8)
+	// Pixel 3: samples[9..10]  = {9,10}    → (9, 10)
+	std::array<int, 11> in = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+	auto env = render_envelope<int>(std::span<const int>{in}, 4);
+	REQUIRE(env.mins.size() == 4 && env.maxs.size() == 4);
+	REQUIRE(env.mins[0] == 0 && env.maxs[0] == 2);
+	REQUIRE(env.mins[1] == 3 && env.maxs[1] == 5);
+	REQUIRE(env.mins[2] == 6 && env.maxs[2] == 8);
+	REQUIRE(env.mins[3] == 9 && env.maxs[3] == 10);
 	std::cout << "  inexact_division_large_remainder: passed\n";
 }
 
