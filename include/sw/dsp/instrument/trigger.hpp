@@ -20,6 +20,10 @@
 //                     and resets the timeout counter.
 //   QualifierAnd    — fires when two triggers both fire within a window
 //   QualifierOr     — fires when either of two triggers fires
+//   CrossChannelTrigger — multi-channel scope-style trigger composing two
+//                     channels via one of seven named modes (OnlyA / OnlyB
+//                     / AandB / AorB / AxorB / AnotB / BnotA), with a
+//                     configurable inter-channel coincidence window.
 //
 // All primitives are parameterized on a single SampleScalar type. Comparisons
 // are precision-sensitive at low signal amplitudes — narrow types may
@@ -404,6 +408,157 @@ public:
 private:
 	TrigA a_;
 	TrigB b_;
+};
+
+// =============================================================================
+// CrossChannelTrigger
+//
+// Multi-channel scope-style trigger: composes two channel triggers via one
+// of seven named modes. Each `process` call takes one synchronized sample
+// from each channel.
+//
+// Modes:
+//   OnlyA  — fire when channel A's inner trigger fires (B is ignored but
+//            still driven so its state stays current)
+//   OnlyB  — symmetric
+//   AandB  — coincidence: fire when both A and B fire within `window` samples
+//            of each other. Both `since_` counters reset to "never" on fire so
+//            the same coincidence can't fire twice.
+//   AorB   — fire when either A or B fires this sample
+//   AxorB  — fire when exactly one of A/B is active in the window: A fires
+//            with no recent B, OR B fires with no recent A. Same-sample
+//            (A and B both fire) does NOT fire (both are "active"). No
+//            counter reset — repeated solo events keep firing.
+//   AnotB  — qualified A: A fires AND B has not fired in the past `window`
+//            samples. (Useful for "trigger on data line edge but not when
+//            clock is high".)
+//   BnotA  — symmetric.
+//
+// `window_samples` is the maximum allowed age (in samples) of a prior
+// fire on the OTHER channel for it to count as "recent". The check is
+// inclusive: `since_other <= window_samples` means "still recent."
+//
+//   window_samples = 0 → only same-sample (both fires must land on the
+//                         same `process()` call, since=0 for both)
+//   window_samples = 1 (default) → admits same-sample AND one-sample-apart
+//   window_samples = N → admits ages 0..N inclusive
+//
+// `window_samples == std::numeric_limits<std::size_t>::max()` is rejected
+// because it collides with the internal "never fired" sentinel (would
+// cause AandB/AnotB/etc. to fire spuriously before any inner trigger has
+// fired). Callers wanting an effectively-unlimited window should use
+// `max() - 1` instead.
+//
+// Sample synchronization: this wrapper assumes channels A and B are sample-
+// aligned (same rate, same time origin). Sub-sample alignment between
+// channels is a separate concern handled by #150 (multi-channel time
+// alignment).
+//
+// The two inner triggers can have different SampleScalar types (e.g.,
+// channel A in float, channel B in fixpnt) — each side is templated
+// independently.
+// =============================================================================
+
+enum class CrossChannelMode {
+	OnlyA,
+	OnlyB,
+	AandB,
+	AorB,
+	AxorB,
+	AnotB,
+	BnotA,
+};
+
+template <class TrigA, class TrigB>
+class CrossChannelTrigger {
+public:
+	using sample_a = typename TrigA::sample_scalar;
+	using sample_b = typename TrigB::sample_scalar;
+
+	CrossChannelTrigger(TrigA a, TrigB b,
+	                    CrossChannelMode mode,
+	                    std::size_t window_samples = 1)
+		: a_(std::move(a)),
+		  b_(std::move(b)),
+		  mode_(mode),
+		  window_(window_samples),
+		  since_a_(kInf),
+		  since_b_(kInf) {
+		// kInf is the internal "never fired" sentinel. If a caller passes
+		// kInf as window_samples, the `since_X <= window_` checks become
+		// trivially true even for the sentinel and AandB/AnotB/etc. would
+		// fire before any inner trigger has fired. Reject explicitly.
+		if (window_samples == kInf)
+			throw std::invalid_argument(
+				"CrossChannelTrigger: window_samples must be < "
+				"std::numeric_limits<std::size_t>::max() "
+				"(use max() - 1 for an effectively-unlimited window)");
+	}
+
+	bool process(sample_a xa, sample_b xb) {
+		// Increment age counters BEFORE running inner triggers, so a fire
+		// this sample lands at since_X = 0.
+		if (since_a_ != kInf && since_a_ < kInf - 1) ++since_a_;
+		if (since_b_ != kInf && since_b_ < kInf - 1) ++since_b_;
+
+		// Drive both inner triggers unconditionally so their state stays
+		// current regardless of which channel the wrapper "cares about".
+		const bool a_fired = a_.process(xa);
+		const bool b_fired = b_.process(xb);
+		if (a_fired) since_a_ = 0;
+		if (b_fired) since_b_ = 0;
+
+		switch (mode_) {
+			case CrossChannelMode::OnlyA: return a_fired;
+			case CrossChannelMode::OnlyB: return b_fired;
+
+			case CrossChannelMode::AandB: {
+				if (since_a_ <= window_ && since_b_ <= window_) {
+					// Coincidence consumed — clear both so the same pair
+					// can't fire repeatedly while both ages are < window.
+					since_a_ = kInf;
+					since_b_ = kInf;
+					return true;
+				}
+				return false;
+			}
+
+			case CrossChannelMode::AorB:
+				return a_fired || b_fired;
+
+			case CrossChannelMode::AxorB: {
+				// "Exactly one is active in the window" — A fires with no
+				// recent B, or B fires with no recent A. Same-sample
+				// firings of both fail both checks (since_other == 0).
+				const bool a_solo = a_fired && (since_b_ > window_);
+				const bool b_solo = b_fired && (since_a_ > window_);
+				return a_solo || b_solo;
+			}
+
+			case CrossChannelMode::AnotB:
+				return a_fired && (since_b_ > window_);
+
+			case CrossChannelMode::BnotA:
+				return b_fired && (since_a_ > window_);
+		}
+		return false;  // unreachable; quiet the compiler on enum coverage
+	}
+
+	void reset() {
+		a_.reset();
+		b_.reset();
+		since_a_ = kInf;
+		since_b_ = kInf;
+	}
+
+private:
+	static constexpr std::size_t kInf = std::numeric_limits<std::size_t>::max();
+	TrigA            a_;
+	TrigB            b_;
+	CrossChannelMode mode_;
+	std::size_t      window_;
+	std::size_t      since_a_;
+	std::size_t      since_b_;
 };
 
 } // namespace sw::dsp::instrument
