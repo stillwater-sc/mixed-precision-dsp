@@ -305,6 +305,19 @@ void test_auto_trigger_real_fire_resets_timer() {
 	std::cout << "  auto_trigger_real_fire_resets_timer: passed\n";
 }
 
+void test_auto_trigger_zero_timeout_throws() {
+	// timeout=0 would force-fire on every sample (since_fire_ becomes 1
+	// after the first increment, which is >= 0). The constructor must
+	// reject it.
+	using Inner = EdgeTrigger<double>;
+	bool threw = false;
+	try {
+		AutoTriggerWrapper<Inner> t(Inner(0.5, Slope::Rising), /*timeout=*/0);
+	} catch (const std::invalid_argument&) { threw = true; }
+	REQUIRE(threw);
+	std::cout << "  auto_trigger_zero_timeout_throws: passed\n";
+}
+
 void test_auto_trigger_reset() {
 	// reset() must clear the timer and reset the inner trigger.
 	using Inner = EdgeTrigger<double>;
@@ -470,6 +483,7 @@ int main() {
 		test_auto_trigger_real_preempts_auto();
 		test_auto_trigger_force_fires_after_timeout();
 		test_auto_trigger_real_fire_resets_timer();
+		test_auto_trigger_zero_timeout_throws();
 		test_auto_trigger_reset();
 		test_qualifier_and_coincidence();
 		test_qualifier_and_within_window();

@@ -283,7 +283,16 @@ public:
 	AutoTriggerWrapper(Inner inner, std::size_t timeout_samples)
 		: inner_(std::move(inner)),
 		  timeout_(timeout_samples),
-		  since_fire_(0) {}
+		  since_fire_(0) {
+		// timeout=0 would force-fire on every sample (since_fire_ becomes
+		// 1 after the first increment, which is >= 0). That's degenerate
+		// and almost certainly a user error; reject it. Use a sufficiently
+		// large value (e.g., std::numeric_limits<std::size_t>::max()) if
+		// effectively-no-timeout behavior is wanted.
+		if (timeout_samples == 0)
+			throw std::invalid_argument(
+				"AutoTriggerWrapper: timeout_samples must be > 0");
+	}
 
 	bool process(sample_scalar x) {
 		// Always drive inner so its state is current.
