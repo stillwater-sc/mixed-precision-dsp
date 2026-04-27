@@ -192,16 +192,30 @@ void test_monotonic_no_falling_edge() {
 void test_invalid_thresholds_throw() {
 	std::vector<double> dummy(10, 0.0);
 	std::span<const double> seg{dummy};
-	bool threw_lo = false, threw_hi = false, threw_eq = false;
+
+	// Rise-time validation
+	bool rise_lo = false, rise_hi = false, rise_eq = false;
 	try { (void)rise_time_samples(seg, -0.1, 0.9); }
-	catch (const std::invalid_argument&) { threw_lo = true; }
+	catch (const std::invalid_argument&) { rise_lo = true; }
 	try { (void)rise_time_samples(seg, 0.1, 1.1); }
-	catch (const std::invalid_argument&) { threw_hi = true; }
+	catch (const std::invalid_argument&) { rise_hi = true; }
 	try { (void)rise_time_samples(seg, 0.5, 0.5); }
-	catch (const std::invalid_argument&) { threw_eq = true; }
-	REQUIRE(threw_lo);
-	REQUIRE(threw_hi);
-	REQUIRE(threw_eq);
+	catch (const std::invalid_argument&) { rise_eq = true; }
+	REQUIRE(rise_lo);
+	REQUIRE(rise_hi);
+	REQUIRE(rise_eq);
+
+	// Fall-time validation: same contract, must throw on the same inputs.
+	bool fall_lo = false, fall_hi = false, fall_eq = false;
+	try { (void)fall_time_samples(seg, -0.1, 0.9); }
+	catch (const std::invalid_argument&) { fall_lo = true; }
+	try { (void)fall_time_samples(seg, 0.1, 1.1); }
+	catch (const std::invalid_argument&) { fall_hi = true; }
+	try { (void)fall_time_samples(seg, 0.5, 0.5); }
+	catch (const std::invalid_argument&) { fall_eq = true; }
+	REQUIRE(fall_lo);
+	REQUIRE(fall_hi);
+	REQUIRE(fall_eq);
 	std::cout << "  invalid_thresholds_throw: passed\n";
 }
 
