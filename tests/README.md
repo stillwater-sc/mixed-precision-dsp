@@ -12,7 +12,7 @@ The hierarchy is set up via `dsp_add_test(test_name folder)` in
 
 ## Hierarchy
 
-```
+```text
 Tests/
 ├── Foundation/                  Cross-cutting type-system tests
 │   ├── test_concepts            DspScalar / DspField / DspOrderedField satisfaction
@@ -121,7 +121,7 @@ The first argument is the source file's stem (the file is expected to be
 the folder by mirroring `include/sw/dsp/`'s module structure. If the new
 test extends an existing module's coverage, drop it in the existing
 folder. If it's a brand new module, create a new top-level folder
-(`Tests/NewModule`) and add a row to the hierarchy table above.
+(`Tests/NewModule`) and add an entry to the hierarchy tree above.
 
 If the test needs additional configuration (compile definitions, data
 files, etc.), the helper's signature stays the same — just add the
