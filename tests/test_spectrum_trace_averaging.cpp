@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <span>
 #include <stdexcept>
@@ -89,10 +90,14 @@ void test_exponential_step_settling() {
 	avg.accept_sweep(std::span<const double>{sweep});
 	REQUIRE(approx(avg.current_trace()[0], STEP, 1e-12));   // first-sweep seed
 
-	// 50 more sweeps at the same value: output stays at STEP.
+	// 50 more sweeps at the same value: output stays at STEP. Tolerance
+	// is loose because the denormal AC injection (alternating +/- 1e-8
+	// per step) introduces small transient ripple even at steady state;
+	// the mean error is zero but the instantaneous error is bounded by
+	// ~1e-7 for alpha = 0.1.
 	for (int k = 0; k < 50; ++k)
 		avg.accept_sweep(std::span<const double>{sweep});
-	REQUIRE(approx(avg.current_trace()[0], STEP, 1e-9));
+	REQUIRE(approx(avg.current_trace()[0], STEP, 1e-6));
 
 	// Now drop the input to 0; after 50 sweeps the output should be
 	// near (1-0.1)^50 * STEP ~= 0.052.
@@ -211,7 +216,7 @@ void test_reset_clears_state() {
 // ============================================================================
 
 void test_construction_validation() {
-	bool t1 = false, t2 = false, t3 = false, t4 = false, t5 = false;
+	bool t1=false, t2=false, t3=false, t4=false, t5=false, t6=false, t7=false;
 
 	try { DA(0, DA::Mode::Linear); }
 	catch (const std::invalid_argument&) { t1 = true; }
@@ -234,6 +239,19 @@ void test_construction_validation() {
 	try { DA(4, DA::Mode::MaxHoldN, 0.0); }
 	catch (const std::invalid_argument&) { t5 = true; }
 	REQUIRE(t5);
+
+	// MaxHoldN: fractional window (would silently truncate via static_cast
+	// without explicit integer-valued validation).
+	try { DA(4, DA::Mode::MaxHoldN, 2.5); }
+	catch (const std::invalid_argument&) { t6 = true; }
+	REQUIRE(t6);
+
+	// MaxHoldN: NaN window (NaN >= 1 is false, so the first check fires;
+	// belt-and-suspenders).
+	try { DA(4, DA::Mode::MaxHoldN,
+	         std::numeric_limits<double>::quiet_NaN()); }
+	catch (const std::invalid_argument&) { t7 = true; }
+	REQUIRE(t7);
 
 	std::cout << "  construction_validation: passed\n";
 }
