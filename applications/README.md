@@ -74,7 +74,7 @@ The first argument is the source file's stem (the file is expected to
 be `my_demo.cpp` in the same directory); the second is the IDE folder
 path. Pick the folder by mirroring the source-module structure. If
 your app is brand-new module, add a top-level folder
-(`Applications/NewModule`) and add a row to the hierarchy table above.
+(`Applications/NewModule`) and add an entry to the hierarchy tree above.
 
 For applications that need additional configuration (compile
 definitions, data files, multiple sources), the helper's signature
