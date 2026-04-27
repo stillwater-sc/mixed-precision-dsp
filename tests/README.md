@@ -44,7 +44,8 @@ Tests/
 ├── Spectrum/                          Spectrum-analyzer-specific primitives
 │   ├── test_spectrum_detectors           Peak / sample / average / RMS / neg-peak
 │   ├── test_spectrum_trace_averaging     Linear / exp / max-hold / min-hold / max-N
-│   └── test_spectrum_markers             find_peaks / harmonic_markers / delta marker
+│   ├── test_spectrum_markers             find_peaks / harmonic_markers / delta marker
+│   └── test_spectrum_vbw_filter          Video-bandwidth (post-detector) LPF
 ├── Conditioning/
 │   ├── test_conditioning        AGC, compressor, envelope detector
 │   ├── test_src                 Rational sample-rate conversion
