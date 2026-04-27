@@ -93,23 +93,33 @@ void test_find_peaks_top_n_smaller_than_available() {
 // ============================================================================
 
 void test_find_peaks_min_separation() {
-	// A "broad peak": three adjacent bins all above the noise floor,
-	// each higher than its further neighbor. Each bin is technically a
-	// local max relative to its immediate neighbors. With
-	// min_separation_bins = 3, only the strongest survives the
-	// greedy-selection step.
+	// Two distinct local maxima within min_separation_bins of each
+	// other. is_local_max requires strict > on both neighbors, so the
+	// previous version of this test (which had only one local max in
+	// the 10..12 region) didn't actually exercise the suppression
+	// logic. New layout:
+	//
+	//   bin 9  = 4 (local max: > -50 floor on left, > 0 on right)
+	//   bin 10 = 0 (valley, not a peak)
+	//   bin 11 = 5 (local max AND stronger than bin 9)
+	//   bin 12 = 0 (valley)
+	//
+	// Both 9 and 11 are local maxes. Greedy selects bin 11 first
+	// (stronger amplitude); bin 9 is then 2 bins away — within the
+	// min_separation_bins=3 window — and gets suppressed.
 	std::array<double, 32> trace;
 	trace.fill(-50.0);
-	trace[10] = 0.0;     // peak
-	trace[11] = 5.0;     // higher peak (this should win)
+	trace[9]  = 4.0;
+	trace[10] = 0.0;
+	trace[11] = 5.0;
 	trace[12] = 0.0;
-	// Place a second well-separated peak at bin 25.
+	// Well-separated second peak.
 	trace[25] = 3.0;
 
 	auto peaks = find_peaks(std::span<const double>{trace}, 100.0,
 	                         /*top_n=*/4, /*min_separation_bins=*/3);
-	// Within bins 10-12 only one peak survives (bin 11, the strongest);
-	// the well-separated peak at 25 also returns. So 2 markers total.
+	// Result: bin 11 (strongest, picked first) suppresses bin 9; bin 25
+	// is well clear and also returned. Total = 2 markers.
 	REQUIRE(peaks.size() == 2);
 	REQUIRE(peaks[0].bin_index == 11);
 	REQUIRE(peaks[1].bin_index == 25);
