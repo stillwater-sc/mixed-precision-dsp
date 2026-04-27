@@ -7,9 +7,9 @@
 namespace sw::dsp {
 
 constexpr int version_major = 0;
-constexpr int version_minor = 5;
+constexpr int version_minor = 6;
 constexpr int version_patch = 0;
 
-constexpr const char* version_string = "0.5.0";
+constexpr const char* version_string = "0.6.0";
 
 } // namespace sw::dsp
