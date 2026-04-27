@@ -41,9 +41,10 @@ Tests/
 │   ├── test_fft
 │   ├── test_spectral            Z-transform, Laplace, PSD, spectrogram
 │   └── test_bluestein           Chirp-z arbitrary-length DFT
-├── Spectrum/                       Spectrum-analyzer-specific primitives
-│   ├── test_spectrum_detectors        Peak / sample / average / RMS / neg-peak
-│   └── test_spectrum_trace_averaging  Linear / exp / max-hold / min-hold / max-N
+├── Spectrum/                          Spectrum-analyzer-specific primitives
+│   ├── test_spectrum_detectors           Peak / sample / average / RMS / neg-peak
+│   ├── test_spectrum_trace_averaging     Linear / exp / max-hold / min-hold / max-N
+│   └── test_spectrum_markers             find_peaks / harmonic_markers / delta marker
 ├── Conditioning/
 │   ├── test_conditioning        AGC, compressor, envelope detector
 │   ├── test_src                 Rational sample-rate conversion
