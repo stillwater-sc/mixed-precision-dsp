@@ -42,16 +42,23 @@ if(universal_FOUND)
 	message(STATUS "Found Universal via find_package")
 else()
 	message(STATUS "Universal not found via find_package, fetching headers from GitHub")
+	# Header-only consumption: we want to fetch the source tree but NOT
+	# call add_subdirectory on Universal's CMakeLists.txt (which would
+	# build its tests, examples, and other targets we don't need).
+	#
+	# The classic idiom for this — FetchContent_GetProperties + manual
+	# FetchContent_Populate — is deprecated as of CMake 3.30 (CMP0169).
+	# The forward-compatible pattern is FetchContent_MakeAvailable with
+	# SOURCE_SUBDIR pointing at a non-existent subdirectory: MakeAvailable
+	# only calls add_subdirectory when the subdir contains a CMakeLists.txt,
+	# so a path that doesn't exist gives us populate-without-build.
 	FetchContent_Declare(universal
 		GIT_REPOSITORY https://github.com/stillwater-sc/universal.git
 		GIT_TAG        v4.6.10
 		GIT_SHALLOW    TRUE
+		SOURCE_SUBDIR  _do_not_build_
 	)
-	# Header-only: fetch source but do NOT add_subdirectory (avoids building Universal's targets)
-	FetchContent_GetProperties(universal)
-	if(NOT universal_POPULATED)
-		FetchContent_Populate(universal)
-	endif()
+	FetchContent_MakeAvailable(universal)
 	# Universal headers use two include conventions:
 	#   - External: #include <sw/universal/...>  (needs include/)
 	#   - Internal: #include <universal/...>     (needs include/sw/)
@@ -67,16 +74,14 @@ if(MTL5_FOUND)
 	message(STATUS "Found MTL5 via find_package")
 else()
 	message(STATUS "MTL5 not found via find_package, fetching headers from GitHub")
+	# Same SOURCE_SUBDIR-doesn't-exist pattern as Universal above.
 	FetchContent_Declare(mtl5
 		GIT_REPOSITORY https://github.com/stillwater-sc/mtl5.git
 		GIT_TAG        main
 		GIT_SHALLOW    TRUE
+		SOURCE_SUBDIR  _do_not_build_
 	)
-	# Header-only: fetch source but do NOT add_subdirectory (avoids building MTL5's targets)
-	FetchContent_GetProperties(mtl5)
-	if(NOT mtl5_POPULATED)
-		FetchContent_Populate(mtl5)
-	endif()
+	FetchContent_MakeAvailable(mtl5)
 	target_include_directories(${PROJECT_NAME} INTERFACE
 		$<BUILD_INTERFACE:${mtl5_SOURCE_DIR}/include>)
 endif()
