@@ -60,6 +60,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <span>
 #include <string>
@@ -198,16 +199,27 @@ struct ConfigResult {
 	std::string state_type;
 	std::string sample_type;
 
-	// Headline metrics
-	bool        glitch_survived = false;
-	double      glitch_peak_observed = 0.0;
-	double      rise_time_samples    = 0.0;
-	double      rise_time_expected   = 0.0;
-	double      rms                  = 0.0;
-	double      mean                 = 0.0;
-	double      period_samples       = 0.0;
-	double      frequency_hz         = 0.0;
-	double      output_snr_db        = 0.0;   // vs uniform_double reference
+	// Headline metrics. Numeric fields default to NaN so a config that
+	// fails to capture (no trigger fired in the input window) prints as
+	// "not available" rather than as a column of zeros that look like
+	// legitimate measurements.
+	bool        glitch_survived      = false;
+	double      glitch_peak_observed =
+		std::numeric_limits<double>::quiet_NaN();
+	double      rise_time_samples    =
+		std::numeric_limits<double>::quiet_NaN();
+	double      rise_time_expected   =
+		std::numeric_limits<double>::quiet_NaN();
+	double      rms                  =
+		std::numeric_limits<double>::quiet_NaN();
+	double      mean                 =
+		std::numeric_limits<double>::quiet_NaN();
+	double      period_samples       =
+		std::numeric_limits<double>::quiet_NaN();
+	double      frequency_hz         =
+		std::numeric_limits<double>::quiet_NaN();
+	double      output_snr_db        =
+		std::numeric_limits<double>::quiet_NaN();
 	std::size_t captured_length      = 0;
 
 	StageTimingsNs timings;
@@ -390,7 +402,7 @@ double snr_db_against_reference(const ConfigResult& test,
 // ============================================================================
 
 void write_csv(const std::string& path,
-               const std::vector<ConfigResult>& results) {
+               std::span<const ConfigResult> results) {
 	std::ofstream out(path);
 	if (!out) {
 		std::cerr << "warn: could not open '" << path << "' for write\n";
@@ -443,17 +455,21 @@ void print_summary_header() {
 void print_summary_row(const ConfigResult& r) {
 	std::cout << std::left  << std::setw(18) << r.config_name
 	          << std::right << std::setw(10) << (r.glitch_survived ? "PASS" : "fail")
-	          << std::right << std::setw(12) << std::fixed
-	          << std::setprecision(3) << r.glitch_peak_observed
-	          << std::right << std::setw(12);
-	if (std::isnan(r.rise_time_samples)) std::cout << "NaN";
-	else std::cout << std::setprecision(2) << r.rise_time_samples;
-	std::cout << std::right << std::setw(10) << std::setprecision(3) << r.rms
-	          << std::right << std::setw(12);
-	if (std::isnan(r.frequency_hz)) std::cout << "NaN";
-	else std::cout << std::setprecision(3) << r.frequency_hz / 1e6;
-	std::cout << std::right << std::setw(12) << std::setprecision(2) << r.output_snr_db
-	          << "\n";
+	          << std::right << std::setw(12) << std::fixed;
+	auto print_or_nan = [](double v, int prec, double scale = 1.0) {
+		if (std::isnan(v)) std::cout << "NaN";
+		else std::cout << std::setprecision(prec) << (v * scale);
+	};
+	print_or_nan(r.glitch_peak_observed, 3);
+	std::cout << std::right << std::setw(12);
+	print_or_nan(r.rise_time_samples, 2);
+	std::cout << std::right << std::setw(10);
+	print_or_nan(r.rms, 3);
+	std::cout << std::right << std::setw(12);
+	print_or_nan(r.frequency_hz, 3, 1.0 / 1e6);
+	std::cout << std::right << std::setw(12);
+	print_or_nan(r.output_snr_db, 2);
+	std::cout << "\n";
 }
 
 // ============================================================================
@@ -538,13 +554,14 @@ int main(int argc, char** argv) try {
 	const auto adc = simulate_adc();
 
 	// Run the six configurations.
-	std::vector<ConfigResult> results;
-	results.push_back(run_pipeline<double>(adc, "uniform_double"));
-	results.push_back(run_pipeline<float>(adc,  "uniform_float"));
-	results.push_back(run_pipeline<p32>(adc,    "uniform_posit32"));
-	results.push_back(run_pipeline<p16>(adc,    "uniform_posit16"));
-	results.push_back(run_pipeline<cf32>(adc,   "uniform_cfloat32"));
-	results.push_back(run_pipeline<fx32>(adc,   "uniform_fixpnt"));
+	std::array<ConfigResult, 6> results{{
+		run_pipeline<double>(adc, "uniform_double"),
+		run_pipeline<float>(adc,  "uniform_float"),
+		run_pipeline<p32>(adc,    "uniform_posit32"),
+		run_pipeline<p16>(adc,    "uniform_posit16"),
+		run_pipeline<cf32>(adc,   "uniform_cfloat32"),
+		run_pipeline<fx32>(adc,   "uniform_fixpnt"),
+	}};
 
 	// SNR vs uniform_double reference (results[0]).
 	for (auto& r : results) {
