@@ -89,6 +89,7 @@ dsp_add_test(test_instrument_peak_detect       "Tests/Instrument")
 dsp_add_test(test_instrument_display_envelope  "Tests/Instrument")
 dsp_add_test(test_instrument_fractional_delay  "Tests/Instrument")
 dsp_add_test(test_instrument_channel_aligner   "Tests/Instrument")
+dsp_add_test(test_instrument_measurements      "Tests/Instrument")
 
 # =============================================================================
 # Analysis — stability, sensitivity, condition number, and per-pipeline
