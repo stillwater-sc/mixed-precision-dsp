@@ -102,7 +102,12 @@ public:
 				"TraceAverager: trace_length must be > 0");
 		switch (mode_) {
 			case Mode::Linear:
-				sum_.assign(trace_length, 0.0);
+				// dense_vector doesn't support .resize() / .assign(),
+				// so size is fixed at construction. Default-constructed
+				// sum_ is zero-sized; assign a properly-sized instance
+				// here. Other modes leave sum_ at size zero (it's
+				// never read for them).
+				sum_ = mtl::vec::dense_vector<double>(trace_length);
 				break;
 			case Mode::Exponential:
 				if (!(config > 0.0 && config <= 1.0))
@@ -263,6 +268,12 @@ private:
 		// Ring buffer entries don't need explicit zeroing because the
 		// `valid` bound in MaxHoldN's accept_sweep keeps the read
 		// confined to written entries.
+		// denormal_'s alternating-sign tracker keeps state across
+		// accept_sweep calls; reset() is supposed to return us to
+		// fresh-construction state, so reseed denormal_ as well.
+		// Otherwise a fresh and a reset averager would diverge by the
+		// 1e-8 AC sign on the first Exponential update after reset.
+		denormal_ = DenormalPrevention<SampleScalar>{};
 	}
 
 	std::size_t trace_length_;
@@ -272,8 +283,8 @@ private:
 	std::size_t sweeps_   = 0;
 	std::size_t ring_pos_ = 0;       // MaxHoldN write head
 
-	mtl::vec::dense_vector<SampleScalar>            current_;
-	std::vector<double>                              sum_;       // Linear
+	mtl::vec::dense_vector<SampleScalar>             current_;
+	mtl::vec::dense_vector<double>                   sum_;       // Linear
 	std::vector<mtl::vec::dense_vector<SampleScalar>> ring_;     // MaxHoldN
 	DenormalPrevention<SampleScalar>                 denormal_;  // Exponential IIR
 };
