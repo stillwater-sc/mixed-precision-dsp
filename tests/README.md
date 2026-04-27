@@ -37,10 +37,12 @@ Tests/
 │   │   └── test_remez           Parks-McClellan equiripple
 │   └── Generic/                 Design-agnostic filter operations (see below)
 │       └── test_filtfilt        Zero-phase forward-backward filtering
-├── Spectral/
+├── Spectral/                    General DSP transforms (FFT, PSD, etc.)
 │   ├── test_fft
 │   ├── test_spectral            Z-transform, Laplace, PSD, spectrogram
 │   └── test_bluestein           Chirp-z arbitrary-length DFT
+├── Spectrum/                    Spectrum-analyzer-specific primitives
+│   └── test_spectrum_detectors  Peak / sample / average / RMS / neg-peak
 ├── Conditioning/
 │   ├── test_conditioning        AGC, compressor, envelope detector
 │   ├── test_src                 Rational sample-rate conversion

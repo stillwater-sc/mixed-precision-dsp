@@ -55,11 +55,20 @@ dsp_add_test(test_remez           "Tests/Filter/FIR")
 dsp_add_test(test_filtfilt        "Tests/Filter/Generic")
 
 # =============================================================================
-# Spectral
+# Spectral — general spectral analysis (FFT, PSD, spectrogram)
 # =============================================================================
 dsp_add_test(test_fft             "Tests/Spectral")
 dsp_add_test(test_spectral        "Tests/Spectral")
 dsp_add_test(test_bluestein       "Tests/Spectral")
+
+# =============================================================================
+# Spectrum — spectrum-analyzer-specific primitives (detectors, RBW, VBW,
+# swept LO, real-time spectrum, spectrogram buffer). See Epic #134.
+# Note: distinct from Spectral above (Spectral = general DSP transforms;
+# Spectrum = analyzer-specific stages between those transforms and the
+# trace memory).
+# =============================================================================
+dsp_add_test(test_spectrum_detectors "Tests/Spectrum")
 
 # =============================================================================
 # Conditioning — AGC, compressor, envelope, sample-rate conversion, noise shaping
