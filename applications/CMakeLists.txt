@@ -47,5 +47,8 @@ add_subdirectory(fft_tradeoff)
 # Acquisition pipeline demo (Issue #93)
 add_subdirectory(acquisition_demo)
 
+# Scope demonstrator (Issue #152) — capstone for #133
+add_subdirectory(scope_demo)
+
 # Phase 8: Signal conditioning (placeholder, not yet implemented)
 # add_subdirectory(conditioning_demo)
