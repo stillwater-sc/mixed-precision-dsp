@@ -147,19 +147,25 @@ template <DspOrderedField T>
 	if (trace.empty() || top_n == 0) return {};
 
 	// Step 1: collect (bin_index, amplitude) pairs for every local max.
-	struct Candidate { std::size_t bin; double amp; };
+	// Amplitude stored in T (not double) so the sort below preserves
+	// the mixed-precision ordering that DspOrderedField promises — same
+	// rationale as detect_peak / detect_negative_peak in detectors.hpp
+	// and min_max_double in instrument/measurements.hpp.
+	struct Candidate { std::size_t bin; T amp; };
 	std::vector<Candidate> candidates;
 	candidates.reserve(trace.size() / 4 + 4);   // rough upper bound
 	for (std::size_t i = 0; i < trace.size(); ++i) {
 		if (detail::is_local_max(trace, i))
-			candidates.push_back({i, static_cast<double>(trace[i])});
+			candidates.push_back({i, trace[i]});
 	}
 
-	// Step 2: sort by amplitude descending. Use a stable order on ties
-	// (lower bin first) so the result is deterministic.
+	// Step 2: sort by amplitude descending. Comparison is in T (per
+	// DspOrderedField); ties broken by lower bin first for determinism.
+	// Use only `>` so we don't require T to support `!=`.
 	std::sort(candidates.begin(), candidates.end(),
 	          [](const Candidate& a, const Candidate& b) {
-	              if (a.amp != b.amp) return a.amp > b.amp;
+	              if (a.amp > b.amp) return true;
+	              if (b.amp > a.amp) return false;
 	              return a.bin < b.bin;
 	          });
 
@@ -177,15 +183,18 @@ template <DspOrderedField T>
 		}
 		if (too_close) continue;
 
-		// Sub-bin parabolic interpolation. Skip for edge bins.
+		// Sub-bin parabolic interpolation. Skip for edge bins. The
+		// parabolic fit is a numerical operation that benefits from
+		// double accumulation regardless of T, so we cast at the
+		// boundary (same pattern as the Marker.amplitude output).
 		Marker m;
 		m.bin_index = c.bin;
-		m.amplitude = c.amp;
+		m.amplitude = static_cast<double>(c.amp);
 		double offset = 0.0;
 		if (c.bin > 0 && c.bin + 1 < trace.size()) {
 			offset = detail::parabolic_offset(
 				static_cast<double>(trace[c.bin - 1]),
-				c.amp,
+				static_cast<double>(c.amp),
 				static_cast<double>(trace[c.bin + 1]));
 		}
 		m.frequency_hz = (static_cast<double>(c.bin) + offset) * bin_freq_step_hz;
