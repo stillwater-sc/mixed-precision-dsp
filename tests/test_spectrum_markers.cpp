@@ -252,6 +252,31 @@ void test_harmonic_markers_rounding() {
 	std::cout << "  harmonic_markers_rounding: passed\n";
 }
 
+void test_harmonic_markers_overflow_safe() {
+	// Pathological inputs that would, without the pre-cast range guard,
+	// invoke implementation-defined behavior when casting an enormous
+	// double to std::size_t. fundamental_hz near double's upper edge
+	// drives target_bin_d to +inf at k=2; the loop must break cleanly
+	// without a wrapped or trap-representation cast.
+	std::array<double, 8> trace;
+	trace.fill(0.0);
+	auto h_inf = harmonic_markers(std::span<const double>{trace},
+	                               /*step=*/1.0,
+	                               /*fundamental=*/1e308,
+	                               /*harmonics=*/5);
+	REQUIRE(h_inf.empty());
+
+	// Huge but finite k. With harmonics = 1000 and a fundamental that
+	// puts the 2nd harmonic well past trace.size(), the loop should
+	// break on the very first iteration. No crash, no garbage markers.
+	auto h_big = harmonic_markers(std::span<const double>{trace},
+	                               /*step=*/1.0,
+	                               /*fundamental=*/100.0,    // 2nd at bin 200
+	                               /*harmonics=*/1000);
+	REQUIRE(h_big.empty());
+	std::cout << "  harmonic_markers_overflow_safe: passed\n";
+}
+
 // ============================================================================
 // make_delta_marker
 // ============================================================================
@@ -328,6 +353,7 @@ int main() {
 		test_harmonic_markers_basic();
 		test_harmonic_markers_out_of_range_truncates();
 		test_harmonic_markers_rounding();
+		test_harmonic_markers_overflow_safe();
 
 		test_make_delta_marker();
 		test_validation();

@@ -246,12 +246,20 @@ template <DspOrderedField T>
 		const std::size_t k = i + 2;
 		const double target_freq = static_cast<double>(k) * fundamental_hz;
 		const double target_bin_d = target_freq / bin_freq_step_hz;
-		// Round to nearest. std::lround would also work; using
-		// floor(x + 0.5) avoids platform-specific banker's rounding.
-		const std::size_t target_bin =
-			static_cast<std::size_t>(std::floor(target_bin_d + 0.5));
-		if (target_bin >= trace.size()) break;   // remaining harmonics out of range
+		// Round to nearest in double. std::lround would also work;
+		// using floor(x + 0.5) avoids platform-specific banker's
+		// rounding.
+		const double rounded = std::floor(target_bin_d + 0.5);
+		// Guard the size_t cast: casting a non-finite or out-of-range
+		// double to size_t is implementation-defined (or UB on some
+		// platforms). For huge harmonics counts (k near SIZE_MAX),
+		// target_bin_d can be a finite-but-enormous double that the
+		// cast would silently wrap. Range-check in double space first.
+		if (!std::isfinite(rounded) || rounded < 0.0 ||
+		    rounded >= static_cast<double>(trace.size()))
+			break;   // remaining harmonics out of range
 
+		const std::size_t target_bin = static_cast<std::size_t>(rounded);
 		Marker m;
 		m.bin_index    = target_bin;
 		m.frequency_hz = static_cast<double>(target_bin) * bin_freq_step_hz;
