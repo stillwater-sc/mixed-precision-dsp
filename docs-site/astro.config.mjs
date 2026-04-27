@@ -61,6 +61,10 @@ export default defineConfig({
           autogenerate: { directory: 'acquisition' },
         },
         {
+          label: 'Instrument Data Acquisition',
+          autogenerate: { directory: 'instrument' },
+        },
+        {
           label: 'Analysis',
           autogenerate: { directory: 'analysis' },
         },
