@@ -35,6 +35,37 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 # then fall back to FetchContent from GitHub (headers only).
 include(FetchContent)
 
+# Helper: fetch a header-only dependency from GitHub WITHOUT calling
+# add_subdirectory on its CMakeLists.txt (which would build its tests,
+# examples, and other targets we don't need).
+#
+# The classic idiom — FetchContent_GetProperties + manual
+# FetchContent_Populate — is deprecated as of CMake 3.30 (CMP0169).
+# The forward-compatible replacement is FetchContent_MakeAvailable with
+# SOURCE_SUBDIR pointing at a non-existent subdirectory: MakeAvailable
+# only calls add_subdirectory when the subdir contains a CMakeLists.txt,
+# so a path that doesn't exist gives us populate-without-build.
+#
+# Implemented as a macro (not function) so the `<name>_SOURCE_DIR`
+# variable that FetchContent_MakeAvailable sets ends up in the caller's
+# scope where the subsequent target_include_directories() can read it.
+# CMake functions introduce their own scope, which would swallow the
+# variable assignment. Universal's compile_all() macro uses the same
+# trick (and same rationale).
+#
+# Caller is responsible for setting up include directories from the
+# resulting <name>_SOURCE_DIR, since each dep has its own include-path
+# layout.
+macro(dsp_fetch_headers_only dep_name dep_repo dep_tag)
+	FetchContent_Declare(${dep_name}
+		GIT_REPOSITORY ${dep_repo}
+		GIT_TAG        ${dep_tag}
+		GIT_SHALLOW    TRUE
+		SOURCE_SUBDIR  _do_not_build_
+	)
+	FetchContent_MakeAvailable(${dep_name})
+endmacro()
+
 # Universal number arithmetic library (header-only)
 find_package(universal CONFIG QUIET)
 if(universal_FOUND)
@@ -42,23 +73,9 @@ if(universal_FOUND)
 	message(STATUS "Found Universal via find_package")
 else()
 	message(STATUS "Universal not found via find_package, fetching headers from GitHub")
-	# Header-only consumption: we want to fetch the source tree but NOT
-	# call add_subdirectory on Universal's CMakeLists.txt (which would
-	# build its tests, examples, and other targets we don't need).
-	#
-	# The classic idiom for this — FetchContent_GetProperties + manual
-	# FetchContent_Populate — is deprecated as of CMake 3.30 (CMP0169).
-	# The forward-compatible pattern is FetchContent_MakeAvailable with
-	# SOURCE_SUBDIR pointing at a non-existent subdirectory: MakeAvailable
-	# only calls add_subdirectory when the subdir contains a CMakeLists.txt,
-	# so a path that doesn't exist gives us populate-without-build.
-	FetchContent_Declare(universal
-		GIT_REPOSITORY https://github.com/stillwater-sc/universal.git
-		GIT_TAG        v4.6.10
-		GIT_SHALLOW    TRUE
-		SOURCE_SUBDIR  _do_not_build_
-	)
-	FetchContent_MakeAvailable(universal)
+	dsp_fetch_headers_only(universal
+		https://github.com/stillwater-sc/universal.git
+		v4.6.10)
 	# Universal headers use two include conventions:
 	#   - External: #include <sw/universal/...>  (needs include/)
 	#   - Internal: #include <universal/...>     (needs include/sw/)
@@ -74,14 +91,9 @@ if(MTL5_FOUND)
 	message(STATUS "Found MTL5 via find_package")
 else()
 	message(STATUS "MTL5 not found via find_package, fetching headers from GitHub")
-	# Same SOURCE_SUBDIR-doesn't-exist pattern as Universal above.
-	FetchContent_Declare(mtl5
-		GIT_REPOSITORY https://github.com/stillwater-sc/mtl5.git
-		GIT_TAG        main
-		GIT_SHALLOW    TRUE
-		SOURCE_SUBDIR  _do_not_build_
-	)
-	FetchContent_MakeAvailable(mtl5)
+	dsp_fetch_headers_only(mtl5
+		https://github.com/stillwater-sc/mtl5.git
+		main)
 	target_include_directories(${PROJECT_NAME} INTERFACE
 		$<BUILD_INTERFACE:${mtl5_SOURCE_DIR}/include>)
 endif()
