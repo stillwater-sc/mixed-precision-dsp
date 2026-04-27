@@ -56,7 +56,9 @@ Tests/
 │   ├── test_instrument_ring_buffer       Pre/post-trigger capture
 │   ├── test_instrument_calibration       Profile + equalizer FIR
 │   ├── test_instrument_peak_detect       Min/max decimation
-│   └── test_instrument_display_envelope  Pixel-rate envelope
+│   ├── test_instrument_display_envelope  Pixel-rate envelope
+│   ├── test_instrument_fractional_delay  Sub-sample windowed-sinc FIR delay
+│   └── test_instrument_channel_aligner   Multi-channel time alignment
 ├── Analysis/                    Stability, sensitivity, precision analysis
 │   ├── test_analysis            Pole-zero / sensitivity / condition number
 │   └── test_acquisition_precision  SNR/ENOB/SFDR/CIC bit-growth (acq-pipeline-specific)

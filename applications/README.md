@@ -14,7 +14,7 @@ visible to all sub-CMakeLists.txt files.
 
 ## Hierarchy
 
-```
+```text
 Applications/
 ├── Filter/                     IIR / FIR filter demonstrators
 │   ├── butterworth_lowpass     IIR design + biquad cascade application
