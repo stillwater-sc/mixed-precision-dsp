@@ -7,13 +7,20 @@
 // a double scalar — same one-shot contract as a scope's measurement
 // readout.
 //
-// Mixed-precision contract: aggregations (sum, sum-of-squares, min/max,
-// threshold-crossing interpolation) run in double internally regardless
-// of SampleScalar. For narrow streaming types this preserves measurement
-// accuracy without forcing the caller to widen their sample buffer.
-// Returning double matches the precision concerns of the spectrum-
-// analyzer RMS detector (#134) and the analysis primitives in
-// sw/dsp/analysis/.
+// Mixed-precision contract:
+//   - Additive math (sum, sum-of-squares, threshold-crossing
+//     interpolation) accumulates in double regardless of SampleScalar.
+//     For narrow streaming types this preserves measurement accuracy
+//     without forcing the caller to widen their sample buffer.
+//   - Ordering-based reductions (min, max) compare in SampleScalar
+//     (per DspOrderedField) and cast the final extrema to double on
+//     return. Comparing in SampleScalar avoids any theoretical
+//     ordering collapse on types whose cast-to-double isn't strictly
+//     monotone, while keeping the public return type uniform.
+//
+// Returning double across the board matches the precision concerns of
+// the spectrum-analyzer RMS detector (#134) and the analysis
+// primitives in sw/dsp/analysis/.
 //
 // Edge-case convention:
 //   - Empty segment       -> throw std::invalid_argument

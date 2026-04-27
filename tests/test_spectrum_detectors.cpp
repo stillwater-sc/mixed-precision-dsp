@@ -101,6 +101,7 @@ void test_constant_negative_bin() {
 	std::span<const double> bin{flat};
 	REQUIRE(approx(detect_peak(bin),         -2.0, 1e-12));
 	REQUIRE(approx(detect_negative_peak(bin), -2.0, 1e-12));
+	REQUIRE(approx(detect_sample(bin),       -2.0, 1e-12));
 	REQUIRE(approx(detect_average(bin),       -2.0, 1e-12));
 	REQUIRE(approx(detect_rms(bin),            2.0, 1e-12));   // |-2| = 2
 	std::cout << "  constant_negative_bin: passed (RMS = " << detect_rms(bin) << ")\n";
@@ -160,6 +161,19 @@ void test_dispatcher_matches_named() {
 	std::cout << "  dispatcher_matches_named: passed\n";
 }
 
+void test_dispatcher_invalid_mode_throws() {
+	// detect()'s switch covers all five enumerators; the trailing throw
+	// is a defense against a corrupted-mode bug. Lock that contract in
+	// by feeding a value that isn't any of the five.
+	std::array<double, 1> one = {0.0};
+	std::span<const double> b{one};
+	bool threw = false;
+	try { (void)detect(b, static_cast<DetectorMode>(999)); }
+	catch (const std::invalid_argument&) { threw = true; }
+	REQUIRE(threw);
+	std::cout << "  dispatcher_invalid_mode_throws: passed\n";
+}
+
 // ============================================================================
 // Mixed-precision sanity: float input
 // ============================================================================
@@ -196,6 +210,7 @@ int main() {
 		test_empty_span_throws();
 		test_single_sample();
 		test_dispatcher_matches_named();
+		test_dispatcher_invalid_mode_throws();
 
 		test_float_input();
 
