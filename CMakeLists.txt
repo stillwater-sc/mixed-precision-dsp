@@ -86,7 +86,10 @@ else()
 	# Universal headers use two include conventions:
 	#   - External: #include <sw/universal/...>  (needs include/)
 	#   - Internal: #include <universal/...>     (needs include/sw/)
-	target_include_directories(${PROJECT_NAME} INTERFACE
+	# SYSTEM suppresses upstream warnings (MSVC C4244 narrowing in
+	# posit_impl.hpp, etc.) — those are upstream's responsibility, not
+	# ours, and they drown out our own diagnostics in MSVC build logs.
+	target_include_directories(${PROJECT_NAME} SYSTEM INTERFACE
 		$<BUILD_INTERFACE:${universal_SOURCE_DIR}/include>
 		$<BUILD_INTERFACE:${universal_SOURCE_DIR}/include/sw>)
 endif()
@@ -106,7 +109,8 @@ else()
 	dsp_fetch_headers_only(mtl5
 		https://github.com/stillwater-sc/mtl5.git
 		main)
-	target_include_directories(${PROJECT_NAME} INTERFACE
+	# SYSTEM: see Universal block above for rationale.
+	target_include_directories(${PROJECT_NAME} SYSTEM INTERFACE
 		$<BUILD_INTERFACE:${mtl5_SOURCE_DIR}/include>)
 endif()
 
