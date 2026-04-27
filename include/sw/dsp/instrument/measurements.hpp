@@ -37,6 +37,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <sw/dsp/concepts/scalar.hpp>
 
 namespace sw::dsp::instrument {
@@ -53,11 +54,30 @@ inline void require_nonempty(std::span<const T> segment, const char* fn) {
 // Linear interpolation: given x[i] = a, x[i+1] = b, find the fractional
 // offset within sample i where the signal crosses `threshold`. Returns
 // a value in [0, 1]. Caller adds `i` to get the absolute crossing time.
+//
+// Exact-zero guard (not <epsilon): subnormals are still legitimate
+// non-zero denominators that yield a finite, well-defined fractional
+// crossing. We only short-circuit when a == b literally — that is the
+// case where the interpolation is undefined.
 inline double interp_crossing(double a, double b, double threshold) {
 	const double denom = b - a;
-	if (std::abs(denom) < std::numeric_limits<double>::min())
+	if (denom == 0.0)
 		return 0.0;   // degenerate: a == b == threshold; pick the left edge
 	return (threshold - a) / denom;
+}
+
+// Single-pass min/max over a span, accumulating in double regardless of
+// SampleScalar precision. Caller must ensure the segment is non-empty.
+template <typename T>
+inline std::pair<double, double> min_max_double(std::span<const T> segment) {
+	double lo = static_cast<double>(segment[0]);
+	double hi = lo;
+	for (std::size_t i = 1; i < segment.size(); ++i) {
+		const double v = static_cast<double>(segment[i]);
+		if (v < lo) lo = v;
+		if (v > hi) hi = v;
+	}
+	return {lo, hi};
 }
 
 } // namespace detail
@@ -70,13 +90,7 @@ template <DspOrderedField T>
 	requires ConvertibleToDouble<T>
 [[nodiscard]] double peak_to_peak(std::span<const T> segment) {
 	detail::require_nonempty(segment, "peak_to_peak");
-	double lo = static_cast<double>(segment[0]);
-	double hi = lo;
-	for (std::size_t i = 1; i < segment.size(); ++i) {
-		const double v = static_cast<double>(segment[i]);
-		if (v < lo) lo = v;
-		if (v > hi) hi = v;
-	}
+	const auto [lo, hi] = detail::min_max_double(segment);
 	return hi - lo;
 }
 
@@ -131,13 +145,7 @@ template <DspOrderedField T>
 	if (segment.size() < 2)
 		return std::numeric_limits<double>::quiet_NaN();
 
-	double lo = static_cast<double>(segment[0]);
-	double hi = lo;
-	for (std::size_t i = 1; i < segment.size(); ++i) {
-		const double v = static_cast<double>(segment[i]);
-		if (v < lo) lo = v;
-		if (v > hi) hi = v;
-	}
+	const auto [lo, hi] = detail::min_max_double(segment);
 	const double range = hi - lo;
 	if (range <= 0.0)
 		return std::numeric_limits<double>::quiet_NaN();
@@ -184,13 +192,7 @@ template <DspOrderedField T>
 	if (segment.size() < 2)
 		return std::numeric_limits<double>::quiet_NaN();
 
-	double lo = static_cast<double>(segment[0]);
-	double hi = lo;
-	for (std::size_t i = 1; i < segment.size(); ++i) {
-		const double v = static_cast<double>(segment[i]);
-		if (v < lo) lo = v;
-		if (v > hi) hi = v;
-	}
+	const auto [lo, hi] = detail::min_max_double(segment);
 	const double range = hi - lo;
 	if (range <= 0.0)
 		return std::numeric_limits<double>::quiet_NaN();
