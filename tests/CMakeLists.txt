@@ -68,7 +68,8 @@ dsp_add_test(test_bluestein       "Tests/Spectral")
 # Spectrum = analyzer-specific stages between those transforms and the
 # trace memory).
 # =============================================================================
-dsp_add_test(test_spectrum_detectors "Tests/Spectrum")
+dsp_add_test(test_spectrum_detectors        "Tests/Spectrum")
+dsp_add_test(test_spectrum_trace_averaging  "Tests/Spectrum")
 
 # =============================================================================
 # Conditioning — AGC, compressor, envelope, sample-rate conversion, noise shaping
