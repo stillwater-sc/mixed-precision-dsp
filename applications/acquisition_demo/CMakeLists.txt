@@ -1,2 +1,1 @@
-add_executable(acquisition_demo acquisition_demo.cpp)
-target_link_libraries(acquisition_demo PRIVATE sw::dsp)
+dsp_add_application(acquisition_demo "Applications/SDR")

@@ -1,127 +1,110 @@
 include(CTest)
 
-# Helper function to create test executables
-function(dsp_add_test test_name)
+# Helper: create a test executable, place it under a Visual Studio
+# folder (mirroring the include/sw/dsp/ module layout), and register
+# it with ctest. The `folder` argument is a "/"-separated path the
+# IDE displays in its Solution Explorer; Makefile / Ninja generators
+# ignore the FOLDER target property so this is a no-op for them.
+#
+# Modeled after Universal's compile_all() macro, simplified for our
+# 1-test-per-source-file convention. See README.md in this directory
+# for the test-folder hierarchy and rationale.
+function(dsp_add_test test_name folder)
 	add_executable(${test_name} ${test_name}.cpp)
 	target_link_libraries(${test_name} PRIVATE sw::dsp)
+	set_target_properties(${test_name} PROPERTIES FOLDER "${folder}")
 	add_test(NAME ${test_name} COMMAND ${test_name})
 endfunction()
 
-# Phase 1: Foundation
-dsp_add_test(test_concepts)
+# =============================================================================
+# Foundation — concept satisfaction + cross-cutting type system tests
+# =============================================================================
+dsp_add_test(test_concepts        "Tests/Foundation")
+dsp_add_test(test_projection      "Tests/Foundation")
 
-# Phase 2: Biquad Engine + Cascade
-dsp_add_test(test_biquad)
+# =============================================================================
+# Signals — generators + I/O
+# =============================================================================
+dsp_add_test(test_generators      "Tests/Signals")
+dsp_add_test(test_io              "Tests/Signals")
 
-# Phase 3: Transforms + Butterworth
-dsp_add_test(test_butterworth)
+# =============================================================================
+# Windows
+# =============================================================================
+dsp_add_test(test_windows         "Tests/Windows")
 
-# Signal generators (Issue #10)
-dsp_add_test(test_generators)
+# =============================================================================
+# Quantization
+# =============================================================================
+dsp_add_test(test_quantization    "Tests/Quantization")
 
-# Signal file I/O (Issue #11)
-dsp_add_test(test_io)
+# =============================================================================
+# Filter — IIR designs, FIR designs, and design-agnostic filter operations
+# =============================================================================
+# IIR
+dsp_add_test(test_biquad          "Tests/Filter/IIR")
+dsp_add_test(test_butterworth     "Tests/Filter/IIR")
+dsp_add_test(test_chebyshev       "Tests/Filter/IIR")
+dsp_add_test(test_bessel          "Tests/Filter/IIR")
+dsp_add_test(test_elliptic        "Tests/Filter/IIR")
+# FIR
+dsp_add_test(test_fir             "Tests/Filter/FIR")
+dsp_add_test(test_fir_multirate   "Tests/Filter/FIR")
+dsp_add_test(test_remez           "Tests/Filter/FIR")
+# Generic — design-agnostic post-processing (see Tests/README.md)
+dsp_add_test(test_filtfilt        "Tests/Filter/Generic")
 
-# Chebyshev I/II + RBJ (Issue #2)
-dsp_add_test(test_chebyshev)
+# =============================================================================
+# Spectral
+# =============================================================================
+dsp_add_test(test_fft             "Tests/Spectral")
+dsp_add_test(test_spectral        "Tests/Spectral")
+dsp_add_test(test_bluestein       "Tests/Spectral")
 
-# Bessel + Legendre (Issue #2)
-dsp_add_test(test_bessel)
+# =============================================================================
+# Conditioning — AGC, compressor, envelope, sample-rate conversion, noise shaping
+# =============================================================================
+dsp_add_test(test_conditioning    "Tests/Conditioning")
+dsp_add_test(test_src             "Tests/Conditioning")
+dsp_add_test(test_noise_shaping   "Tests/Conditioning")
 
-# Elliptic (Issue #2)
-dsp_add_test(test_elliptic)
+# =============================================================================
+# Acquisition — SDR / IF receiver primitives
+# =============================================================================
+dsp_add_test(test_cic             "Tests/Acquisition")
+dsp_add_test(test_halfband        "Tests/Acquisition")
+dsp_add_test(test_nco             "Tests/Acquisition")
+dsp_add_test(test_ddc             "Tests/Acquisition")
+dsp_add_test(test_decimation_chain "Tests/Acquisition")
 
-# Windows + Signal + Sampling (Issue #3)
-dsp_add_test(test_windows)
-
-# Quantization (Issue #3)
-dsp_add_test(test_quantization)
-
-# FIR filters (Issue #4)
-dsp_add_test(test_fir)
-
-# FIR polyphase + overlap-add/save (Issue #33)
-dsp_add_test(test_fir_multirate)
-
-# Spectral methods + TransferFunction (Issue #5)
-dsp_add_test(test_fft)
-
-# Spectral analysis: Z-transform, Laplace, PSD, spectrogram (Issue #5)
-dsp_add_test(test_spectral)
-
-# Signal conditioning (Issue #6)
-dsp_add_test(test_conditioning)
-
-# Estimation: Kalman, LMS, RLS (Issue #7)
-dsp_add_test(test_kalman)
-
-# Image processing (Issue #8)
-dsp_add_test(test_image)
-
-# Numerical analysis (Issue #9)
-dsp_add_test(test_analysis)
-
-# Image generators (Issue #12)
-dsp_add_test(test_image_generators)
-
-# Image file I/O (Issue #13)
-dsp_add_test(test_image_io)
-
-# Zero-phase filtering (Issue #66)
-dsp_add_test(test_filtfilt)
-
-# Parks-McClellan equiripple FIR design (Issue #67)
-dsp_add_test(test_remez)
-
-# Bluestein chirp-z arbitrary-length DFT (Issue #68)
-dsp_add_test(test_bluestein)
-
-# Higher-order noise shaping (Issue #70)
-dsp_add_test(test_noise_shaping)
-
-# Rational sample-rate conversion (Issue #71)
-dsp_add_test(test_src)
-
-# Type projection/embedding
-dsp_add_test(test_projection)
-
-# CIC decimation/interpolation (Issue #86)
-dsp_add_test(test_cic)
-
-# Half-band FIR decimation (Issue #87)
-dsp_add_test(test_halfband)
-
-# Numerically Controlled Oscillator (Issue #88)
-dsp_add_test(test_nco)
-
-# Digital Down-Converter (Issue #89)
-dsp_add_test(test_ddc)
-
-# Multi-stage decimation chain (Issue #90)
-dsp_add_test(test_decimation_chain)
-
-# Acquisition pipeline precision analysis (Issue #92)
-dsp_add_test(test_acquisition_precision)
-
-# Instrument trigger primitives (Issue #140)
-dsp_add_test(test_instrument_trigger)
-
-# Instrument trigger ring buffer + segmented capture (Issue #141)
-dsp_add_test(test_instrument_ring_buffer)
-
-# Instrument calibration / equalization (Issue #142)
-dsp_add_test(test_instrument_calibration)
+# =============================================================================
+# Instrument — oscilloscope / spectrum analyzer primitives (see #132)
+# =============================================================================
+dsp_add_test(test_instrument_trigger           "Tests/Instrument")
+dsp_add_test(test_instrument_ring_buffer       "Tests/Instrument")
+dsp_add_test(test_instrument_calibration       "Tests/Instrument")
 target_compile_definitions(test_instrument_calibration PRIVATE
 	TESTS_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")
+dsp_add_test(test_instrument_peak_detect       "Tests/Instrument")
+dsp_add_test(test_instrument_display_envelope  "Tests/Instrument")
+dsp_add_test(test_instrument_fractional_delay  "Tests/Instrument")
+dsp_add_test(test_instrument_channel_aligner   "Tests/Instrument")
 
-# Instrument peak-detect (min/max) decimation (Issue #146)
-dsp_add_test(test_instrument_peak_detect)
+# =============================================================================
+# Analysis — stability, sensitivity, condition number, and per-pipeline
+# precision-analysis primitives (e.g., acquisition_precision)
+# =============================================================================
+dsp_add_test(test_analysis              "Tests/Analysis")
+dsp_add_test(test_acquisition_precision "Tests/Analysis")
 
-# Instrument display-rate envelope (Issue #149)
-dsp_add_test(test_instrument_display_envelope)
+# =============================================================================
+# Estimation — Kalman, LMS, RLS adaptive estimators
+# =============================================================================
+dsp_add_test(test_kalman          "Tests/Estimation")
 
-# Instrument fractional-delay FIR (Issue #150)
-dsp_add_test(test_instrument_fractional_delay)
-
-# Instrument channel-aligner (Issue #150)
-dsp_add_test(test_instrument_channel_aligner)
+# =============================================================================
+# Image
+# =============================================================================
+dsp_add_test(test_image           "Tests/Image")
+dsp_add_test(test_image_generators "Tests/Image")
+dsp_add_test(test_image_io        "Tests/Image")

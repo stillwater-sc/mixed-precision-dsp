@@ -1,2 +1,1 @@
-add_executable(iir_precision_sweep iir_precision_sweep.cpp)
-target_link_libraries(iir_precision_sweep PRIVATE sw::dsp)
+dsp_add_application(iir_precision_sweep "Applications/PrecisionTools")

@@ -1,2 +1,1 @@
-add_executable(precision_sweep precision_sweep.cpp)
-target_link_libraries(precision_sweep PRIVATE sw::dsp)
+dsp_add_application(precision_sweep "Applications/PrecisionTools")
