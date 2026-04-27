@@ -2,45 +2,65 @@
 //
 // Synthesizes a realistic test waveform — 50 MHz square wave with a 5 ns
 // narrow positive glitch buried in it plus low-level AWGN — and runs it
-// through the full scope DSP pipeline at multiple precisions:
+// through the full scope DSP pipeline:
 //
 //   simulate_adc(N_bits, sample_rate)
 //        |
 //        v
-//   EdgeTrigger + AutoTriggerWrapper       (instrument/trigger.hpp)
+//   EqualizerFilter<EqCoeff,EqState,EqSample>   (instrument/calibration.hpp)
+//        |   <-- the precision-sensitive stage
+//        v
+//   EdgeTrigger + AutoTriggerWrapper            (instrument/trigger.hpp)
 //        |
 //        v
-//   TriggerRingBuffer (pre/post capture)   (instrument/ring_buffer.hpp)
+//   TriggerRingBuffer (pre/post capture)        (instrument/ring_buffer.hpp)
 //        |
 //        v
-//   PeakDetectDecimator                    (instrument/peak_detect.hpp)
+//   PeakDetectDecimator                         (instrument/peak_detect.hpp)
 //        |
 //        v
-//   render_envelope (-> N pixels)          (instrument/display_envelope.hpp)
+//   render_envelope (-> N pixels)               (instrument/display_envelope.hpp)
 //        |
 //        v
-//   measurements (rise time, RMS, ...)     (instrument/measurements.hpp)
+//   measurements (rise time, RMS, ...)          (instrument/measurements.hpp)
 //        |
 //        v
 //   scope_demo.csv + console summary
 //
-// Capstone for the Digital Oscilloscope Demonstrator epic (#133). The
-// six-config sweep (uniform_double, uniform_float, uniform_posit32,
-// uniform_posit16, uniform_cfloat32, uniform_fixpnt) lets the user see
-// how each pipeline stage's quality varies with the streaming arithmetic.
+// Mixed-precision design (the WHOLE point of this demo):
 //
-// The headline acceptance is glitch survival: does the 5 ns positive
-// glitch's peak amplitude appear in the display-rate output trace at the
-// expected location? Numbers narrow enough to quantize the glitch below
-// the surrounding noise floor will fail this — that's the lesson.
+//   The trigger -> ring -> peak-detect -> envelope chain is comparison-
+//   only and copy-only — every operation preserves bit-exact ordering
+//   regardless of the storage type. Storage precision is therefore a
+//   memory-bandwidth knob: pick the narrowest type that doesn't lose
+//   information from the ADC.
+//
+//   The EqualizerFilter is the one place where the streaming path does
+//   actual arithmetic (FIR multiply-accumulate). That's where precision
+//   matters: narrowing the equalizer's coefficient/state/sample types
+//   trades streaming-arithmetic accuracy for energy and bits.
+//
+//   Measurements always run in double internally regardless of input
+//   type — they're the analytical reporting layer, not part of the
+//   streaming arithmetic.
+//
+// A "precision plan" is the per-stage tuple of types — NOT a single
+// "uniform_T" choice. Each row of the sweep table picks each stage's
+// precision independently. SNR is measured against the all-double
+// reference plan, so a row with a narrow equalizer shows real SNR
+// degradation while one with a narrow storage type but a high-precision
+// equalizer shows none.
 //
 // Per-stage timing instrumentation produces a 10 GSPS comparison
 // (informational): real 10 GSPS scopes use ASIC pipelines, not general-
 // purpose CPUs. The number reported here is for understanding the gap.
 //
+// Capstone for the Digital Oscilloscope Demonstrator epic (#133).
+//
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <sw/dsp/instrument/calibration.hpp>
 #include <sw/dsp/instrument/trigger.hpp>
 #include <sw/dsp/instrument/ring_buffer.hpp>
 #include <sw/dsp/instrument/peak_detect.hpp>
@@ -70,16 +90,16 @@ using namespace sw::dsp::instrument;
 namespace chrono = std::chrono;
 
 // ============================================================================
-// Type aliases for the sweep
+// Type aliases used in the precision plans
 // ============================================================================
 
 using p32  = sw::universal::posit<32, 2>;
 using p16  = sw::universal::posit<16, 2>;
-using cf32 = sw::universal::cfloat<32, 8, std::uint32_t, true, false, false>;
-// Q2.30: 2 integer bits (signal amplitude is +-0.5, leaves 4x headroom)
-// and 30 fractional bits (~30 ENOB ceiling). fixpnt<32,28> would be Q4.28
-// — more integer headroom than this signal needs, fewer fractional bits.
-using fx32 = sw::universal::fixpnt<32, 30>;
+// Q4.12 (16 bits): 4 integer bits give the equalizer some headroom for
+// transient overshoots, 12 fractional bits match the ADC's 12-bit output.
+// "ADC-native" storage — narrowing storage to this size cuts ring-buffer
+// memory bandwidth 4x vs double without dropping any ADC information.
+using fx16_storage = sw::universal::fixpnt<16, 12>;
 
 // ============================================================================
 // Pipeline parameters
@@ -127,6 +147,9 @@ struct PipelineParams {
 
 	// Stream length
 	std::size_t num_samples      = 1024 * 8;
+
+	// Equalizer (calibration / front-end correction).
+	std::size_t eq_taps          = 31;      // FIR length
 };
 inline PipelineParams params;
 
@@ -178,10 +201,39 @@ std::vector<double> simulate_adc(unsigned seed = 0xACDC) {
 }
 
 // ============================================================================
+// Synthetic analog-front-end calibration profile.
+//
+// Models a mild scope front-end with shallow rolloff: -0.5 dB at 50 MHz,
+// -2 dB at 100 MHz, leveling off into the upper band. The equalizer
+// inverts this profile to flatten the band of interest.
+//
+// We deliberately keep the corrections small (max ~+2 dB) because in
+// this demo the input is the *clean* signal (not a pre-distorted one),
+// so the equalizer's job is to apply a small, mostly-flat correction.
+// A more aggressive profile (e.g., -10 dB at Nyquist) would make the
+// equalizer try to boost +10 dB at Nyquist, ringing on sharp edges
+// and reshaping the square wave beyond what the analytical
+// measurements can handle. That's a real tradeoff scope designers
+// face — but in this demo we want measurement quality preserved so
+// the precision-impact comparison is the headline, not the
+// equalizer's design tradeoffs.
+// ============================================================================
+
+CalibrationProfile make_test_profile() {
+	std::vector<double> freqs    = {0.0,   50e6, 100e6, 250e6, 500e6};
+	std::vector<double> gains_dB = {0.0,  -0.5,  -2.0,  -3.0,  -3.0};
+	std::vector<double> phases   = {0.0,  -0.10, -0.20, -0.30, -0.30};
+	return CalibrationProfile(std::move(freqs),
+	                           std::move(gains_dB),
+	                           std::move(phases));
+}
+
+// ============================================================================
 // Stage timings for a single pipeline run
 // ============================================================================
 
 struct StageTimingsNs {
+	double equalizer      = 0.0;
 	double trigger_ring   = 0.0;
 	double peak_detect    = 0.0;
 	double envelope       = 0.0;
@@ -194,10 +246,12 @@ struct StageTimingsNs {
 // ============================================================================
 
 struct ConfigResult {
-	std::string config_name;
-	std::string coeff_type;
-	std::string state_type;
-	std::string sample_type;
+	std::string plan_name;          // e.g. "eq_posit16_storage_double"
+	std::string eq_coeff_type;      // calibration FIR coefficient type
+	std::string eq_state_type;      // calibration FIR state type
+	std::string eq_sample_type;     // calibration FIR sample type
+	std::string storage_type;       // trigger/ring/peak-detect/envelope type
+	std::size_t storage_bytes_per_sample = 0;
 
 	// Headline metrics. Numeric fields default to NaN so a config that
 	// fails to capture (no trigger fired in the input window) prints as
@@ -231,43 +285,69 @@ struct ConfigResult {
 };
 
 // ============================================================================
-// run_pipeline<SampleScalar>
+// run_pipeline<EqCoeff, EqState, EqSample, StorageScalar>
 //
-// One scope pipeline run at a single precision config. Returns a
-// ConfigResult with both the headline measurements and the rendered
-// envelope. The trigger/ring/peak-detect/envelope chain is parameterized
-// solely on SampleScalar — these primitives don't take CoeffScalar /
-// StateScalar separately because they don't have filter coefficients.
-// (The spec lists three scalars to keep the type signature uniform with
-// the rest of the library; for scope_demo only Sample matters.)
+// One scope pipeline run with a per-stage precision plan:
+//   - EqualizerFilter<EqCoeff, EqState, EqSample> applies the calibration
+//     correction. EqSample is the input/output type of the equalizer's
+//     streaming arithmetic (FIR multiply-accumulate), so this is the
+//     stage where streaming-arithmetic precision actually shows up.
+//   - Trigger / ring buffer / peak-detect / envelope all run in
+//     StorageScalar — the precision used for memory storage and all the
+//     downstream comparison-only stages.
+//
+// The equalizer's output is cast to StorageScalar at the equalizer ->
+// trigger boundary, modelling a pipeline that re-quantizes after the
+// arithmetic stage to limit downstream storage bandwidth.
 // ============================================================================
 
-template <class SampleScalar>
+template <class EqCoeff, class EqState, class EqSample, class StorageScalar>
 ConfigResult run_pipeline(const std::vector<double>& adc_in_double,
-                          const std::string& config_name) {
+                          const std::string& plan_name,
+                          const std::string& eq_coeff_tag,
+                          const std::string& eq_state_tag,
+                          const std::string& eq_sample_tag,
+                          const std::string& storage_tag,
+                          std::size_t storage_bytes_per_sample,
+                          const CalibrationProfile& profile) {
 	ConfigResult result;
-	result.config_name = config_name;
-	result.coeff_type  = config_name;   // uniform — keep the column for schema
-	result.state_type  = config_name;
-	result.sample_type = config_name;
+	result.plan_name                 = plan_name;
+	result.eq_coeff_type             = eq_coeff_tag;
+	result.eq_state_type             = eq_state_tag;
+	result.eq_sample_type            = eq_sample_tag;
+	result.storage_type              = storage_tag;
+	result.storage_bytes_per_sample  = storage_bytes_per_sample;
 
-	// Project ADC samples into SampleScalar.
-	std::vector<SampleScalar> adc_in(adc_in_double.size());
-	for (std::size_t n = 0; n < adc_in_double.size(); ++n)
-		adc_in[n] = static_cast<SampleScalar>(adc_in_double[n]);
-
-	// Stage 1: trigger + ring buffer in lockstep.
+	// --- Stage 1: equalizer ---
+	// Project ADC samples into EqSample, equalize sample-by-sample, then
+	// cast to StorageScalar at the equalizer -> trigger boundary.
 	auto t0 = chrono::high_resolution_clock::now();
-	EdgeTrigger<SampleScalar> trig(static_cast<SampleScalar>(params.trigger_level),
-	                                Slope::Rising,
-	                                static_cast<SampleScalar>(params.trigger_hyst));
-	AutoTriggerWrapper<EdgeTrigger<SampleScalar>>
+	EqualizerFilter<EqCoeff, EqState, EqSample>
+		eq(profile, params.eq_taps, params.sample_rate_hz);
+
+	std::vector<StorageScalar> adc_in(adc_in_double.size());
+	for (std::size_t n = 0; n < adc_in_double.size(); ++n) {
+		const EqSample in_eq  = static_cast<EqSample>(adc_in_double[n]);
+		const EqSample out_eq = eq.process(in_eq);
+		adc_in[n] = static_cast<StorageScalar>(out_eq);
+	}
+	auto t1 = chrono::high_resolution_clock::now();
+	result.timings.equalizer =
+		chrono::duration<double, std::nano>(t1 - t0).count();
+
+	// --- Stage 2: trigger + ring buffer in lockstep ---
+	t0 = chrono::high_resolution_clock::now();
+	EdgeTrigger<StorageScalar> trig(
+		static_cast<StorageScalar>(params.trigger_level),
+		Slope::Rising,
+		static_cast<StorageScalar>(params.trigger_hyst));
+	AutoTriggerWrapper<EdgeTrigger<StorageScalar>>
 		auto_trig(trig, params.auto_trigger_to);
-	TriggerRingBuffer<SampleScalar> ring(params.pre_trigger, params.post_trigger);
+	TriggerRingBuffer<StorageScalar> ring(params.pre_trigger, params.post_trigger);
 
 	bool triggered = false;
 	for (std::size_t n = 0; n < adc_in.size(); ++n) {
-		const SampleScalar x = adc_in[n];
+		const StorageScalar x = adc_in[n];
 		// Only the FIRST fire goes to push_trigger. Subsequent edges of
 		// the inner trigger are ignored — push_trigger() is a no-op in
 		// Capturing state, and routing the sample there instead of via
@@ -282,70 +362,64 @@ ConfigResult run_pipeline(const std::vector<double>& adc_in_double,
 		}
 		if (ring.capture_complete()) break;
 	}
-	auto t1 = chrono::high_resolution_clock::now();
+	t1 = chrono::high_resolution_clock::now();
 	result.timings.trigger_ring =
 		chrono::duration<double, std::nano>(t1 - t0).count();
 
 	if (!ring.capture_complete()) {
-		// No trigger fired — leave envelope empty and bail. The console
-		// summary will show this as zero glitch survival, NaN rise time.
+		// No trigger fired — leave envelope empty and bail.
 		return result;
 	}
 	auto segment = ring.captured_segment();
 	result.captured_length = segment.size();
 
-	// Stage 2: peak-detect decimation. R=peak_detect_R; R=1 is passthrough.
+	// --- Stage 3: peak-detect decimation ---
 	t0 = chrono::high_resolution_clock::now();
-	PeakDetectDecimator<SampleScalar> pd(params.peak_detect_R);
+	PeakDetectDecimator<StorageScalar> pd(params.peak_detect_R);
 	auto pd_env = pd.process_block(segment);
 	t1 = chrono::high_resolution_clock::now();
 	result.timings.peak_detect =
 		chrono::duration<double, std::nano>(t1 - t0).count();
 
-	// Stage 3: render envelope to pixel_width columns. We render the MAX
-	// stream from peak_detect (the stream that preserves positive glitches).
-	// For a true scope display you'd render both mins and maxs as a vertical
-	// line per pixel; for this demo we focus on the max stream because
-	// that's where the positive glitch shows up.
+	// --- Stage 4: render envelope to pixel_width columns ---
 	t0 = chrono::high_resolution_clock::now();
-	std::span<const SampleScalar> max_span(pd_env.maxs.data(), pd_env.maxs.size());
-	std::span<const SampleScalar> min_span(pd_env.mins.data(), pd_env.mins.size());
-	auto disp_max = render_envelope<SampleScalar>(max_span, params.pixel_width);
-	auto disp_min = render_envelope<SampleScalar>(min_span, params.pixel_width);
+	std::span<const StorageScalar> max_span(pd_env.maxs.data(), pd_env.maxs.size());
+	std::span<const StorageScalar> min_span(pd_env.mins.data(), pd_env.mins.size());
+	auto disp_max = render_envelope<StorageScalar>(max_span, params.pixel_width);
+	auto disp_min = render_envelope<StorageScalar>(min_span, params.pixel_width);
 	t1 = chrono::high_resolution_clock::now();
 	result.timings.envelope =
 		chrono::duration<double, std::nano>(t1 - t0).count();
 
-	// Stage 4: measurements.
+	// --- Stage 5: measurements (always accumulate in double) ---
 	//
-	// rms / mean / glitch-peak read the full segment — the glitch is part
-	// of what the user wants to see in those numbers (RMS is elevated
-	// slightly, glitch peak is the headline).
+	// rms / mean read the full segment — the glitch is part of what the
+	// user wants to see in those numbers.
 	//
-	// rise_time / period / frequency read a glitch-free pre-window. The
-	// glitch's leading edge would otherwise create an extra zero-crossing
-	// (period bias) and push the 90% threshold above the carrier
-	// amplitude (rise time measures from carrier to glitch). The
-	// pre-glitch window contains several clean carrier cycles.
+	// rise_time / period / frequency read a glitch-free pre-window so
+	// the glitch's leading edge doesn't create an extra zero-crossing
+	// (period bias) or push the 90% threshold above the carrier
+	// amplitude (rise time would measure carrier->glitch instead).
 	t0 = chrono::high_resolution_clock::now();
-	result.rms = rms<SampleScalar>(segment);
-	result.mean = mean<SampleScalar>(segment);
+	result.rms = rms<StorageScalar>(segment);
+	result.mean = mean<StorageScalar>(segment);
 	const std::size_t mw_len =
 		std::min(segment.size(), params.pre_glitch_window);
 	auto measurement_window = segment.subspan(0, mw_len);
 	result.rise_time_samples =
-		rise_time_samples<SampleScalar>(measurement_window, 0.1, 0.9);
+		rise_time_samples<StorageScalar>(measurement_window, 0.1, 0.9);
 	result.period_samples =
-		period_samples<SampleScalar>(measurement_window,
-		                              static_cast<SampleScalar>(0));
+		period_samples<StorageScalar>(measurement_window,
+		                               static_cast<StorageScalar>(0));
 	result.frequency_hz =
-		frequency_hz<SampleScalar>(measurement_window, params.sample_rate_hz,
-		                            static_cast<SampleScalar>(0));
+		frequency_hz<StorageScalar>(measurement_window, params.sample_rate_hz,
+		                             static_cast<StorageScalar>(0));
 	t1 = chrono::high_resolution_clock::now();
 	result.timings.measurements =
 		chrono::duration<double, std::nano>(t1 - t0).count();
 
-	result.timings.total = result.timings.trigger_ring
+	result.timings.total = result.timings.equalizer
+	                     + result.timings.trigger_ring
 	                     + result.timings.peak_detect
 	                     + result.timings.envelope
 	                     + result.timings.measurements;
@@ -408,19 +482,23 @@ void write_csv(const std::string& path,
 		std::cerr << "warn: could not open '" << path << "' for write\n";
 		return;
 	}
-	// Schema: pipeline,config_name,coeff_type,state_type,sample_type,
+	// Schema: pipeline,plan_name,eq_coeff,eq_state,eq_sample,storage,
+	//         storage_bytes_per_sample,
 	//         pixel_index,envelope_min,envelope_max,
 	//         glitch_survived,glitch_peak,rise_time,rms,mean,output_snr_db
-	out << "pipeline,config_name,coeff_type,state_type,sample_type,"
+	out << "pipeline,plan_name,eq_coeff,eq_state,eq_sample,storage,"
+	       "storage_bytes_per_sample,"
 	       "pixel_index,envelope_min,envelope_max,"
 	       "glitch_survived,glitch_peak,rise_time_samples,rms,mean,output_snr_db\n";
 	for (const auto& r : results) {
 		for (std::size_t i = 0; i < r.envelope_max.size(); ++i) {
 			out << "scope_demo,"
-			    << r.config_name << ','
-			    << r.coeff_type  << ','
-			    << r.state_type  << ','
-			    << r.sample_type << ','
+			    << r.plan_name        << ','
+			    << r.eq_coeff_type    << ','
+			    << r.eq_state_type    << ','
+			    << r.eq_sample_type   << ','
+			    << r.storage_type     << ','
+			    << r.storage_bytes_per_sample << ','
 			    << i << ','
 			    << r.envelope_min[i] << ','
 			    << r.envelope_max[i] << ','
@@ -441,33 +519,37 @@ void write_csv(const std::string& path,
 
 void print_summary_header() {
 	std::cout << "\n=== Mixed-precision scope sweep ===\n";
-	std::cout << std::left  << std::setw(18) << "config"
-	          << std::right << std::setw(10) << "glitch?"
-	          << std::right << std::setw(12) << "peak"
-	          << std::right << std::setw(12) << "rise(samp)"
-	          << std::right << std::setw(10) << "rms"
-	          << std::right << std::setw(12) << "freq(MHz)"
-	          << std::right << std::setw(12) << "SNR(dB)"
+	std::cout << std::left  << std::setw(34) << "plan (EQ x storage)"
+	          << std::right << std::setw(8)  << "B/samp"
+	          << std::right << std::setw(8)  << "glitch?"
+	          << std::right << std::setw(10) << "peak"
+	          << std::right << std::setw(10) << "rise"
+	          << std::right << std::setw(11) << "freq(MHz)"
+	          << std::right << std::setw(10) << "SNR(dB)"
 	          << "\n";
-	std::cout << std::string(18 + 10 + 12 + 12 + 10 + 12 + 12, '-') << "\n";
+	std::cout << std::string(34 + 8 + 8 + 10 + 10 + 11 + 10, '-') << "\n";
 }
 
 void print_summary_row(const ConfigResult& r) {
-	std::cout << std::left  << std::setw(18) << r.config_name
-	          << std::right << std::setw(10) << (r.glitch_survived ? "PASS" : "fail")
-	          << std::right << std::setw(12) << std::fixed;
+	// Compose a "plan_name (eq_sample x storage)" label so the row
+	// shows what was narrowed and what wasn't, not just an opaque tag.
+	std::string label = r.plan_name + " ("
+	                  + r.eq_sample_type + " x " + r.storage_type + ")";
+	if (label.size() > 33) label = label.substr(0, 33);
+	std::cout << std::left  << std::setw(34) << label
+	          << std::right << std::setw(8)  << r.storage_bytes_per_sample
+	          << std::right << std::setw(8)  << (r.glitch_survived ? "PASS" : "fail")
+	          << std::right << std::setw(10) << std::fixed;
 	auto print_or_nan = [](double v, int prec, double scale = 1.0) {
 		if (std::isnan(v)) std::cout << "NaN";
 		else std::cout << std::setprecision(prec) << (v * scale);
 	};
 	print_or_nan(r.glitch_peak_observed, 3);
-	std::cout << std::right << std::setw(12);
-	print_or_nan(r.rise_time_samples, 2);
 	std::cout << std::right << std::setw(10);
-	print_or_nan(r.rms, 3);
-	std::cout << std::right << std::setw(12);
+	print_or_nan(r.rise_time_samples, 2);
+	std::cout << std::right << std::setw(11);
 	print_or_nan(r.frequency_hz, 3, 1.0 / 1e6);
-	std::cout << std::right << std::setw(12);
+	std::cout << std::right << std::setw(10);
 	print_or_nan(r.output_snr_db, 2);
 	std::cout << "\n";
 }
@@ -492,6 +574,7 @@ void print_timing_report(const ConfigResult& reference) {
 		          << ns_per_sample << " ns/sample"
 		          << "\n";
 	};
+	print("equalizer",      reference.timings.equalizer);
 	print("trigger+ring",   reference.timings.trigger_ring);
 	print("peak_detect",    reference.timings.peak_detect);
 	print("render_envelope",reference.timings.envelope);
@@ -533,37 +616,80 @@ int main(int argc, char** argv) try {
 	}
 
 	std::cout << "scope_demo: digital-oscilloscope mixed-precision sweep\n"
-	          << "  signal:  50 MHz square wave +- " << params.signal_amp
+	          << "  signal:    50 MHz square wave +- " << params.signal_amp
 	          << " (5 ns +" << params.glitch_peak << " glitch at "
 	          << params.glitch_offset_s * 1e9 << " ns)\n"
-	          << "  ADC:     " << params.adc_bits << "-bit, "
+	          << "  ADC:       " << params.adc_bits << "-bit, "
 	          << params.sample_rate_hz / 1e9 << " GSPS, "
 	          << params.num_samples << " samples\n"
-	          << "  capture: " << params.pre_trigger << " pre + 1 trigger + "
+	          << "  capture:   " << params.pre_trigger << " pre + 1 trigger + "
 	          << params.post_trigger << " post\n"
-	          << "  display: peak-detect R=" << params.peak_detect_R
-	          << ", " << params.pixel_width << " pixels\n";
+	          << "  display:   peak-detect R=" << params.peak_detect_R
+	          << ", " << params.pixel_width << " pixels\n"
+	          << "  equalizer: " << params.eq_taps
+	          << "-tap FIR, calibration profile -3 dB at 100 MHz\n";
 
-	// Compute analytical rise time for the carrier transition: a square
-	// wave's rising edge is one sample wide at 1 GSPS / 50 MHz (it goes
-	// from -amp to +amp in one sample), so the 10/90 rise time is 0.8
-	// samples (80% of one sample step). The pipeline's rise time should
-	// recover this within roughly half a sample.
 	const double expected_rise_samples = 0.8;
+	const auto profile = make_test_profile();
+	const auto adc     = simulate_adc();
 
-	const auto adc = simulate_adc();
+	// =========================================================================
+	// Precision plans
+	//
+	// Each plan picks types per stage:
+	//   - (EqCoeff, EqState, EqSample): the calibration FIR's three scalars.
+	//     This stage does the only streaming arithmetic in the pipeline, so
+	//     its precision dominates the SNR measurement.
+	//   - StorageScalar: trigger / ring buffer / peak-detect / envelope.
+	//     These are comparison-only and copy-only stages — narrowing this
+	//     trades memory bandwidth for nothing in measurement quality.
+	//
+	// Plan 0 is the all-double reference. Subsequent plans tighten one
+	// dimension or the other to expose the per-stage precision trade.
+	// =========================================================================
+	std::array<ConfigResult, 5> results{{
+		// reference: all double everywhere — the SNR baseline.
+		run_pipeline<double, double, double, double>(
+			adc, "reference",
+			"double", "double", "double", "double",
+			sizeof(double), profile),
 
-	// Run the six configurations.
-	std::array<ConfigResult, 6> results{{
-		run_pipeline<double>(adc, "uniform_double"),
-		run_pipeline<float>(adc,  "uniform_float"),
-		run_pipeline<p32>(adc,    "uniform_posit32"),
-		run_pipeline<p16>(adc,    "uniform_posit16"),
-		run_pipeline<cf32>(adc,   "uniform_cfloat32"),
-		run_pipeline<fx32>(adc,   "uniform_fixpnt"),
+		// High-precision EQ + ADC-native fixpnt storage. The equalizer
+		// runs in double so its arithmetic doesn't add error; the
+		// downstream comparison-only chain runs in 16-bit fixpnt to
+		// quantify the memory savings (4x reduction vs double).
+		// Expected: SNR ~ reference, storage cost halved-or-better.
+		run_pipeline<double, double, double, fx16_storage>(
+			adc, "eq_double_storage_fx16",
+			"double", "double", "double", "fixpnt<16,12>",
+			sizeof(fx16_storage), profile),
+
+		// Narrow EQ in posit32 + double storage. Isolates the cost of
+		// narrowing only the streaming arithmetic — should show a small
+		// SNR drop relative to reference.
+		run_pipeline<p32, p32, p32, double>(
+			adc, "eq_posit32_storage_double",
+			"posit<32,2>", "posit<32,2>", "posit<32,2>", "double",
+			sizeof(double), profile),
+
+		// Narrow EQ in posit16 + double storage. The headline mixed-
+		// precision case: 16-bit streaming arithmetic should produce
+		// visible SNR degradation (~30-40 dB lower than reference).
+		run_pipeline<p16, p16, p16, double>(
+			adc, "eq_posit16_storage_double",
+			"posit<16,2>", "posit<16,2>", "posit<16,2>", "double",
+			sizeof(double), profile),
+
+		// FPGA-pragmatic mix: float EQ (fast on most hardware, smaller
+		// than double) + ADC-native fixpnt storage (memory-optimal).
+		// Expected: small SNR loss + 4x storage saving.
+		run_pipeline<float, float, float, fx16_storage>(
+			adc, "eq_float_storage_fx16",
+			"float", "float", "float", "fixpnt<16,12>",
+			sizeof(fx16_storage), profile),
 	}};
 
-	// SNR vs uniform_double reference (results[0]).
+	// SNR vs the reference plan (results[0]).
 	for (auto& r : results) {
 		r.rise_time_expected = expected_rise_samples;
 		r.output_snr_db = snr_db_against_reference(r, results[0]);
