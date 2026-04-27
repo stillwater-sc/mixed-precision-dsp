@@ -21,12 +21,25 @@
 // Mixed-precision contract:
 //   - CoeffScalar holds alpha (and 1 - alpha). For very low cutoffs
 //     the pole sits very close to z = 1; coefficient precision matters
-//     for stability at fc ~ fs/1000.
-//   - StateScalar holds y_prev_. Narrow types may quantize the
-//     integrator's settling tail.
-//   - SampleScalar is the streaming I/O type.
-//   - DenormalPrevention<SampleScalar> AC injection on each update -
-//     same convention as the IIR stages in nco.hpp / halfband.hpp /
+//     for stability at fc ~ fs/1000. alpha itself is designed in
+//     double and cast to CoeffScalar — same convention as
+//     EqualizerFilter and the analyzer demos. Designing in
+//     CoeffScalar would be unsafe for narrow fixpnt types where the
+//     intermediate constant 2*pi (~6.28) overflows the integer
+//     headroom (e.g., fixpnt<32,30> Q2.30 saturates at ~2). Once the
+//     final alpha is in [0, 1] the cast-to-CoeffScalar fits any type.
+//   - StateScalar holds y_prev_ AND drives the IIR accumulator. The
+//     full update y = alpha*x + (1-alpha)*y_prev + denormal_.ac()
+//     happens in StateScalar; only the public output is cast to
+//     SampleScalar. This keeps the recursive feedback at full
+//     state precision instead of collapsing through a Sample cast on
+//     every iteration.
+//   - SampleScalar is the public streaming I/O type.
+//   - DenormalPrevention<StateScalar> AC injection inside the
+//     feedback loop — flushes state-side denormals which would
+//     otherwise accumulate via y_prev_. Injecting on the Sample
+//     output instead would be a no-op for the feedback path. Same
+//     convention as the IIR stages in nco.hpp / halfband.hpp /
 //     spectrum/trace_averaging.hpp.
 //
 // Retune (set_cutoff()) is bumpless: y_prev_ is preserved across the
@@ -75,18 +88,22 @@ public:
 
 	// Streaming - single sample.
 	SampleScalar process(SampleScalar x) {
-		// y[n] = alpha * x[n] + (1 - alpha) * y[n-1]   + denormal AC
-		// Computed in StateScalar precision then cast to SampleScalar
-		// on output. The cast at the boundary mirrors the convention
-		// used by nco.hpp / halfband.hpp.
+		// y[n] = alpha * x[n] + (1 - alpha) * y[n-1] + denormal AC
+		//
+		// The IIR is computed entirely in StateScalar precision. The
+		// denormal AC injection happens INSIDE the feedback loop (on
+		// y, not on y_out) because denormals accumulate via the
+		// y_prev_ feedback path — injecting only on the SampleScalar
+		// output wouldn't flush state-side denormals. y_prev_ then
+		// stores the full StateScalar y unchanged; casting to
+		// SampleScalar happens only at the public-output boundary.
 		const StateScalar y =
 			static_cast<StateScalar>(alpha_)
 			* static_cast<StateScalar>(x)
-			+ static_cast<StateScalar>(one_minus_alpha_) * y_prev_;
-		const SampleScalar y_out =
-			static_cast<SampleScalar>(y) + denormal_.ac();
-		y_prev_ = static_cast<StateScalar>(y_out);
-		return y_out;
+			+ static_cast<StateScalar>(one_minus_alpha_) * y_prev_
+			+ denormal_.ac();
+		y_prev_ = y;
+		return static_cast<SampleScalar>(y);
 	}
 
 	// In-place block process.
@@ -142,7 +159,7 @@ public:
 	// produce identical output (same fix as TraceAverager::reset).
 	void reset() {
 		y_prev_ = StateScalar{};
-		denormal_ = DenormalPrevention<SampleScalar>{};
+		denormal_ = DenormalPrevention<StateScalar>{};
 	}
 
 	[[nodiscard]] double cutoff_hz()      const { return cutoff_hz_; }
@@ -154,7 +171,7 @@ private:
 	CoeffScalar alpha_           = CoeffScalar{};
 	CoeffScalar one_minus_alpha_ = CoeffScalar{};
 	StateScalar y_prev_          = StateScalar{};
-	DenormalPrevention<SampleScalar> denormal_;
+	DenormalPrevention<StateScalar> denormal_;
 };
 
 } // namespace sw::dsp::spectrum

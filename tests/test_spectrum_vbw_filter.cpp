@@ -21,6 +21,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -99,11 +100,11 @@ void test_cutoff_minus3db() {
 	// At each, |H(fc)| should be 1/sqrt(2) ~= 0.7071 within 5%.
 	const double sqrt_half = 1.0 / std::sqrt(2.0);
 	struct Case { double fs; double fc; const char* name; };
-	const Case cases[] = {
+	const std::array<Case, 3> cases = {{
 		{1.0e6, 1.0e3, "fs=1MHz fc=1kHz"},     // fc = fs/1000
 		{1.0e6, 1.0e4, "fs=1MHz fc=10kHz"},    // fc = fs/100
 		{1.0e6, 1.0e5, "fs=1MHz fc=100kHz"},   // fc = fs/10
-	};
+	}};
 	for (const auto& c : cases) {
 		F vbw(c.fc, c.fs);
 		const double mag = measure_magnitude(vbw, c.fc, c.fs);
@@ -227,6 +228,16 @@ void test_validation() {
 	REQUIRE(t9);
 	try { F(1000.0, INF); } catch (const std::invalid_argument&) { t10 = true; }
 	REQUIRE(t10);
+
+	// set_cutoff() must apply the same validation as the constructor.
+	bool s_nan=false, s_inf=false, s_nyq=false;
+	try { vbw.set_cutoff(NaN); } catch (const std::invalid_argument&) { s_nan = true; }
+	REQUIRE(s_nan);
+	try { vbw.set_cutoff(INF); } catch (const std::invalid_argument&) { s_inf = true; }
+	REQUIRE(s_inf);
+	// Above Nyquist: vbw was constructed with fs = 1e6, so > 5e5 throws.
+	try { vbw.set_cutoff(/*fc=*/600000.0); } catch (const std::invalid_argument&) { s_nyq = true; }
+	REQUIRE(s_nyq);
 	std::cout << "  validation: passed\n";
 }
 
