@@ -41,6 +41,22 @@ public:
 		write_pos_ = 0;
 	}
 
+	// Update taps in place WITHOUT clearing the delay-line state. Useful
+	// for callers that need to retune coefficients mid-stream (e.g.,
+	// FractionalDelay::set_delay) and want to avoid the transient that
+	// would result from a full delay-line reset.
+	//
+	// Requires the new taps to have the same length as the current taps —
+	// changing length would invalidate the delay-line addressing. If you
+	// need a different length, use set_taps() instead.
+	void update_taps(const mtl::vec::dense_vector<CoeffScalar>& taps) {
+		if (taps.size() != taps_.size())
+			throw std::invalid_argument(
+				"FIRFilter::update_taps: new taps must have the same length "
+				"as the current taps (use set_taps() to change length)");
+		taps_ = taps;
+	}
+
 	// Process a single sample through the FIR filter
 	SampleScalar process(SampleScalar in) {
 		std::size_t N = taps_.size();

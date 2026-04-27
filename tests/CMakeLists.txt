@@ -119,3 +119,9 @@ dsp_add_test(test_instrument_peak_detect)
 
 # Instrument display-rate envelope (Issue #149)
 dsp_add_test(test_instrument_display_envelope)
+
+# Instrument fractional-delay FIR (Issue #150)
+dsp_add_test(test_instrument_fractional_delay)
+
+# Instrument channel-aligner (Issue #150)
+dsp_add_test(test_instrument_channel_aligner)
