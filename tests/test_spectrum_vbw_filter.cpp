@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <numbers>
 #include <span>
 #include <stdexcept>
@@ -193,7 +194,8 @@ void test_reset_clears_state() {
 // ============================================================================
 
 void test_validation() {
-	bool t1=false, t2=false, t3=false, t4=false, t5=false, t6=false;
+	bool t1=false, t2=false, t3=false, t4=false, t5=false, t6=false,
+	     t7=false, t8=false, t9=false, t10=false;
 
 	try { F(0.0, 1e6); } catch (const std::invalid_argument&) { t1 = true; }
 	REQUIRE(t1);
@@ -210,6 +212,21 @@ void test_validation() {
 	F vbw(1000.0, 1e6);
 	try { vbw.set_cutoff(-100.0); } catch (const std::invalid_argument&) { t6 = true; }
 	REQUIRE(t6);
+
+	// Non-finite inputs: NaN and +inf must both throw. NaN is caught
+	// by `> 0.0` (NaN comparisons are false); +inf is the one that
+	// would otherwise sneak past `> 0.0` and produce a useless
+	// "y stuck at y_prev" filter (alpha = 1 - exp(-x/inf) = 0).
+	const double NaN = std::numeric_limits<double>::quiet_NaN();
+	const double INF = std::numeric_limits<double>::infinity();
+	try { F(NaN, 1e6); } catch (const std::invalid_argument&) { t7 = true; }
+	REQUIRE(t7);
+	try { F(INF, 1e6); } catch (const std::invalid_argument&) { t8 = true; }
+	REQUIRE(t8);
+	try { F(1000.0, NaN); } catch (const std::invalid_argument&) { t9 = true; }
+	REQUIRE(t9);
+	try { F(1000.0, INF); } catch (const std::invalid_argument&) { t10 = true; }
+	REQUIRE(t10);
 	std::cout << "  validation: passed\n";
 }
 
@@ -231,21 +248,35 @@ void test_length_mismatch_throws() {
 // ============================================================================
 
 void test_float_settles_close_to_double() {
-	using FF = VBWFilter<float, float, float>;
+	// Three instantiations:
+	//   - all-float        VBWFilter<float, float, float>
+	//   - all-double       VBWFilter<double, double, double>
+	//   - mixed-precision  VBWFilter<double, double, float>
+	//                      (high-precision coefficients + state, float
+	//                      streaming I/O — the FPGA-pragmatic mix that
+	//                      the scope_demo's eq_float_storage_fx16 plan
+	//                      uses for its calibration FIR)
+	// All three should settle to ~7.5 for a constant input. Float
+	// drift bounded by float epsilon times ~5000 iterations of leaky
+	// integration is well under 1e-3.
+	using FF = VBWFilter<float,  float,  float>;
 	using FD = VBWFilter<double, double, double>;
+	using FM = VBWFilter<double, double, float>;
 	FF vbw_f(1000.0, 100000.0);
 	FD vbw_d(1000.0, 100000.0);
+	FM vbw_m(1000.0, 100000.0);
 	float  y_f = 0.0f;
 	double y_d = 0.0;
+	float  y_m = 0.0f;
 	for (int i = 0; i < 5000; ++i) {
 		y_f = vbw_f.process(7.5f);
 		y_d = vbw_d.process(7.5);
+		y_m = vbw_m.process(7.5f);
 	}
-	// Both should settle to ~7.5. Float drift bounded by float epsilon
-	// times ~5000 iterations of leaky integration — well under 1e-3.
 	REQUIRE(approx(static_cast<double>(y_f), y_d, 1e-3));
+	REQUIRE(approx(static_cast<double>(y_m), y_d, 1e-3));
 	std::cout << "  float_settles_close_to_double: passed (float="
-	          << y_f << " double=" << y_d << ")\n";
+	          << y_f << " mixed=" << y_m << " double=" << y_d << ")\n";
 }
 
 // ============================================================================

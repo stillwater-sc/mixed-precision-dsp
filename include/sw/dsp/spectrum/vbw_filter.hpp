@@ -61,9 +61,14 @@ public:
 	//                 Must be > 0.
 	VBWFilter(double cutoff_hz, double sample_rate_hz)
 		: sample_rate_hz_(sample_rate_hz) {
-		if (!(sample_rate_hz > 0.0))
+		// isfinite + positive. The two checks together exclude NaN
+		// (rejected by both), -inf (rejected by `> 0.0`), and +inf
+		// (rejected by isfinite). +inf is the sneaky one: it would
+		// pass the > 0.0 check and then make alpha = 1 - exp(-x/inf)
+		// = 0, giving a useless "y stuck at y_prev" filter.
+		if (!std::isfinite(sample_rate_hz) || !(sample_rate_hz > 0.0))
 			throw std::invalid_argument(
-				"VBWFilter: sample_rate_hz must be positive (got "
+				"VBWFilter: sample_rate_hz must be positive and finite (got "
 				+ std::to_string(sample_rate_hz) + ")");
 		set_cutoff(cutoff_hz);   // designs alpha; sets cutoff_hz_
 	}
@@ -107,9 +112,13 @@ public:
 	// call continues smoothly from the running state. The user sliding
 	// the VBW knob doesn't see a discontinuity.
 	void set_cutoff(double cutoff_hz) {
-		if (!(cutoff_hz > 0.0))
+		// Same isfinite-and-positive rule as the constructor.
+		// +inf would pass `> 0.0` and then short-circuit through
+		// the Nyquist check (`inf > 0.5*fs` is true), but explicit
+		// isfinite gives a clearer error message.
+		if (!std::isfinite(cutoff_hz) || !(cutoff_hz > 0.0))
 			throw std::invalid_argument(
-				"VBWFilter: cutoff_hz must be positive (got "
+				"VBWFilter: cutoff_hz must be positive and finite (got "
 				+ std::to_string(cutoff_hz) + ")");
 		if (cutoff_hz > 0.5 * sample_rate_hz_)
 			throw std::invalid_argument(
