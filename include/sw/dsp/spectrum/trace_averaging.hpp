@@ -37,7 +37,11 @@
 //     to SampleScalar on read.
 //   - Exponential: arithmetic in SampleScalar (single-pole IIR per
 //     bin); narrow types may show drift toward the alpha-quantization
-//     step, same dynamic as any leaky integrator.
+//     step, same dynamic as any leaky integrator. The IIR loop
+//     applies DenormalPrevention<SampleScalar> (a tiny alternating
+//     AC injection) on each update — no-op for posit / fixpnt, flushes
+//     denormals on IEEE float / double. Same pattern as the IIR
+//     stages in acquisition/nco.hpp and acquisition/halfband.hpp.
 //   - MaxHold / MinHold / MaxHoldN: comparison-only, precision-blind.
 //     The stored values are bit-exact copies of the input.
 //
@@ -52,6 +56,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <cmath>
 #include <cstddef>
 #include <span>
 #include <stdexcept>
@@ -59,6 +64,7 @@
 #include <vector>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
+#include <sw/dsp/math/denormal.hpp>
 
 namespace sw::dsp::spectrum {
 
@@ -109,9 +115,18 @@ public:
 			case Mode::MinHold:
 				break;
 			case Mode::MaxHoldN:
+				// Two checks: N >= 1 catches negatives, zero, and NaN
+				// (NaN >= 1 is false). Then config == floor(config)
+				// catches non-integer values like 2.5 — without this
+				// they'd silently truncate via the static_cast. NaN also
+				// fails this second check (NaN != NaN).
 				if (!(config >= 1.0))
 					throw std::invalid_argument(
 						"TraceAverager: MaxHoldN requires window N >= 1 (got "
+						+ std::to_string(config) + ")");
+				if (config != std::floor(config))
+					throw std::invalid_argument(
+						"TraceAverager: MaxHoldN requires integer-valued window N (got "
 						+ std::to_string(config) + ")");
 				window_n_ = static_cast<std::size_t>(config);
 				ring_.resize(window_n_);
@@ -153,14 +168,20 @@ public:
 					for (std::size_t i = 0; i < trace_length_; ++i)
 						current_[i] = trace[i];
 				} else {
-					// y[i] = alpha*x[i] + (1-alpha)*y[i-1]
+					// y[i] = alpha*x[i] + (1-alpha)*y[i-1] + denormal AC
 					// Computed in SampleScalar; alpha multiplied via
 					// the SampleScalar(double) ctor for type uniformity.
+					// `+ denormal_.ac()` injects a tiny alternating value
+					// that flushes accumulator denormals on IEEE types
+					// (no-op on posit / fixpnt). Same pattern as the IIR
+					// stages in nco.hpp / halfband.hpp / src.hpp.
 					const SampleScalar a = static_cast<SampleScalar>(alpha_);
 					const SampleScalar one_minus_a =
 						static_cast<SampleScalar>(1.0 - alpha_);
 					for (std::size_t i = 0; i < trace_length_; ++i)
-						current_[i] = a * trace[i] + one_minus_a * current_[i];
+						current_[i] = a * trace[i]
+						            + one_minus_a * current_[i]
+						            + denormal_.ac();
 				}
 				++sweeps_;
 				break;
@@ -254,6 +275,7 @@ private:
 	mtl::vec::dense_vector<SampleScalar>            current_;
 	std::vector<double>                              sum_;       // Linear
 	std::vector<mtl::vec::dense_vector<SampleScalar>> ring_;     // MaxHoldN
+	DenormalPrevention<SampleScalar>                 denormal_;  // Exponential IIR
 };
 
 } // namespace sw::dsp::spectrum
