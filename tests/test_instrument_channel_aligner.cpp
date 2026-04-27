@@ -126,6 +126,11 @@ void test_process_wrong_size_throws() {
 
 // Compute Pearson correlation coefficient between two equal-length streams,
 // skipping the first `skip` samples to avoid the FIR transient.
+//
+// Guards against the degenerate case where one or both streams are constant
+// across the post-skip window: den_a or den_b would be zero, producing
+// 0/0 = NaN. We return 0.0 in that case (zero correlation between a
+// constant signal and anything is the conventional definition).
 double pearson_correlation(const std::vector<double>& a,
                            const std::vector<double>& b,
                            std::size_t skip) {
@@ -145,7 +150,9 @@ double pearson_correlation(const std::vector<double>& a,
 		den_a += da * da;
 		den_b += db * db;
 	}
-	return num / std::sqrt(den_a * den_b);
+	const double den = std::sqrt(den_a * den_b);
+	if (den < 1e-300) return 0.0;   // one (or both) streams are constant
+	return num / den;
 }
 
 void test_skew_correction_two_channels() {

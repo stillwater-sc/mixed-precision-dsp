@@ -61,6 +61,7 @@ public:
 	//   sample (simpler design + symmetric phase response when delay=0).
 	FractionalDelay(double delay_samples, std::size_t num_taps = 31)
 		: num_taps_(num_taps),
+		  delay_samples_(delay_samples),
 		  fir_(design_taps(delay_samples, num_taps)) {}
 
 	SampleScalar process(SampleScalar in) { return fir_.process(in); }
@@ -77,8 +78,14 @@ public:
 	// Re-tune the delay without resetting the FIR delay-line state. The
 	// new taps replace the old in place; a brief transient is expected
 	// as the delay-line samples adapt to the new impulse response.
+	//
+	// Strong exception guarantee: if design_taps throws (e.g., out-of-
+	// range delay), the existing taps and delay_samples_ are unchanged.
 	void set_delay(double delay_samples) {
-		fir_.update_taps(design_taps(delay_samples, num_taps_));
+		auto new_taps = design_taps(delay_samples, num_taps_);
+		// design_taps returned cleanly — now commit the state changes.
+		delay_samples_ = delay_samples;
+		fir_.update_taps(new_taps);
 	}
 
 	// Clear the FIR delay-line state. Useful between independent test
@@ -97,10 +104,16 @@ public:
 	double      delay()    const { return delay_samples_; }
 
 private:
-	// Design windowed-sinc taps for a fractional delay.
-	// h[n] = window[n] * sinc(n - center - delay) for n = 0..N-1
-	// Then normalize so sum(h[n]) == 1 (DC gain = 1).
-	mtl::vec::dense_vector<CoeffScalar>
+	// Design windowed-sinc taps for a fractional delay. PURE: no side
+	// effects on object state. Callers (constructor + set_delay) own
+	// the state mutations.
+	//
+	//   h[n] = window[n] * sinc(n - center - delay) for n = 0..N-1
+	//   then normalize so sum(h[n]) == 1 (DC gain = 1)
+	//
+	// Static so the constructor's initializer list can call it before
+	// the object is fully constructed.
+	static mtl::vec::dense_vector<CoeffScalar>
 	design_taps(double delay_samples, std::size_t num_taps) {
 		if (num_taps < 3 || (num_taps & 1U) == 0)
 			throw std::invalid_argument(
@@ -109,8 +122,6 @@ private:
 			throw std::invalid_argument(
 				"FractionalDelay: delay_samples must be in [0, 1) "
 				"(use a ring buffer for integer delays)");
-
-		delay_samples_ = delay_samples;
 
 		const double center = static_cast<double>(num_taps - 1) / 2.0;
 		const double pi     = std::numbers::pi_v<double>;

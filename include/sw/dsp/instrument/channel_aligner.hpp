@@ -91,15 +91,27 @@ public:
 	// std::vector — see CLAUDE.md).
 	mtl::vec::dense_vector<SampleScalar>
 	process(std::span<const SampleScalar> channel_samples) {
+		mtl::vec::dense_vector<SampleScalar> out(channel_samples.size());
+		process(channel_samples, std::span<SampleScalar>{out.data(), out.size()});
+		return out;
+	}
+
+	// Allocation-free overload: write aligned samples into a caller-
+	// provided buffer. Useful for hot-path streaming where the same
+	// output buffer is reused every call.
+	void process(std::span<const SampleScalar> channel_samples,
+	             std::span<SampleScalar>       out) {
 		if (channel_samples.size() != delays_.size())
 			throw std::invalid_argument(
 				"ChannelAligner::process: input length must equal "
 				"number of channels");
-		mtl::vec::dense_vector<SampleScalar> out(channel_samples.size());
+		if (out.size() != delays_.size())
+			throw std::invalid_argument(
+				"ChannelAligner::process: output length must equal "
+				"number of channels");
 		for (std::size_t c = 0; c < delays_.size(); ++c) {
 			out[c] = delays_[c].process(channel_samples[c]);
 		}
-		return out;
 	}
 
 	std::size_t num_channels() const { return delays_.size(); }
