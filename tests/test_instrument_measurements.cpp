@@ -96,6 +96,40 @@ void test_linear_ramp_rise_time() {
 	          << " samples, expected 80)\n";
 }
 
+void test_steep_step_rise_time() {
+	// Regression test for a one-sample step that crosses BOTH the 10%
+	// and 90% thresholds within a single sample interval. Previous
+	// `else if` logic skipped the t_hi check on the iteration that set
+	// t_lo, returning NaN. After the fix both crossings are recovered
+	// in the same iteration via linear interpolation.
+	std::vector<double> step = {0.0, 0.0, 1.0, 1.0, 1.0};
+	const double rt = rise_time_samples(std::span<const double>{step});
+	// p2p = 1.0; thr_lo = 0.1, thr_hi = 0.9.
+	// Crossing inside sample [1, 2] (a=0, b=1):
+	//   t_lo at fraction 0.1 -> absolute 1.1
+	//   t_hi at fraction 0.9 -> absolute 1.9
+	// Expected rise time = 0.8 samples.
+	REQUIRE(!std::isnan(rt));
+	REQUIRE(approx(rt, 0.8, 1e-12));
+	std::cout << "  steep_step_rise_time: passed (rise_time=" << rt
+	          << " samples within one sample step, expected 0.8)\n";
+}
+
+void test_steep_step_fall_time() {
+	// Mirror of the rise-time steep-step test.
+	std::vector<double> step = {1.0, 1.0, 0.0, 0.0, 0.0};
+	const double ft = fall_time_samples(std::span<const double>{step});
+	// p2p = 1.0; thr_hi = 0.9, thr_lo = 0.1.
+	// Crossing inside sample [1, 2] (a=1, b=0):
+	//   t_hi at fraction 0.1 (signal hits 0.9 going down) -> absolute 1.1
+	//   t_lo at fraction 0.9 (signal hits 0.1 going down) -> absolute 1.9
+	// Expected fall time = 0.8 samples.
+	REQUIRE(!std::isnan(ft));
+	REQUIRE(approx(ft, 0.8, 1e-12));
+	std::cout << "  steep_step_fall_time: passed (fall_time=" << ft
+	          << " samples within one sample step, expected 0.8)\n";
+}
+
 void test_linear_ramp_fall_time() {
 	// Ramp from 1 down to 0 over 100 samples.
 	// 90% threshold crossed at sample 10, 10% threshold at sample 90.
@@ -264,6 +298,8 @@ int main() {
 		test_sine_aggregations();
 		test_linear_ramp_rise_time();
 		test_linear_ramp_fall_time();
+		test_steep_step_rise_time();
+		test_steep_step_fall_time();
 		test_period_and_frequency_sine();
 
 		test_empty_segment_throws();

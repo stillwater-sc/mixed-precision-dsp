@@ -155,21 +155,27 @@ template <DspOrderedField T>
 	// First rising crossing of thr_lo, then first subsequent rising
 	// crossing of thr_hi. "Rising" = sample[i] < threshold,
 	// sample[i+1] >= threshold.
+	//
+	// Both checks must run in the same iteration (no `else if`): a
+	// steep edge can cross both thresholds within a single sample
+	// step (e.g., signal jumps 0.05 -> 0.95 with default 10/90
+	// thresholds). Linear interpolation gives valid sub-sample times
+	// for both, and t_hi > t_lo is guaranteed because thr_hi > thr_lo
+	// on a rising edge.
 	double t_lo = std::numeric_limits<double>::quiet_NaN();
 	double t_hi = std::numeric_limits<double>::quiet_NaN();
 	for (std::size_t i = 0; i + 1 < segment.size(); ++i) {
 		const double a = static_cast<double>(segment[i]);
 		const double b = static_cast<double>(segment[i + 1]);
-		if (std::isnan(t_lo)) {
-			if (a < thr_lo && b >= thr_lo)
-				t_lo = static_cast<double>(i)
-				     + detail::interp_crossing(a, b, thr_lo);
-		} else if (std::isnan(t_hi)) {
-			if (a < thr_hi && b >= thr_hi) {
-				t_hi = static_cast<double>(i)
-				     + detail::interp_crossing(a, b, thr_hi);
-				break;
-			}
+		if (std::isnan(t_lo) && a < thr_lo && b >= thr_lo) {
+			t_lo = static_cast<double>(i)
+			     + detail::interp_crossing(a, b, thr_lo);
+		}
+		if (!std::isnan(t_lo) && std::isnan(t_hi)
+		    && a < thr_hi && b >= thr_hi) {
+			t_hi = static_cast<double>(i)
+			     + detail::interp_crossing(a, b, thr_hi);
+			break;
 		}
 	}
 	if (std::isnan(t_lo) || std::isnan(t_hi))
@@ -200,22 +206,24 @@ template <DspOrderedField T>
 	const double thr_hi = lo + high_pct * range;
 
 	// First falling crossing of thr_hi (a >= thr_hi, b < thr_hi),
-	// then first subsequent falling crossing of thr_lo.
+	// then first subsequent falling crossing of thr_lo. Both checks
+	// run in the same iteration so a steep falling edge that crosses
+	// both thresholds within one sample step is recovered correctly
+	// (mirror of the rise-time loop above).
 	double t_hi = std::numeric_limits<double>::quiet_NaN();
 	double t_lo = std::numeric_limits<double>::quiet_NaN();
 	for (std::size_t i = 0; i + 1 < segment.size(); ++i) {
 		const double a = static_cast<double>(segment[i]);
 		const double b = static_cast<double>(segment[i + 1]);
-		if (std::isnan(t_hi)) {
-			if (a >= thr_hi && b < thr_hi)
-				t_hi = static_cast<double>(i)
-				     + detail::interp_crossing(a, b, thr_hi);
-		} else if (std::isnan(t_lo)) {
-			if (a >= thr_lo && b < thr_lo) {
-				t_lo = static_cast<double>(i)
-				     + detail::interp_crossing(a, b, thr_lo);
-				break;
-			}
+		if (std::isnan(t_hi) && a >= thr_hi && b < thr_hi) {
+			t_hi = static_cast<double>(i)
+			     + detail::interp_crossing(a, b, thr_hi);
+		}
+		if (!std::isnan(t_hi) && std::isnan(t_lo)
+		    && a >= thr_lo && b < thr_lo) {
+			t_lo = static_cast<double>(i)
+			     + detail::interp_crossing(a, b, thr_lo);
+			break;
 		}
 	}
 	if (std::isnan(t_hi) || std::isnan(t_lo))
@@ -224,16 +232,18 @@ template <DspOrderedField T>
 }
 
 // Period in samples: average distance between consecutive rising
-// threshold-crossings. Threshold defaults to T{0} (zero-crossing,
-// natural for AC-coupled signals). Returns NaN if fewer than two
-// rising crossings occur in the segment.
+// threshold-crossings. Threshold defaults to T{} (zero-crossing,
+// natural for AC-coupled signals — value-initialization yields the
+// additive identity for arithmetic types and matches the
+// default-constructibility required by DspScalar). Returns NaN if
+// fewer than two rising crossings occur in the segment.
 //
 // Sub-sample crossing times use linear interpolation, so the returned
 // period is fractional.
 template <DspOrderedField T>
 	requires ConvertibleToDouble<T>
 [[nodiscard]] double period_samples(std::span<const T> segment,
-                                    T threshold = T{0}) {
+                                    T threshold = T{}) {
 	detail::require_nonempty(segment, "period_samples");
 	if (segment.size() < 2)
 		return std::numeric_limits<double>::quiet_NaN();
@@ -267,7 +277,7 @@ template <DspOrderedField T>
 	requires ConvertibleToDouble<T>
 [[nodiscard]] double frequency_hz(std::span<const T> segment,
                                   double sample_rate,
-                                  T threshold = T{0}) {
+                                  T threshold = T{}) {
 	if (!(sample_rate > 0.0))
 		throw std::invalid_argument(
 			"frequency_hz: sample_rate must be positive");
