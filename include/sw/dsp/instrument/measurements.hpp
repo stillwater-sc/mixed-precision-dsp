@@ -66,18 +66,21 @@ inline double interp_crossing(double a, double b, double threshold) {
 	return (threshold - a) / denom;
 }
 
-// Single-pass min/max over a span, accumulating in double regardless of
-// SampleScalar precision. Caller must ensure the segment is non-empty.
+// Single-pass min/max over a span. Comparisons run in T (the input
+// type) and only the final extremes are cast to double on return.
+// Casting first and comparing in double could theoretically collapse
+// ordering for types whose cast isn't strictly monotone; comparing in
+// T keeps the contract aligned with DspOrderedField's promise. Caller
+// must ensure the segment is non-empty.
 template <typename T>
 inline std::pair<double, double> min_max_double(std::span<const T> segment) {
-	double lo = static_cast<double>(segment[0]);
-	double hi = lo;
+	T lo = segment[0];
+	T hi = lo;
 	for (std::size_t i = 1; i < segment.size(); ++i) {
-		const double v = static_cast<double>(segment[i]);
-		if (v < lo) lo = v;
-		if (v > hi) hi = v;
+		if (segment[i] < lo) lo = segment[i];
+		if (segment[i] > hi) hi = segment[i];
 	}
-	return {lo, hi};
+	return {static_cast<double>(lo), static_cast<double>(hi)};
 }
 
 } // namespace detail

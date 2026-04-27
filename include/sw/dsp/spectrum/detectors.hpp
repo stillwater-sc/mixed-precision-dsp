@@ -69,32 +69,35 @@ inline void require_nonempty(std::span<const T> bin, const char* fn) {
 
 // Peak detector: max(bin). Standard "peak" mode on commercial analyzers.
 //
-// Comparison-only - storage precision is preserved bit-exact (no
-// arithmetic). Returned as double for type-uniformity across modes.
+// Comparisons happen in T (not in double): casting to double before
+// comparing can theoretically collapse ordering for any T whose cast
+// isn't strictly monotone (e.g., a hypothetical saturating cast). For
+// the standard arithmetic types and all current Universal types the
+// two approaches give bit-identical results, but comparing in T keeps
+// the contract consistent with DspOrderedField's promise.
 template <DspOrderedField T>
 	requires ConvertibleToDouble<T>
 [[nodiscard]] double detect_peak(std::span<const T> bin) {
 	detail::require_nonempty(bin, "detect_peak");
-	double hi = static_cast<double>(bin[0]);
+	T hi = bin[0];
 	for (std::size_t i = 1; i < bin.size(); ++i) {
-		const double v = static_cast<double>(bin[i]);
-		if (v > hi) hi = v;
+		if (bin[i] > hi) hi = bin[i];
 	}
-	return hi;
+	return static_cast<double>(hi);
 }
 
 // Negative-peak detector: min(bin). Useful for finding the deepest
 // notch in a frequency response or the floor of a noise distribution.
+// Comparisons in T (see detect_peak comment).
 template <DspOrderedField T>
 	requires ConvertibleToDouble<T>
 [[nodiscard]] double detect_negative_peak(std::span<const T> bin) {
 	detail::require_nonempty(bin, "detect_negative_peak");
-	double lo = static_cast<double>(bin[0]);
+	T lo = bin[0];
 	for (std::size_t i = 1; i < bin.size(); ++i) {
-		const double v = static_cast<double>(bin[i]);
-		if (v < lo) lo = v;
+		if (bin[i] < lo) lo = bin[i];
 	}
-	return lo;
+	return static_cast<double>(lo);
 }
 
 // Sample detector: the FIRST sample in the bin window.

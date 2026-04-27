@@ -14,6 +14,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
@@ -21,7 +22,6 @@
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 #include <sw/dsp/spectrum/detectors.hpp>
 
@@ -42,7 +42,7 @@ static bool approx(double a, double b, double tol) {
 
 void test_square_wave_detectors() {
 	// 100-sample square wave: 50 samples at +2.0, then 50 at -1.0.
-	std::vector<double> sq(100);
+	std::array<double, 100> sq{};
 	for (std::size_t n = 0; n < 50; ++n)  sq[n] = 2.0;
 	for (std::size_t n = 50; n < 100; ++n) sq[n] = -1.0;
 	std::span<const double> bin{sq};
@@ -62,9 +62,9 @@ void test_square_wave_detectors() {
 
 void test_sine_detectors() {
 	// 1024 samples of one full cycle of unit-amplitude sine.
-	const std::size_t N = 1024;
+	constexpr std::size_t N = 1024;
 	const double pi = std::numbers::pi_v<double>;
-	std::vector<double> s(N);
+	std::array<double, N> s{};
 	for (std::size_t n = 0; n < N; ++n)
 		s[n] = std::sin(2.0 * pi * static_cast<double>(n) / static_cast<double>(N));
 	std::span<const double> bin{s};
@@ -83,7 +83,8 @@ void test_sine_detectors() {
 // ============================================================================
 
 void test_constant_bin() {
-	std::vector<double> flat(64, 1.5);
+	std::array<double, 64> flat;
+	flat.fill(1.5);
 	std::span<const double> bin{flat};
 	REQUIRE(approx(detect_peak(bin),          1.5, 1e-12));
 	REQUIRE(approx(detect_negative_peak(bin), 1.5, 1e-12));
@@ -95,7 +96,8 @@ void test_constant_bin() {
 
 void test_constant_negative_bin() {
 	// Make sure RMS returns |value|, not value, for a constant negative.
-	std::vector<double> flat(32, -2.0);
+	std::array<double, 32> flat;
+	flat.fill(-2.0);
 	std::span<const double> bin{flat};
 	REQUIRE(approx(detect_peak(bin),         -2.0, 1e-12));
 	REQUIRE(approx(detect_negative_peak(bin), -2.0, 1e-12));
@@ -131,7 +133,7 @@ void test_empty_span_throws() {
 }
 
 void test_single_sample() {
-	std::vector<double> one = {3.5};
+	std::array<double, 1> one = {3.5};
 	std::span<const double> bin{one};
 	REQUIRE(approx(detect_peak(bin),          3.5, 1e-12));
 	REQUIRE(approx(detect_negative_peak(bin), 3.5, 1e-12));
@@ -148,7 +150,7 @@ void test_single_sample() {
 void test_dispatcher_matches_named() {
 	// For an arbitrary bin, the dispatcher must agree bit-exactly with
 	// the named entry points (no rounding difference allowed: same code path).
-	std::vector<double> bin = {0.3, -0.7, 1.2, 0.0, -0.4, 0.9};
+	std::array<double, 6> bin = {0.3, -0.7, 1.2, 0.0, -0.4, 0.9};
 	std::span<const double> b{bin};
 	REQUIRE(detect(b, DetectorMode::Peak)         == detect_peak(b));
 	REQUIRE(detect(b, DetectorMode::NegativePeak) == detect_negative_peak(b));
@@ -166,7 +168,7 @@ void test_float_input() {
 	// Same square wave as the double test but with float samples.
 	// Detectors run in double internally so the result should match
 	// the double answer to within float epsilon scaled by N.
-	std::vector<float> sq(100);
+	std::array<float, 100> sq{};
 	for (std::size_t n = 0; n < 50; ++n) sq[n] = 2.0f;
 	for (std::size_t n = 50; n < 100; ++n) sq[n] = -1.0f;
 	std::span<const float> bin{sq};
