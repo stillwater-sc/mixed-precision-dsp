@@ -17,6 +17,13 @@ set(PROJECT_VERSION_MAJOR ${DSP_MAJOR})
 set(PROJECT_VERSION_MINOR ${DSP_MINOR})
 set(PROJECT_VERSION_PATCH ${DSP_PATCH})
 
+# Enable folder organization in IDE generators (Visual Studio, Xcode).
+# Each test/application sets a FOLDER target property so the IDE's
+# Solution Explorer / project tree shows a hierarchical view that mirrors
+# the include/sw/dsp/ module layout. Makefile / Ninja generators ignore
+# the FOLDER property, so this is a no-op for command-line builds.
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 # Header-only interface library
 add_library(${PROJECT_NAME} INTERFACE)
 add_library(sw::dsp ALIAS ${PROJECT_NAME})
