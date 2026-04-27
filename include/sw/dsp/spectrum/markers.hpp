@@ -169,9 +169,12 @@ template <DspOrderedField T>
 	              return a.bin < b.bin;
 	          });
 
-	// Step 3: greedy-select with min-separation.
+	// Step 3: greedy-select with min-separation. Reserve only what we
+	// could actually produce — capped by the number of candidates so a
+	// caller asking for top_n=10000 from a trace with 5 local maxes
+	// doesn't get a 10000-slot allocation.
 	std::vector<Marker> out;
-	out.reserve(top_n);
+	out.reserve(std::min(top_n, candidates.size()));
 	for (const auto& c : candidates) {
 		if (out.size() >= top_n) break;
 		bool too_close = false;
@@ -229,9 +232,18 @@ template <DspOrderedField T>
 			+ std::to_string(fundamental_hz) + ")");
 	if (trace.empty() || harmonics == 0) return {};
 
+	// Reserve only what we could possibly produce: the user-requested
+	// harmonics count, capped by trace.size() (we can't return more
+	// markers than the trace has bins). Avoids huge allocations when
+	// a caller passes harmonics = SIZE_MAX or similar.
 	std::vector<Marker> out;
-	out.reserve(harmonics);
-	for (std::size_t k = 2; k < 2 + harmonics; ++k) {
+	out.reserve(std::min(harmonics, trace.size()));
+	// Loop on an index `i` in [0, harmonics) and derive k = i + 2 inside
+	// the body. The earlier form `k < 2 + harmonics` could overflow for
+	// extreme harmonics values (2 + SIZE_MAX wraps). Indexing on i
+	// keeps the bound clean.
+	for (std::size_t i = 0; i < harmonics; ++i) {
+		const std::size_t k = i + 2;
 		const double target_freq = static_cast<double>(k) * fundamental_hz;
 		const double target_bin_d = target_freq / bin_freq_step_hz;
 		// Round to nearest. std::lround would also work; using
