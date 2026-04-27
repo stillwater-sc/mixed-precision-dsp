@@ -192,6 +192,7 @@ void test_delay_accuracy() {
 		double exp_phase = expected_phase;
 		while (exp_phase >  pi) exp_phase -= 2.0 * pi;
 		while (exp_phase < -pi) exp_phase += 2.0 * pi;
+		d.reset();   // isolate iterations: clear any prior-tone state
 		const auto resp = measure_tone_response(d, f);
 		// Phase difference (wrapped). 0.05 rad ≈ 3 degrees tolerance.
 		double dphase = resp.phase_rad - exp_phase;
@@ -218,6 +219,7 @@ void test_in_band_flatness() {
 	// roll off).
 	const std::array<double, 5> freqs = {0.01, 0.05, 0.10, 0.15, 0.20};
 	for (double f : freqs) {
+		d.reset();   // isolate iterations: clear any prior-tone state
 		const auto resp = measure_tone_response(d, f);
 		if (std::abs(resp.magnitude_dB) > 0.5)
 			throw std::runtime_error(
@@ -243,6 +245,7 @@ void test_group_delay_flatness() {
 	const std::array<double, 4> freqs = {0.05, 0.10, 0.15, 0.20};
 	std::vector<double> phases;
 	for (double f : freqs) {
+		d.reset();   // isolate iterations
 		auto resp = measure_tone_response(d, f);
 		// Unwrap based on expected linear ramp
 		double exp_phase = -2.0 * pi * f * total_delay;

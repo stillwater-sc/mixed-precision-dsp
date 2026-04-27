@@ -75,11 +75,16 @@ public:
 	}
 
 	// Re-tune the delay without resetting the FIR delay-line state. The
-	// new taps replace the old; a brief transient is expected as the
-	// delay-line samples adapt to the new impulse response.
+	// new taps replace the old in place; a brief transient is expected
+	// as the delay-line samples adapt to the new impulse response.
 	void set_delay(double delay_samples) {
-		fir_.set_taps(design_taps(delay_samples, num_taps_));
+		fir_.update_taps(design_taps(delay_samples, num_taps_));
 	}
+
+	// Clear the FIR delay-line state. Useful between independent test
+	// runs or stream segments where prior samples should not bleed into
+	// the new measurement.
+	void reset() { fir_.reset(); }
 
 	// Group delay introduced by this filter (in samples). For a
 	// linear-phase FIR of odd length N with fractional delay d, the
@@ -110,7 +115,7 @@ private:
 		const double center = static_cast<double>(num_taps - 1) / 2.0;
 		const double pi     = std::numbers::pi_v<double>;
 
-		std::vector<double> h(num_taps);
+		mtl::vec::dense_vector<double> h(num_taps);
 		double sum = 0.0;
 		for (std::size_t n = 0; n < num_taps; ++n) {
 			// sinc((n - center) - delay), with sinc(0) = 1

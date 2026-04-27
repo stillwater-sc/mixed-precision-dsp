@@ -4,8 +4,16 @@
 //
 // Aligns N channels that share a sample rate but have fixed inter-channel
 // time skews. Channel 0 is the reference (skew = 0); each other channel's
-// skew is the offset that would make IT line up with channel 0 — a
-// positive skew means the channel is sampled LATER than channel 0.
+// skew is the magnitude of the delay applied to that channel.
+//
+// Convention: the wrapper only does causal delays in [0, 1), so it can
+// only correct channels that are sampled LATER than the reference (delay
+// pulls their effective time BACK toward the reference). Channels sampled
+// EARLIER than the reference would need a non-causal advance, which is
+// not supported. So in practice the user must designate the EARLIEST-
+// sampling channel as the reference (channel 0); all other channels'
+// skew values are how much LATER they sample, and the wrapper delays
+// each by that amount to align them to the reference's time grid.
 //
 // Implementation: one FractionalDelay per non-reference channel, with the
 // integer part of the skew handled by the caller (via ring-buffer offset)
@@ -27,7 +35,7 @@
 #include <cstddef>
 #include <span>
 #include <stdexcept>
-#include <vector>
+#include <vector>     // std::vector for the per-channel FractionalDelay storage
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
 #include <sw/dsp/instrument/fractional_delay.hpp>
@@ -77,13 +85,17 @@ public:
 	// (N-1)/2; other channels' group delay is (N-1)/2 + their_skew. The
 	// design ensures all channels have THE SAME group delay AT THE
 	// reference time grid — the whole point of alignment.
-	std::vector<SampleScalar>
+	//
+	// Returns mtl::vec::dense_vector<SampleScalar> per the library
+	// signal-container convention (signal data is dense_vector, not
+	// std::vector — see CLAUDE.md).
+	mtl::vec::dense_vector<SampleScalar>
 	process(std::span<const SampleScalar> channel_samples) {
 		if (channel_samples.size() != delays_.size())
 			throw std::invalid_argument(
 				"ChannelAligner::process: input length must equal "
 				"number of channels");
-		std::vector<SampleScalar> out(channel_samples.size());
+		mtl::vec::dense_vector<SampleScalar> out(channel_samples.size());
 		for (std::size_t c = 0; c < delays_.size(); ++c) {
 			out[c] = delays_[c].process(channel_samples[c]);
 		}

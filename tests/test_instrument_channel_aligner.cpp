@@ -149,24 +149,28 @@ double pearson_correlation(const std::vector<double>& a,
 }
 
 void test_skew_correction_two_channels() {
-	// Convention: skews[c] is the per-channel DELAY that the aligner
-	// applies. Since the wrapper only does causal delays in [0, 1),
-	// the reference channel (skews[0] = 0) must be the LATEST-sampling
-	// one in real-world terms; other channels are sampled EARLIER and
-	// get delayed to catch up.
+	// Convention: skews[c] is the magnitude of the per-channel delay.
+	// Since the wrapper only does causal delays in [0, 1), it can only
+	// align channels that are sampled LATER than the reference (delay
+	// pulls their effective time BACK toward the reference). The
+	// reference (skews[0]=0) must therefore be the EARLIEST-sampling
+	// channel; other channels are sampled LATER by skews[c] samples and
+	// get delayed by exactly that amount to align with the reference.
 	//
 	// Setup:
 	//   ground truth signal: s(t) = sin(2πf t/T)
 	//   channel 0 samples at t = n*T:       ch0_in[n] = sin(2πf*n)
 	//   channel 1 samples 0.3T LATER:       ch1_in[n] = sin(2πf*(n + 0.3))
 	//
-	// Channel 1's "current sample" represents the signal 0.3 sample
-	// periods AHEAD of channel 0's. To align them, delay channel 1 by
-	// 0.3 samples, bringing its effective time back in line with
-	// channel 0's. That maps to skews = {0.0, 0.3}.
+	// Channel 1's sample n already represents the signal value at time
+	// (n + 0.3)*T — 0.3 sample periods AHEAD of channel 0's grid. The
+	// FractionalDelay(0.3) on channel 1 produces an output sample that
+	// represents the input from 0.3 samples earlier, i.e., the signal
+	// at time ((n + 0.3) - 0.3)*T = n*T — back in line with channel 0.
 	//
-	// After alignment + the shared 15-sample FIR group delay, both
-	// outputs represent s((n - 15) * T). They should be highly correlated.
+	// After both channels go through the shared 15-sample FIR group
+	// delay, the two outputs both represent s((n - 15)*T) and should be
+	// highly correlated.
 
 	const double pi = std::numbers::pi_v<double>;
 	const double f  = 0.20;
