@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -53,11 +54,17 @@ static std::vector<double> make_frame(std::size_t B, double frame_id) {
 // ============================================================================
 
 void test_construction_validation() {
-	bool t1 = false, t2 = false;
+	bool t1 = false, t2 = false, t3 = false;
 	try { W(0, 4); } catch (const std::invalid_argument&) { t1 = true; }
 	REQUIRE(t1);
 	try { W(8, 0); } catch (const std::invalid_argument&) { t2 = true; }
 	REQUIRE(t2);
+
+	// Multiplication overflow guard: num_bins * num_frames must fit in
+	// size_t. Use values whose product overflows on any 64-bit system.
+	const std::size_t huge = std::numeric_limits<std::size_t>::max() / 2 + 1;
+	try { W(huge, 4); } catch (const std::length_error&) { t3 = true; }
+	REQUIRE(t3);
 
 	// Valid construction: empty initial state.
 	W w(8, 4);
@@ -135,14 +142,15 @@ void test_wrap_oldest_survivor() {
 
 void test_frame_at_out_of_range_throws() {
 	W w(4, 3);
-	bool threw_empty = false, threw_full = false;
+	bool threw_empty = false, threw_full = false, threw_far = false;
 
 	// Empty: any index throws.
 	try { (void)w.frame_at(0); } catch (const std::out_of_range&) { threw_empty = true; }
 	REQUIRE(threw_empty);
 
-	// Push 2 frames. frame_at(0) and frame_at(1) work; frame_at(2) and
-	// frame_at(7) throw.
+	// Push 2 frames. frame_at(0) and frame_at(1) work; frame_at(2)
+	// (just past the filled count) and frame_at(7) (well past it,
+	// even past capacity) both throw.
 	auto f = make_frame(4, 1.0);
 	w.push_frame(std::span<const double>{f});
 	w.push_frame(std::span<const double>{f});
@@ -150,6 +158,8 @@ void test_frame_at_out_of_range_throws() {
 	(void)w.frame_at(1);
 	try { (void)w.frame_at(2); } catch (const std::out_of_range&) { threw_full = true; }
 	REQUIRE(threw_full);
+	try { (void)w.frame_at(7); } catch (const std::out_of_range&) { threw_far = true; }
+	REQUIRE(threw_far);
 	std::cout << "  frame_at_out_of_range_throws: passed\n";
 }
 
