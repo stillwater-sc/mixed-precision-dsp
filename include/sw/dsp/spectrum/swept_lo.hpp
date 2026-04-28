@@ -12,10 +12,14 @@
 // phase increment is itself a function of time:
 //
 //   Linear:       phase_inc(n) = phase_inc_start + n * delta_inc
-//                 where delta_inc = (phase_inc_stop - phase_inc_start) / N
+//                 where delta_inc = (phase_inc_stop - phase_inc_start) / (N-1)
 //
 //   Logarithmic:  phase_inc(n) = phase_inc_start * ratio_inc^n
 //                 where ratio_inc = (phase_inc_stop / phase_inc_start)^(1/(N-1))
+//
+// In both, n ranges over [0, N-1]; sample 0 outputs at f_start_hz and
+// sample N-1 outputs at f_stop_hz. The (N-1) divisor (rather than N)
+// is what makes the schedule pin both endpoints exactly.
 //
 // The phase ACCUMULATOR is continuous across the sweep boundary: at
 // the end of one sweep the phase increment snaps back to phase_inc_
@@ -41,6 +45,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -81,7 +86,27 @@ public:
 		validate_inputs();
 		// Number of samples per sweep. floor() ensures we don't
 		// over-shoot the requested duration.
+		//
+		// Multi-step range check before the cast:
+		//   - product must be finite (catches inf / NaN from huge
+		//     duration*rate or accidental zero-rate division
+		//     elsewhere; static_cast of a non-finite double to size_t
+		//     is implementation-defined / UB),
+		//   - product must fit in size_t (cast of a too-large double
+		//     to size_t silently wraps),
+		//   - product must yield at least 2 samples (we need two
+		//     endpoints for an interpolating schedule).
 		const double N_d = std::floor(sweep_duration_s * sample_rate_hz);
+		const double size_t_max_d =
+			static_cast<double>(std::numeric_limits<std::size_t>::max());
+		if (!std::isfinite(N_d))
+			throw std::invalid_argument(
+				"SweptLO: sweep_duration_s * sample_rate_hz produced a "
+				"non-finite value (got " + std::to_string(N_d) + ")");
+		if (N_d > size_t_max_d)
+			throw std::invalid_argument(
+				"SweptLO: sweep_duration_s * sample_rate_hz exceeds "
+				"size_t max (got " + std::to_string(N_d) + ")");
 		if (!(N_d >= 2.0))
 			throw std::invalid_argument(
 				"SweptLO: sweep_duration_s * sample_rate_hz must yield >= 2 "
