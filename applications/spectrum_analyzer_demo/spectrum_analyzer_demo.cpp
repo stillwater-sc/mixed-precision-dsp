@@ -83,6 +83,7 @@
 #include <sw/dsp/spectrum/detectors.hpp>
 #include <sw/dsp/spectrum/markers.hpp>
 #include <sw/dsp/windows/hanning.hpp>
+#include <sw/dsp/math/constants.hpp>
 
 #include <sw/universal/number/posit/posit.hpp>
 
@@ -194,10 +195,10 @@ std::vector<double> simulate_input(unsigned seed = 0xBEEF) {
 	const double a2 = dbc_to_lin(params.tone2_dbc);
 	const double a3 = dbc_to_lin(params.tone3_dbc);
 	const double as = dbc_to_lin(params.spurious_dbc);
-	const double w1 = 2.0 * M_PI * params.tone1_hz     / params.sample_rate_hz;
-	const double w2 = 2.0 * M_PI * params.tone2_hz     / params.sample_rate_hz;
-	const double w3 = 2.0 * M_PI * params.tone3_hz     / params.sample_rate_hz;
-	const double ws = 2.0 * M_PI * params.spurious_hz  / params.sample_rate_hz;
+	const double w1 = sw::dsp::two_pi * params.tone1_hz    / params.sample_rate_hz;
+	const double w2 = sw::dsp::two_pi * params.tone2_hz    / params.sample_rate_hz;
+	const double w3 = sw::dsp::two_pi * params.tone3_hz    / params.sample_rate_hz;
+	const double ws = sw::dsp::two_pi * params.spurious_hz / params.sample_rate_hz;
 
 	for (std::size_t n = 0; n < x.size(); ++n) {
 		const double t = static_cast<double>(n);
