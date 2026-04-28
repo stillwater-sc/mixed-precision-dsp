@@ -49,7 +49,8 @@ Tests/
 │   ├── test_spectrum_rbw_filter          Resolution-bandwidth (sync-tuned) BPF
 │   ├── test_spectrum_realtime            Streaming overlapping FFT engine
 │   ├── test_spectrum_waterfall           Circular 2D buffer for spectrogram displays
-│   └── test_spectrum_swept_lo            Phase-coherent linear/log chirp generator
+│   ├── test_spectrum_swept_lo            Phase-coherent linear/log chirp generator
+│   └── test_spectrum_front_end_corrector Calibration alias for EqualizerFilter
 ├── Conditioning/
 │   ├── test_conditioning        AGC, compressor, envelope detector
 │   ├── test_src                 Rational sample-rate conversion
