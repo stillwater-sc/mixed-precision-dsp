@@ -23,6 +23,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -121,6 +122,70 @@ void test_log_sweep_profile() {
 	REQUIRE(std::abs(mid - mid_geo) / mid_geo < 0.05);
 	std::cout << "  log_sweep_profile: passed (mid=" << mid
 	          << " expected_geomean=" << mid_geo << ")\n";
+}
+
+// ============================================================================
+// Descending sweep coverage (f_stop < f_start) — both linear and log
+// ============================================================================
+
+void test_linear_descending_sweep() {
+	// Same parameters as the ascending case but flipped: 200 kHz down
+	// to 100 kHz. Schedule must be strictly monotone DECREASING and
+	// hit the same analytical midpoint formula in reverse.
+	const double fs = 1.0e6;
+	const double f0 = 200.0e3;
+	const double f1 = 100.0e3;
+	const double T  = 1.0e-3;
+	LO lo(f0, f1, T, fs, LO::Sweep::Linear);
+	const std::size_t N = lo.num_sweep_samples();
+	REQUIRE(N == 1000);
+
+	std::vector<double> freqs;
+	freqs.reserve(N);
+	for (std::size_t i = 0; i < N; ++i) {
+		freqs.push_back(lo.current_frequency_hz());
+		(void)lo.process();
+	}
+	for (std::size_t i = 1; i < freqs.size(); ++i) {
+		REQUIRE(freqs[i] < freqs[i - 1]);
+	}
+	REQUIRE(approx(freqs.front(), f0, 1.0));
+	REQUIRE(approx(freqs.back(),  f1, 1.0));
+	const double expected_mid =
+		f0 + static_cast<double>(N / 2) * (f1 - f0) /
+		     static_cast<double>(N - 1);
+	REQUIRE(approx(freqs[N / 2], expected_mid, 1.0));
+	std::cout << "  linear_descending_sweep: passed (start=" << freqs.front()
+	          << " mid=" << freqs[N / 2] << " end=" << freqs.back() << ")\n";
+}
+
+void test_log_descending_sweep() {
+	// 100 kHz down to 1 kHz (2 decades, descending). Geometric mean
+	// at sample N/2 should be sqrt(f0 * f1) within the same ~5%
+	// tolerance as the ascending case.
+	const double fs = 1.0e6;
+	const double f0 = 100.0e3;
+	const double f1 = 1.0e3;
+	const double T  = 1.0e-3;
+	LO lo(f0, f1, T, fs, LO::Sweep::Logarithmic);
+	const std::size_t N = lo.num_sweep_samples();
+
+	std::vector<double> freqs;
+	freqs.reserve(N);
+	for (std::size_t i = 0; i < N; ++i) {
+		freqs.push_back(lo.current_frequency_hz());
+		(void)lo.process();
+	}
+	for (std::size_t i = 1; i < freqs.size(); ++i) {
+		REQUIRE(freqs[i] < freqs[i - 1]);
+	}
+	REQUIRE(std::abs(freqs.front() - f0) / f0 < 0.01);
+	REQUIRE(std::abs(freqs.back()  - f1) / f1 < 0.05);
+	const double mid_geo = std::sqrt(f0 * f1);
+	REQUIRE(std::abs(freqs[N / 2] - mid_geo) / mid_geo < 0.05);
+	std::cout << "  log_descending_sweep: passed (start=" << freqs.front()
+	          << " mid=" << freqs[N / 2] << " end=" << freqs.back()
+	          << " geomean=" << mid_geo << ")\n";
 }
 
 // ============================================================================
@@ -239,6 +304,12 @@ void test_validation() {
 	// duration too short to yield 2 samples (1e-7 s * 1 MHz = 0.1 sample)
 	t=false; try { LO(100e3, 200e3, 1e-7, fs); } catch (const std::invalid_argument&) { t=true; } REQUIRE(t);
 
+	// duration * sample_rate exceeds size_t-as-double max — catches
+	// pathologically huge sweep durations that would silently wrap
+	// when cast to size_t. 1e300 seconds * 1 MHz ≈ 1e306, far above
+	// size_t_max ≈ 1.8e19.
+	t=false; try { LO(100e3, 200e3, 1e300, fs); } catch (const std::invalid_argument&) { t=true; } REQUIRE(t);
+
 	// Log-sweep same-sign requirement: today this is implicit in the
 	// positivity check above (both f_start and f_stop must be > 0,
 	// which means they share sign by construction). The explicit
@@ -308,6 +379,8 @@ int main() {
 
 		test_linear_sweep_profile();
 		test_log_sweep_profile();
+		test_linear_descending_sweep();
+		test_log_descending_sweep();
 		test_phase_continuous_across_restart();
 		test_sweep_complete_semantics();
 		test_reset();
