@@ -52,7 +52,7 @@ namespace sw::dsp::spectrum {
 
 template <DspField CoeffScalar  = double,
           DspField StateScalar  = CoeffScalar,
-          DspScalar SampleScalar = StateScalar>
+          DspField SampleScalar = StateScalar>
 class SweptLO {
 public:
 	using coeff_scalar  = CoeffScalar;
@@ -103,13 +103,11 @@ public:
 				static_cast<double>(num_sweep_samples_ - 1));
 			ratio_inc_ = CoeffScalar{1};   // unused for linear
 		} else {
-			// Log sweep requires same-sign frequencies.
-			if (f_start_hz * f_stop_hz <= 0.0)
-				throw std::invalid_argument(
-					"SweptLO: logarithmic sweep requires f_start_hz and "
-					"f_stop_hz to have the same nonzero sign (got f_start="
-					+ std::to_string(f_start_hz) + ", f_stop="
-					+ std::to_string(f_stop_hz) + ")");
+			// Log sweep needs same-sign frequencies; today
+			// validate_inputs already rejects non-positive values for
+			// both, so the same-sign property is automatic. If
+			// negative-frequency support is added later, reintroduce
+			// the explicit f_start * f_stop > 0 check here.
 			const double ratio_d = std::pow(
 				inc_stop_d / inc_start_d,
 				1.0 / static_cast<double>(num_sweep_samples_ - 1));
@@ -118,7 +116,6 @@ public:
 		}
 
 		phase_inc_start_ = static_cast<StateScalar>(inc_start_d);
-		phase_inc_stop_  = static_cast<StateScalar>(inc_stop_d);
 		phase_inc_       = phase_inc_start_;
 		two_pi_state_    = static_cast<StateScalar>(two_pi);
 	}
@@ -224,7 +221,6 @@ private:
 	StateScalar phase_           = StateScalar{};
 	StateScalar phase_inc_       = StateScalar{};
 	StateScalar phase_inc_start_ = StateScalar{};
-	StateScalar phase_inc_stop_  = StateScalar{};
 	StateScalar two_pi_state_    = StateScalar{};
 
 	CoeffScalar delta_inc_ = CoeffScalar{};
