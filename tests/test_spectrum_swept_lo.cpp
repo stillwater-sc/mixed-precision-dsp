@@ -239,12 +239,12 @@ void test_validation() {
 	// duration too short to yield 2 samples (1e-7 s * 1 MHz = 0.1 sample)
 	t=false; try { LO(100e3, 200e3, 1e-7, fs); } catch (const std::invalid_argument&) { t=true; } REQUIRE(t);
 
-	// Log sweep with mixed-sign frequencies — same-sign requirement
-	// can't actually be exercised here because validate_inputs already
-	// throws on f <= 0; the only way to reach the log-mode same-sign
-	// check would be to allow negative f_start / f_stop. Today this
-	// branch is implicitly covered by the positivity check; keep the
-	// check in place for when negative-frequency sweeps are added.
+	// Log-sweep same-sign requirement: today this is implicit in the
+	// positivity check above (both f_start and f_stop must be > 0,
+	// which means they share sign by construction). The explicit
+	// same-sign check in the log branch was removed as dead code; it
+	// would need to come back if negative-frequency sweeps are
+	// supported later.
 
 	std::cout << "  validation: passed\n";
 }
