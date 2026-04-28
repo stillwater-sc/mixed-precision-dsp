@@ -73,6 +73,7 @@ dsp_add_test(test_spectrum_trace_averaging  "Tests/Spectrum")
 dsp_add_test(test_spectrum_markers          "Tests/Spectrum")
 dsp_add_test(test_spectrum_vbw_filter       "Tests/Spectrum")
 dsp_add_test(test_spectrum_rbw_filter       "Tests/Spectrum")
+dsp_add_test(test_spectrum_realtime         "Tests/Spectrum")
 
 # =============================================================================
 # Conditioning — AGC, compressor, envelope, sample-rate conversion, noise shaping
