@@ -42,6 +42,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -59,17 +60,10 @@ public:
 	//              full spectrum, or fft_size/2 + 1 for one-sided).
 	// num_frames:  ring capacity (how many frames to retain).
 	WaterfallBuffer(std::size_t num_bins, std::size_t num_frames)
-		: num_bins_(num_bins),
+		: num_bins_(check_dims(num_bins, num_frames)),   // throws on bad input
 		  num_frames_capacity_(num_frames),
 		  ring_(num_bins * num_frames),
-		  compact_(num_bins * num_frames) {
-		if (num_bins == 0)
-			throw std::invalid_argument(
-				"WaterfallBuffer: num_bins must be > 0");
-		if (num_frames == 0)
-			throw std::invalid_argument(
-				"WaterfallBuffer: num_frames must be > 0");
-	}
+		  compact_(num_bins * num_frames) {}
 
 	// Append a frame to the buffer. The frame must have exactly
 	// num_bins samples; otherwise std::invalid_argument. When the
@@ -154,6 +148,32 @@ public:
 	[[nodiscard]] std::size_t num_frames_filled()    const { return num_frames_filled_; }
 
 private:
+	// Validates the constructor's dimension arguments. Returns
+	// num_bins (so it can drive num_bins_'s init in the member-init
+	// list) on success; throws on any of:
+	//   - num_bins == 0
+	//   - num_frames == 0
+	//   - num_bins * num_frames overflows std::size_t. The ring and
+	//     compact buffers are sized by this product, so a silent
+	//     overflow would allocate a tiny buffer and let later index
+	//     arithmetic walk off the end.
+	static std::size_t check_dims(std::size_t num_bins,
+	                              std::size_t num_frames) {
+		if (num_bins == 0)
+			throw std::invalid_argument(
+				"WaterfallBuffer: num_bins must be > 0");
+		if (num_frames == 0)
+			throw std::invalid_argument(
+				"WaterfallBuffer: num_frames must be > 0");
+		// Compare against max/x rather than multiplying first.
+		if (num_bins > std::numeric_limits<std::size_t>::max() / num_frames)
+			throw std::length_error(
+				"WaterfallBuffer: num_bins * num_frames overflows size_t (got "
+				+ std::to_string(num_bins) + " * "
+				+ std::to_string(num_frames) + ")");
+		return num_bins;
+	}
+
 	std::size_t num_bins_;
 	std::size_t num_frames_capacity_;
 	std::size_t write_pos_         = 0;
