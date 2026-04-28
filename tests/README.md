@@ -47,7 +47,8 @@ Tests/
 │   ├── test_spectrum_markers             find_peaks / harmonic_markers / delta marker
 │   ├── test_spectrum_vbw_filter          Video-bandwidth (post-detector) LPF
 │   ├── test_spectrum_rbw_filter          Resolution-bandwidth (sync-tuned) BPF
-│   └── test_spectrum_realtime            Streaming overlapping FFT engine
+│   ├── test_spectrum_realtime            Streaming overlapping FFT engine
+│   └── test_spectrum_waterfall           Circular 2D buffer for spectrogram displays
 ├── Conditioning/
 │   ├── test_conditioning        AGC, compressor, envelope detector
 │   ├── test_src                 Rational sample-rate conversion
