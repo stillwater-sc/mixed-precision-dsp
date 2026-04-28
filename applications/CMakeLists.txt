@@ -50,5 +50,8 @@ add_subdirectory(acquisition_demo)
 # Scope demonstrator (Issue #152) — capstone for #133
 add_subdirectory(scope_demo)
 
+# Spectrum-analyzer demonstrator (Issue #183) — capstone for #134
+add_subdirectory(spectrum_analyzer_demo)
+
 # Phase 8: Signal conditioning (placeholder, not yet implemented)
 # add_subdirectory(conditioning_demo)
