@@ -1,0 +1,1 @@
+dsp_add_application(spectrum_analyzer_demo "Applications/Instrument")
