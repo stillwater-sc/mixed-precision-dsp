@@ -153,6 +153,28 @@ public:
 				"RBWFilter: bandwidth_hz must be positive and finite (got "
 				+ std::to_string(bandwidth_hz) + ")");
 
+		// Realizability of the symmetric -3 dB shoulders: the lower
+		// shoulder (fc - bw/2) must be > 0 and the upper shoulder
+		// (fc + bw/2) must be < Nyquist. Without these checks an
+		// over-wide bandwidth_hz would design a filter whose
+		// nominal -3 dB shoulders sit outside the sampled band —
+		// the cascade still produces output, but its frequency
+		// response is not the requested symmetric narrowband shape.
+		const double lo_shoulder = center_freq_hz - 0.5 * bandwidth_hz;
+		const double hi_shoulder = center_freq_hz + 0.5 * bandwidth_hz;
+		if (lo_shoulder <= 0.0)
+			throw std::invalid_argument(
+				"RBWFilter: lower -3 dB shoulder (center_freq_hz - bandwidth_hz/2 = "
+				+ std::to_string(lo_shoulder)
+				+ ") must be > 0 — bandwidth_hz too wide for center_freq_hz="
+				+ std::to_string(center_freq_hz));
+		if (hi_shoulder >= 0.5 * sample_rate_hz_)
+			throw std::invalid_argument(
+				"RBWFilter: upper -3 dB shoulder (center_freq_hz + bandwidth_hz/2 = "
+				+ std::to_string(hi_shoulder)
+				+ ") must be < Nyquist (sample_rate_hz / 2 = "
+				+ std::to_string(0.5 * sample_rate_hz_) + ")");
+
 		center_freq_hz_ = center_freq_hz;
 		bandwidth_hz_   = bandwidth_hz;
 
