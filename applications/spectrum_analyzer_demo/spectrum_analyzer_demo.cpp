@@ -171,9 +171,17 @@ struct PipelineParams {
 	double      swept_f_stop_hz  = 240.0e3;     // covers tones + spurious at 175k
 	double      swept_duration_s = 30.0e-3;     // 60k samples at 2 MHz
 	double      rbw_hz           = 5.0e3;       // 5 kHz RBW (BW < tone separation)
-	double      vbw_hz           = 500.0;       // 10:1 below RBW (smooth detector)
 	std::size_t rbw_order        = 5;           // ~10x shape factor
 	std::size_t swept_trace_bins = 64;          // memory for the swept trace
+	// Post-detector VBW LPF cutoff expressed as a fraction of the
+	// trace-bin rate. The VBW runs across the per-bin RMS amplitudes
+	// (one "sample" per bin), so its sample rate IS the bin rate;
+	// expressing the cutoff in absolute Hz against the original input
+	// sample rate would be misleading. Default 16 = smooth across
+	// roughly 16 bins, the conventional ~10:1 VBW:RBW ratio in bin-
+	// axis terms (with 64 bins over 230 kHz, 16 bins ~ 57.5 kHz of
+	// frequency-axis smoothing).
+	double      vbw_smoothing_factor = 16.0;
 
 	// Equalizer (front-end correction)
 	std::size_t eq_taps = 31;
@@ -222,12 +230,16 @@ std::vector<double> simulate_input(unsigned seed = 0xBEEF) {
 // ============================================================================
 
 spectrum::CalibrationProfile make_test_profile() {
-	std::vector<double> freqs    = {0.0,    50e3,  100e3, 250e3, 500e3, 1e6};
-	std::vector<double> gains_dB = {0.0,   -0.2,   -0.5,  -1.0,  -2.0, -3.0};
-	std::vector<double> phases   = {0.0,   -0.05,  -0.10, -0.20, -0.30, -0.40};
-	return spectrum::CalibrationProfile(std::move(freqs),
-	                                     std::move(gains_dB),
-	                                     std::move(phases));
+	// Compile-time fixed-length tables — std::array per CLAUDE.md.
+	// CalibrationProfile's constructor takes vectors, so we copy at the
+	// API boundary. Cheap (6 doubles) and the table is built once.
+	constexpr std::array<double, 6> freqs    = {0.0,    50e3,  100e3, 250e3, 500e3, 1e6};
+	constexpr std::array<double, 6> gains_dB = {0.0,   -0.2,   -0.5,  -1.0,  -2.0, -3.0};
+	constexpr std::array<double, 6> phases   = {0.0,   -0.05,  -0.10, -0.20, -0.30, -0.40};
+	return spectrum::CalibrationProfile(
+		std::vector<double>(freqs.begin(),    freqs.end()),
+		std::vector<double>(gains_dB.begin(), gains_dB.end()),
+		std::vector<double>(phases.begin(),   phases.end()));
 }
 
 // ============================================================================
@@ -369,74 +381,60 @@ ConfigResult run_fft_path(std::span<const double> input_double,
 	result.timings.equalizer =
 		chrono::duration<double, std::nano>(t1 - t0).count();
 
-	// --- Stage 2: streaming FFT in ArithScalar ---
+	// --- Stages 2-4: single-pass streaming FFT + trace averaging + waterfall ---
+	//
+	// One RealtimeSpectrum drives both downstream consumers (averager
+	// and waterfall buffer). Each produced FFT's magnitude_db is fed
+	// to BOTH within the same loop iteration — no re-FFT-ing the same
+	// stream three times. Per-stage timings are captured by bracketing
+	// each call individually so the breakdown still attributes work
+	// correctly even though the streams overlap.
 	auto window = hanning_window<ArithScalar>(params.fft_size);
 	std::span<const ArithScalar> window_span(window.data(), params.fft_size);
-	t0 = chrono::high_resolution_clock::now();
 	spectrum::RealtimeSpectrum<ArithScalar, ArithScalar, ArithScalar, ArithScalar>
 		live(params.fft_size, params.hop_size, window_span);
-	std::span<const ArithScalar> eq_span(equalized.data(), equalized.size());
-	(void)live.push(eq_span);
-	t1 = chrono::high_resolution_clock::now();
-	result.timings.spectrum =
-		chrono::duration<double, std::nano>(t1 - t0).count();
+	spectrum::TraceAverager<double> averager(
+		params.fft_size,
+		spectrum::TraceAverager<double>::Mode::Exponential,
+		1.0 / static_cast<double>(params.avg_n));
+	spectrum::WaterfallBuffer<double> waterfall(
+		params.fft_size, params.waterfall_frames);
+
+	double spectrum_ns  = 0.0;
+	double trace_avg_ns = 0.0;
+	double waterfall_ns = 0.0;
+	for (std::size_t off = 0; off < equalized.size(); off += params.hop_size) {
+		const std::size_t take =
+			std::min(params.hop_size, equalized.size() - off);
+		std::span<const ArithScalar> chunk(equalized.data() + off, take);
+		auto ts0 = chrono::high_resolution_clock::now();
+		const std::size_t produced = live.push(chunk);
+		auto ts1 = chrono::high_resolution_clock::now();
+		spectrum_ns +=
+			chrono::duration<double, std::nano>(ts1 - ts0).count();
+		if (produced > 0) {
+			auto mag = live.latest_magnitude_db();
+			auto ta0 = chrono::high_resolution_clock::now();
+			averager.accept_sweep(mag);
+			auto ta1 = chrono::high_resolution_clock::now();
+			trace_avg_ns +=
+				chrono::duration<double, std::nano>(ta1 - ta0).count();
+			auto tw0 = chrono::high_resolution_clock::now();
+			waterfall.push_frame(mag);
+			auto tw1 = chrono::high_resolution_clock::now();
+			waterfall_ns +=
+				chrono::duration<double, std::nano>(tw1 - tw0).count();
+		}
+	}
+	result.timings.spectrum  = spectrum_ns;
+	result.timings.trace_avg = trace_avg_ns;
+	result.timings.waterfall = waterfall_ns;
 
 	if (live.total_ffts() == 0) {
 		// Stream too short to even fill the FFT once — bail with NaN.
 		return result;
 	}
-
-	// --- Stage 3: trace averaging across the produced FFTs ---
-	//
-	// RealtimeSpectrum only retains the most recent magnitude buffer; to
-	// average across sweeps we re-run with smaller pushes and call
-	// accept_sweep on each. Cheap because the FFT cost has already been
-	// paid above; what we're timing here is the per-bin smoothing.
-	//
-	// The "input" to the averager is double-typed (RealtimeSpectrum's
-	// magnitude_db is always double); the averaged trace stays in double.
-	t0 = chrono::high_resolution_clock::now();
-	spectrum::TraceAverager<double> averager(
-		params.fft_size,
-		spectrum::TraceAverager<double>::Mode::Exponential,
-		1.0 / static_cast<double>(params.avg_n));
-	{
-		// Re-run streaming in chunks of hop_size to feed the averager.
-		spectrum::RealtimeSpectrum<ArithScalar, ArithScalar, ArithScalar, ArithScalar>
-			live2(params.fft_size, params.hop_size, window_span);
-		for (std::size_t off = 0; off < equalized.size(); off += params.hop_size) {
-			const std::size_t take =
-				std::min(params.hop_size, equalized.size() - off);
-			std::span<const ArithScalar> chunk(equalized.data() + off, take);
-			const std::size_t produced = live2.push(chunk);
-			if (produced > 0)
-				averager.accept_sweep(live2.latest_magnitude_db());
-		}
-	}
 	auto avg_trace = averager.current_trace();
-	t1 = chrono::high_resolution_clock::now();
-	result.timings.trace_avg =
-		chrono::duration<double, std::nano>(t1 - t0).count();
-
-	// --- Stage 4: waterfall buffer (pure storage; cheap) ---
-	t0 = chrono::high_resolution_clock::now();
-	spectrum::WaterfallBuffer<double> waterfall(
-		params.fft_size, params.waterfall_frames);
-	{
-		spectrum::RealtimeSpectrum<ArithScalar, ArithScalar, ArithScalar, ArithScalar>
-			live3(params.fft_size, params.hop_size, window_span);
-		for (std::size_t off = 0; off < equalized.size(); off += params.hop_size) {
-			const std::size_t take =
-				std::min(params.hop_size, equalized.size() - off);
-			std::span<const ArithScalar> chunk(equalized.data() + off, take);
-			const std::size_t produced = live3.push(chunk);
-			if (produced > 0)
-				waterfall.push_frame(live3.latest_magnitude_db());
-		}
-	}
-	t1 = chrono::high_resolution_clock::now();
-	result.timings.waterfall =
-		chrono::duration<double, std::nano>(t1 - t0).count();
 
 	// --- Stage 5: markers (peak-find for the four planted features) ---
 	//
@@ -620,11 +618,12 @@ ConfigResult run_swept_path(std::span<const double> input_double,
 		trace_amp[i] = static_cast<ArithScalar>(std::sqrt(mean_pwr));
 	}
 	// VBW across the swept trace. Treat the bin index as the time axis;
-	// pick a cutoff that's a small fraction of the bin rate so the VBW
-	// genuinely smooths. A Butterworth-style 1/8 cutoff is fine.
+	// the cutoff is bin_rate_hz / vbw_smoothing_factor — the parameter
+	// drives how aggressively the per-bin trace is smoothed.
 	{
 		const double bin_rate_hz = static_cast<double>(params.swept_trace_bins);
-		spectrum::VBWFilter<ArithScalar> vbw(bin_rate_hz / 16.0, bin_rate_hz);
+		const double vbw_cutoff  = bin_rate_hz / params.vbw_smoothing_factor;
+		spectrum::VBWFilter<ArithScalar> vbw(vbw_cutoff, bin_rate_hz);
 		std::span<ArithScalar> trace_span(trace_amp.data(), trace_amp.size());
 		vbw.process_block(trace_span);
 	}
@@ -899,7 +898,8 @@ int main(int argc, char** argv) try {
 	          << params.swept_f_stop_hz  / 1e3 << "k] Hz, "
 	          << params.swept_duration_s * 1e3 << " ms, "
 	          << "RBW=" << params.rbw_hz << " Hz (order "
-	          << params.rbw_order << "), VBW=" << params.vbw_hz << " Hz, "
+	          << params.rbw_order << "), VBW=bin_rate/"
+	          << params.vbw_smoothing_factor << ", "
 	          << params.swept_trace_bins << " bins\n"
 	          << "  EQ:        " << params.eq_taps
 	          << "-tap FIR, mild rolloff to -3 dB at 1 MHz\n";
