@@ -289,3 +289,13 @@ explicitly defers:
   the equalizer applies a small correction to the clean source. A
   follow-up could synthesize a profile-distorted signal and let the
   equalizer flatten it for an even more realistic demo.
+
+## See also
+
+- [Spectrum Analyzer Overview](./spectrum-analyzer-overview/) and the
+  [End-to-End Spectrum Analyzer Demo](./spectrum-analyzer-demo/) — the
+  companion analyzer-side capstone built on the same `instrument/`
+  module. It demonstrates the same
+  precision-of-storage-vs-precision-of-arithmetic tradeoff in a
+  different topology, with the FFT (or the RBW filter cascade) playing
+  the role the equalizer plays here.
