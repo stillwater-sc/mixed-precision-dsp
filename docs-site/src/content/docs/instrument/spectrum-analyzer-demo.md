@@ -156,17 +156,21 @@ run_swept_path<posit<16,2>>(input, "arith_posit16", "posit<16,2>", 2);
 
 ## Sweep result
 
+Plan labels are abbreviated below for column width; the actual demo
+output truncates them to 27 characters. The full plan names are shown
+here for readability:
+
 ```text
-plan (path / arith)           B/samp tone1(kHz)  tone1(dB)  tone3(dB)     spur?  floor(dB)   SNR(dB)
-----------------------------------------------------------------------------------------------------
-reference (fft/double)             8     50.006      59.53       0.64      PASS     -61.02       inf
-arith_float (fft/float)            4     50.006      59.53       0.64      PASS     -61.02     60.06
-arith_posit32 (fft/posit<32        4     50.006      59.53       0.64      PASS     -61.02     76.13
-arith_posit16 (fft/posit<16        2     50.006      59.54      -0.31      fail     -27.57      5.71
-reference (swept/double)           8     50.820     -14.66        NaN      fail     -60.02       inf
-arith_float (swept/float)          4     50.815     -14.66        NaN      fail     -60.16     44.75
-arith_posit32 (swept/posit<        4     50.821     -14.66        NaN      fail     -60.06     57.39
-arith_posit16 (swept/posit<        2        NaN        NaN        NaN      fail    -137.76     -2.73
+plan (path / arith)              B/samp tone1(kHz)  tone1(dB)  tone3(dB)     spur?  floor(dB)   SNR(dB)
+-------------------------------------------------------------------------------------------------------
+reference (fft/double)                8     50.006      59.53       0.64      PASS     -61.02       inf
+arith_float (fft/float)               4     50.006      59.53       0.64      PASS     -61.02     60.06
+arith_posit32 (fft/posit<32,2>)       4     50.006      59.53       0.64      PASS     -61.02     76.13
+arith_posit16 (fft/posit<16,2>)       2     50.006      59.54      -0.31      fail     -27.57      5.71
+reference (swept/double)              8     50.820     -14.66        NaN      fail     -60.02       inf
+arith_float (swept/float)             4     50.815     -14.66        NaN      fail     -60.16     44.75
+arith_posit32 (swept/posit<32,2>)     4     50.821     -14.66        NaN      fail     -60.06     57.39
+arith_posit16 (swept/posit<16,2>)     2        NaN        NaN        NaN      fail    -137.76     -2.73
 ```
 
 Read this table column-by-column:
@@ -215,7 +219,7 @@ Two architectural / precision interactions, both visible in the table:
 `arith_float`, `arith_posit32`, and `reference` all see the same
 features at essentially the same amplitudes; their per-trace SNR
 ranges from 60 dB (float) to 76 dB (posit32). The FFT's structure
-helps here — the butterflies cancel out errors via the symmetry of
+helps here — the butterflies cancel errors via the symmetry of
 the transform; small per-twiddle rounding errors don't compound the
 way they would in a long IIR cascade.
 
