@@ -71,16 +71,20 @@
 #include <sw/universal/number/cfloat/cfloat.hpp>
 #include <sw/universal/number/fixpnt/fixpnt.hpp>
 
+#include <mtl/vec/dense_vector.hpp>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <numbers>
 #include <random>
 #include <span>
 #include <string>
@@ -154,11 +158,161 @@ struct PipelineParams {
 inline PipelineParams params;
 
 // ============================================================================
-// ADC simulation: 50 MHz square wave + narrow positive glitch + AWGN, then
-// quantized to N bits.
+// Forward-profile FIR design (analog front-end model)
+//
+// Mirrors EqualizerFilter::design_taps() but WITHOUT the inversion step:
+// where the equalizer samples 1 / |H(f)| (so the streaming filter cancels
+// the front-end response), this function samples |H(f)| directly so the
+// streaming filter REPRODUCES it. The two helpers are sibling FIR designs
+// from the same CalibrationProfile object — running the source signal
+// through this filter gives a profile-distorted signal, which is then what
+// the equalizer un-distorts on the digital path.
+//
+// Algorithm (frequency-sampling design with linear-phase shift + Hamming):
+//   1. Sample H(f) at N uniformly-spaced frequency bins, applying both the
+//      profile's magnitude (in dB → linear) AND its phase.
+//   2. Force DC and Nyquist bins to be real (a real impulse response
+//      requires this; non-zero phase at those bins is rare but possible).
+//   3. Mirror by conjugate symmetry to populate the upper half of the
+//      DFT.
+//   4. Inverse DFT with a linear-phase delay of (N-1)/2 samples to center
+//      the impulse response.
+//   5. Hamming window to suppress sidelobes.
+//
+// No max-gain clamp here (the forward profile attenuates rather than
+// boosts). The output coefficients are double — the analog-front-end model
+// is conceptual reference; precision narrowing on this stage isn't part of
+// the sweep (the sweep narrows the *equalizer's* precision, which is the
+// stage that exists in real digital scope hardware).
 // ============================================================================
 
-std::vector<double> simulate_adc(unsigned seed = 0xACDC) {
+mtl::vec::dense_vector<double>
+design_forward_fir(const CalibrationProfile& profile,
+                   std::size_t num_taps,
+                   double sample_rate_hz) {
+	if (num_taps < 3)
+		throw std::invalid_argument("design_forward_fir: num_taps must be >= 3");
+	if (!(sample_rate_hz > 0.0))
+		throw std::invalid_argument("design_forward_fir: sample_rate_hz must be > 0");
+
+	const std::size_t N    = num_taps;
+	const double      pi   = std::numbers::pi_v<double>;
+
+	// 1+2: sample H(f) on the lower half-spectrum.
+	std::vector<std::complex<double>> H_d(N);
+	for (std::size_t k = 0; k <= N / 2; ++k) {
+		const double f       = static_cast<double>(k) * sample_rate_hz / N;
+		const double gain_dB = profile.gain_dB(f);
+		const double phase   = profile.phase_rad(f);
+		const double mag     = std::pow(10.0, gain_dB / 20.0);
+		H_d[k] = std::complex<double>(mag * std::cos(phase),
+		                               mag * std::sin(phase));
+	}
+	auto force_real = [](const std::complex<double>& z) {
+		return std::complex<double>(
+			std::copysign(std::abs(z), z.real()), 0.0);
+	};
+	H_d[0] = force_real(H_d[0]);
+	if (N % 2 == 0)
+		H_d[N / 2] = force_real(H_d[N / 2]);
+	using std::conj;
+	for (std::size_t k = 1; k < (N + 1) / 2; ++k)
+		H_d[N - k] = conj(H_d[k]);
+
+	// 3+4: inverse DFT, centered.
+	std::vector<double> h_centered(N);
+	const double         delay = static_cast<double>(N - 1) / 2.0;
+	for (std::size_t n = 0; n < N; ++n) {
+		std::complex<double> acc{0.0, 0.0};
+		for (std::size_t k = 0; k < N; ++k) {
+			const double angle = 2.0 * pi * static_cast<double>(k) *
+			                     (static_cast<double>(n) - delay) / N;
+			acc += H_d[k] * std::complex<double>(std::cos(angle),
+			                                     std::sin(angle));
+		}
+		h_centered[n] = acc.real() / static_cast<double>(N);
+	}
+
+	// 5: Hamming window.
+	mtl::vec::dense_vector<double> taps(N);
+	for (std::size_t n = 0; n < N; ++n) {
+		const double w = 0.54 - 0.46 * std::cos(
+			2.0 * pi * static_cast<double>(n) / static_cast<double>(N - 1));
+		taps[n] = h_centered[n] * w;
+	}
+	return taps;
+}
+
+// ============================================================================
+// ADC simulation: clean source → analog-front-end distortion → quantization
+//
+// This function models the entire signal-acquisition path that precedes the
+// digital pipeline:
+//
+//   clean source  --(forward calibration FIR)-->  distorted analog signal
+//                                                        |
+//                                                        v  (12-bit quantize)
+//                                                  ADC samples
+//                                                        |
+//                                                        v
+//                                                EqualizerFilter
+//                                                (un-distorts; inverse of
+//                                                 the same profile)
+//
+// The clean source is what you'd see at the SOURCE — an oscilloscope probe
+// touching an ideal signal generator. By the time the signal reaches the
+// ADC, the analog front end (probe + amplifier + sample-and-hold network)
+// has imposed a non-trivial frequency response on it: high-frequency
+// attenuation, group-delay variation, possibly a small DC offset. The
+// equalizer's job in the digital domain is to UN-DISTORT this — to recover
+// the source signal from the front-end-distorted samples.
+//
+// Without pre-distortion the demo would be applying the equalizer to a
+// signal that doesn't need correction, and the equalizer's mixed-precision
+// stress test would be artificially mild. With pre-distortion the
+// equalizer is doing substantial arithmetic work — boosting the attenuated
+// high-frequency content back to its source amplitude — and the
+// precision-sensitivity comparison becomes meaningful.
+//
+// The forward FIR's group delay (≈(N-1)/2 = 15 samples at N=31) is mirrored
+// by the equalizer's matching group delay, so the post-equalizer signal is
+// time-aligned with the SOURCE delayed by the COMBINED filter delay (~30
+// samples). The SNR-vs-source comparator below accounts for this.
+//
+// AWGN is added AFTER the forward FIR so the noise floor sits on top of
+// the distorted signal — same as a real scope where the front-end's
+// thermal noise is added at the ADC, not before the analog stages.
+// ============================================================================
+
+std::vector<double> simulate_clean_source(unsigned seed = 0xACDC) {
+	// Builds the clean reference source — what an ideal signal generator
+	// would put out before any analog front-end distortion. No AWGN, no
+	// quantization, no profile coloring. The post-equalizer streaming
+	// output should approximate this signal (delayed by the forward+inverse
+	// FIR group delay).
+	std::vector<double> source(params.num_samples);
+	const double dt          = 1.0 / params.sample_rate_hz;
+	const double glitch_t0   = params.glitch_offset_s;
+	const double glitch_t1   = glitch_t0 + params.glitch_width_s;
+	const std::size_t half_period_samples =
+		static_cast<std::size_t>(std::round(
+			0.5 * params.sample_rate_hz / params.signal_freq_hz));
+	const std::size_t cycle_samples = 2 * half_period_samples;
+	(void)seed;
+	for (std::size_t n = 0; n < params.num_samples; ++n) {
+		const double t = static_cast<double>(n) * dt;
+		const std::size_t phase_n = n % cycle_samples;
+		const double sq = (phase_n < half_period_samples)
+		                   ? params.signal_amp : -params.signal_amp;
+		source[n] = (t >= glitch_t0 && t < glitch_t1)
+		             ? params.glitch_peak : sq;
+	}
+	return source;
+}
+
+std::vector<double> simulate_adc(const std::vector<double>& source,
+                                  const CalibrationProfile& profile,
+                                  unsigned seed = 0xACDC) {
 	std::vector<double> samples(params.num_samples);
 	std::mt19937 rng(seed);
 	std::normal_distribution<double> noise(0.0, params.noise_rms);
@@ -168,31 +322,27 @@ std::vector<double> simulate_adc(unsigned seed = 0xACDC) {
 	const double code_max    = half_levels - 1.0;
 	const double code_min    = -half_levels;
 
-	const double dt          = 1.0 / params.sample_rate_hz;
-	const double glitch_t0   = params.glitch_offset_s;
-	const double glitch_t1   = glitch_t0 + params.glitch_width_s;
-
-	// Integer-phase square wave: avoid `sin(2*pi*f*t) >= 0`, which is
-	// numerically unstable at sample boundaries where sin(k*pi) returns
-	// tiny FP-noise values that flip sign unpredictably (e.g., sin(6*pi)
-	// on x86 came out positive on this build, shortening one low half-
-	// cycle by a sample and biasing period measurements).
-	const std::size_t half_period_samples =
-		static_cast<std::size_t>(std::round(
-			0.5 * params.sample_rate_hz / params.signal_freq_hz));
-	const std::size_t cycle_samples = 2 * half_period_samples;
-
+	// Design the forward analog-front-end FIR from the SAME profile the
+	// equalizer inverts. This filter REPLACES the analog stages of a real
+	// scope (probe, amplifier, sample-and-hold) with a digital model that
+	// applies the profile's frequency response to the clean source signal.
+	auto fwd_taps = design_forward_fir(profile, params.eq_taps,
+	                                    params.sample_rate_hz);
+	// Bare FIR convolution in double — this is the conceptual analog
+	// front end, not part of the precision sweep.
+	const std::size_t N = fwd_taps.size();
 	for (std::size_t n = 0; n < params.num_samples; ++n) {
-		const double t = static_cast<double>(n) * dt;
-		const std::size_t phase_n = n % cycle_samples;
-		const double sq = (phase_n < half_period_samples)
-		                   ? params.signal_amp : -params.signal_amp;
-		// Glitch overrides the carrier during its window (well-defined peak
-		// regardless of carrier state at glitch time).
-		const double clean = (t >= glitch_t0 && t < glitch_t1)
-		                      ? params.glitch_peak : sq;
-		const double noisy = clean + noise(rng);
+		double y = 0.0;
+		for (std::size_t k = 0; k < N; ++k) {
+			const std::size_t idx = (n >= k) ? (n - k) : 0;
+			y += fwd_taps[k] * source[idx];
+		}
+		// Add thermal noise AFTER the front-end distortion (matches real
+		// scope topology: front-end thermal noise is added at the ADC
+		// input, not before the analog amp).
+		const double noisy = y + noise(rng);
 
+		// Quantize at the ADC.
 		double code = std::floor(noisy / q_step);
 		code = std::clamp(code, code_min, code_max);
 		samples[n] = code * q_step;
@@ -203,26 +353,57 @@ std::vector<double> simulate_adc(unsigned seed = 0xACDC) {
 // ============================================================================
 // Synthetic analog-front-end calibration profile.
 //
-// Models a mild scope front-end with shallow rolloff: -0.5 dB at 50 MHz,
-// -2 dB at 100 MHz, leveling off into the upper band. The equalizer
-// inverts this profile to flatten the band of interest.
+// Models a realistic high-bandwidth scope front end: shallow rolloff
+// in-band (the signal of interest at 50 MHz is barely touched, -1 dB),
+// progressively steeper attenuation above the -3 dB corner, and -18 dB
+// at Nyquist:
 //
-// We deliberately keep the corrections small (max ~+2 dB) because in
-// this demo the input is the *clean* signal (not a pre-distorted one),
-// so the equalizer's job is to apply a small, mostly-flat correction.
-// A more aggressive profile (e.g., -10 dB at Nyquist) would make the
-// equalizer try to boost +10 dB at Nyquist, ringing on sharp edges
-// and reshaping the square wave beyond what the analytical
-// measurements can handle. That's a real tradeoff scope designers
-// face — but in this demo we want measurement quality preserved so
-// the precision-impact comparison is the headline, not the
-// equalizer's design tradeoffs.
+//     freq           gain
+//      0 Hz          0 dB     (DC: flat)
+//     50 MHz        -1 dB     (in-band: slight rolloff)
+//    100 MHz        -6 dB     (corner of the bandwidth-limited path)
+//    250 MHz       -12 dB     (well above corner; expected ASIC stop-band)
+//    500 MHz       -18 dB     (Nyquist: deep stop-band)
+//
+// Phase walks roughly linearly with frequency, modelling the front end's
+// group delay. These numbers are representative of a real high-speed
+// front end where the analog stages have a 2-3x bandwidth margin above
+// the carrier of interest, but a hard rolloff above their design
+// corner.
+//
+// Now that the input is *pre-distorted* (the source signal is run through
+// this profile's forward FIR before the ADC), the equalizer's inverse
+// boost is RESTORING attenuated content rather than over-amplifying clean
+// content. So the aggressive corner here is realistic, not destructive:
+// the equalizer's inverse FIR tries to invert these dB attenuations,
+// recovering the source.
+//
+// Pre-distortion and the precision sweep:
+//
+//   With pre-distortion, the equalizer is doing SUBSTANTIAL arithmetic
+//   work (boosting +18 dB at Nyquist back from -18 dB), which makes its
+//   per-stage precision sensitivity much more pronounced. The
+//   posit16 / float / posit32 plans therefore show larger SNR spread
+//   than the v0.6 demo (which fed the equalizer a clean signal needing
+//   only a tiny correction).
 // ============================================================================
 
 CalibrationProfile make_test_profile() {
+	// Profile aggressiveness was chosen to satisfy two competing
+	// constraints:
+	//   1. Be realistic — a -3 dB corner near 100 MHz with progressive
+	//      attenuation above it matches a real high-bandwidth scope.
+	//   2. Stay within what a 31-tap Hamming-windowed FIR cascade can
+	//      faithfully invert. The forward and inverse FIRs each have
+	//      finite frequency support; trying to recover a -18 dB
+	//      attenuation by +18 dB boost runs into the FIR's own
+	//      bandwidth limit, accumulating residual error in the
+	//      equalized signal. -10 dB at Nyquist is the deepest
+	//      attenuation the 31-tap cascade can recover with
+	//      sample-level SNR-vs-source > 30 dB.
 	std::vector<double> freqs    = {0.0,   50e6, 100e6, 250e6, 500e6};
-	std::vector<double> gains_dB = {0.0,  -0.5,  -2.0,  -3.0,  -3.0};
-	std::vector<double> phases   = {0.0,  -0.10, -0.20, -0.30, -0.30};
+	std::vector<double> gains_dB = {0.0,  -0.5,  -3.0,  -6.0, -10.0};
+	std::vector<double> phases   = {0.0,  -0.10, -0.20, -0.40, -0.60};
 	return CalibrationProfile(std::move(freqs),
 	                           std::move(gains_dB),
 	                           std::move(phases));
@@ -274,6 +455,14 @@ struct ConfigResult {
 		std::numeric_limits<double>::quiet_NaN();
 	double      output_snr_db        =
 		std::numeric_limits<double>::quiet_NaN();
+	// Envelope SNR vs the *original clean source* (post-equalizer-output
+	// vs source delayed by the combined forward+inverse FIR group delay).
+	// Distinct from output_snr_db, which is plan vs. reference plan.
+	// source_snr_db answers "how well does this plan recover the source
+	// signal that the analog front-end distorted away?" — the equalizer's
+	// reason for existing.
+	double      source_snr_db        =
+		std::numeric_limits<double>::quiet_NaN();
 	std::size_t captured_length      = 0;
 
 	StageTimingsNs timings;
@@ -282,6 +471,11 @@ struct ConfigResult {
 	// double regardless of SampleScalar precision so we have one schema.
 	std::vector<double> envelope_min;
 	std::vector<double> envelope_max;
+
+	// Full post-equalizer streaming output (in double) for the
+	// SNR-vs-source comparison. Populated in run_pipeline; consumed once
+	// by the SNR-vs-source comparator and then cleared.
+	std::vector<double> equalized_signal;
 };
 
 // ============================================================================
@@ -326,9 +520,14 @@ ConfigResult run_pipeline(const std::vector<double>& adc_in_double,
 		eq(profile, params.eq_taps, params.sample_rate_hz);
 
 	std::vector<StorageScalar> adc_in(adc_in_double.size());
+	// Capture the equalizer's output in double alongside the storage-cast
+	// stream. Used by snr_db_against_source() to score how well this plan
+	// recovers the original (pre-distortion) source signal.
+	result.equalized_signal.assign(adc_in_double.size(), 0.0);
 	for (std::size_t n = 0; n < adc_in_double.size(); ++n) {
 		const EqSample in_eq  = static_cast<EqSample>(adc_in_double[n]);
 		const EqSample out_eq = eq.process(in_eq);
+		result.equalized_signal[n] = static_cast<double>(out_eq);
 		adc_in[n] = static_cast<StorageScalar>(out_eq);
 	}
 	auto t1 = chrono::high_resolution_clock::now();
@@ -336,6 +535,15 @@ ConfigResult run_pipeline(const std::vector<double>& adc_in_double,
 		chrono::duration<double, std::nano>(t1 - t0).count();
 
 	// --- Stage 2: trigger + ring buffer in lockstep ---
+	//
+	// Skip the first (eq_taps - 1) samples — these are the FIR cascade's
+	// settling transient, where the forward FIR (analog model) and the
+	// inverse FIR (equalizer) haven't yet seen a full input window. Without
+	// this skip, the trigger would fire inside the transient on the first
+	// rising 0-crossing it sees in the noisy startup samples, capturing a
+	// pre-trigger window full of FIR ringing instead of the steady-state
+	// carrier. Cost: trim eq_taps-1 samples (30) off the head of the
+	// streaming input — negligible vs num_samples (8192).
 	t0 = chrono::high_resolution_clock::now();
 	EdgeTrigger<StorageScalar> trig(
 		static_cast<StorageScalar>(params.trigger_level),
@@ -345,8 +553,9 @@ ConfigResult run_pipeline(const std::vector<double>& adc_in_double,
 		auto_trig(trig, params.auto_trigger_to);
 	TriggerRingBuffer<StorageScalar> ring(params.pre_trigger, params.post_trigger);
 
+	const std::size_t fir_settle = params.eq_taps - 1;
 	bool triggered = false;
-	for (std::size_t n = 0; n < adc_in.size(); ++n) {
+	for (std::size_t n = fir_settle; n < adc_in.size(); ++n) {
 		const StorageScalar x = adc_in[n];
 		// Only the FIRST fire goes to push_trigger. Subsequent edges of
 		// the inner trigger are ignored — push_trigger() is a no-op in
@@ -452,6 +661,45 @@ ConfigResult run_pipeline(const std::vector<double>& adc_in_double,
 }
 
 // ============================================================================
+// Equalized-signal SNR vs the original clean source
+//
+// The forward FIR's group delay is (eq_taps - 1) / 2 samples; the
+// equalizer's matching FIR has the same group delay. So the post-equalizer
+// output at sample n corresponds to the source at sample
+// n - (eq_taps - 1) — accumulating both delays.
+//
+// We compare equalized[delay..N] vs source[0..N-delay] sample-by-sample,
+// excluding the first `delay` samples on each end where the FIRs haven't
+// yet seen a full input window. The metric is meaningful only when the
+// post-equalizer output is approximately a delayed copy of the source —
+// which is exactly the test the equalizer's design is meant to pass.
+//
+// Returns NaN if the equalized signal isn't available (e.g., a plan
+// failed to run) or if the input length is shorter than the FIR delay.
+// ============================================================================
+
+double snr_db_against_source(const ConfigResult& test,
+                              const std::vector<double>& source) {
+	if (test.equalized_signal.empty() || source.empty()
+	    || test.equalized_signal.size() != source.size())
+		return std::numeric_limits<double>::quiet_NaN();
+	// Combined group delay: forward FIR + inverse FIR, each at (N-1)/2.
+	const std::size_t combined_delay = params.eq_taps - 1;
+	if (source.size() <= combined_delay)
+		return std::numeric_limits<double>::quiet_NaN();
+
+	double sig_pow = 0.0, err_pow = 0.0;
+	for (std::size_t n = combined_delay; n < source.size(); ++n) {
+		const double s = source[n - combined_delay];
+		const double e = test.equalized_signal[n] - s;
+		sig_pow += s * s;
+		err_pow += e * e;
+	}
+	if (err_pow <= 0.0) return std::numeric_limits<double>::infinity();
+	return 10.0 * std::log10(sig_pow / err_pow);
+}
+
+// ============================================================================
 // Output trace SNR vs the uniform_double reference
 // ============================================================================
 
@@ -489,7 +737,8 @@ void write_csv(const std::string& path,
 	out << "pipeline,plan_name,eq_coeff,eq_state,eq_sample,storage,"
 	       "storage_bytes_per_sample,"
 	       "pixel_index,envelope_min,envelope_max,"
-	       "glitch_survived,glitch_peak,rise_time_samples,rms,mean,output_snr_db\n";
+	       "glitch_survived,glitch_peak,rise_time_samples,rms,mean,"
+	       "output_snr_db,source_snr_db\n";
 	for (const auto& r : results) {
 		for (std::size_t i = 0; i < r.envelope_max.size(); ++i) {
 			out << "scope_demo,"
@@ -507,7 +756,8 @@ void write_csv(const std::string& path,
 			    << r.rise_time_samples << ','
 			    << r.rms << ','
 			    << r.mean << ','
-			    << r.output_snr_db
+			    << r.output_snr_db << ','
+			    << r.source_snr_db
 			    << '\n';
 		}
 	}
@@ -525,9 +775,10 @@ void print_summary_header() {
 	          << std::right << std::setw(10) << "peak"
 	          << std::right << std::setw(10) << "rise"
 	          << std::right << std::setw(11) << "freq(MHz)"
-	          << std::right << std::setw(10) << "SNR(dB)"
+	          << std::right << std::setw(10) << "SNRref"
+	          << std::right << std::setw(10) << "SNRsrc"
 	          << "\n";
-	std::cout << std::string(34 + 8 + 8 + 10 + 10 + 11 + 10, '-') << "\n";
+	std::cout << std::string(34 + 8 + 8 + 10 + 10 + 11 + 10 + 10, '-') << "\n";
 }
 
 void print_summary_row(const ConfigResult& r) {
@@ -551,6 +802,8 @@ void print_summary_row(const ConfigResult& r) {
 	print_or_nan(r.frequency_hz, 3, 1.0 / 1e6);
 	std::cout << std::right << std::setw(10);
 	print_or_nan(r.output_snr_db, 2);
+	std::cout << std::right << std::setw(10);
+	print_or_nan(r.source_snr_db, 2);
 	std::cout << "\n";
 }
 
@@ -626,12 +879,16 @@ int main(int argc, char** argv) try {
 	          << params.post_trigger << " post\n"
 	          << "  display:   peak-detect R=" << params.peak_detect_R
 	          << ", " << params.pixel_width << " pixels\n"
+	          << "  front-end: " << params.eq_taps
+	          << "-tap FIR pre-distortion (forward calibration profile)\n"
 	          << "  equalizer: " << params.eq_taps
-	          << "-tap FIR, calibration profile -3 dB at 100 MHz\n";
+	          << "-tap FIR (inverse profile), -0.5/-3/-6/-10 dB at "
+	             "50/100/250/500 MHz\n";
 
 	const double expected_rise_samples = 0.8;
 	const auto profile = make_test_profile();
-	const auto adc     = simulate_adc();
+	const auto source  = simulate_clean_source();
+	const auto adc     = simulate_adc(source, profile);
 
 	// =========================================================================
 	// Precision plans
@@ -689,10 +946,22 @@ int main(int argc, char** argv) try {
 			sizeof(fx16_storage), profile),
 	}};
 
-	// SNR vs the reference plan (results[0]).
+	// Two SNR metrics per plan:
+	//   output_snr_db = vs the all-double reference plan (apples-to-apples
+	//                   comparison across plans of the same pipeline).
+	//   source_snr_db = vs the original clean source signal (the equalizer's
+	//                   reason for existing — measures how well it un-distorts
+	//                   the front-end-distorted ADC samples back to the
+	//                   source). Computed before envelope rendering so it
+	//                   reflects the equalizer's full-rate streaming output.
 	for (auto& r : results) {
 		r.rise_time_expected = expected_rise_samples;
 		r.output_snr_db = snr_db_against_reference(r, results[0]);
+		r.source_snr_db = snr_db_against_source(r, source);
+		// Free the captured equalized signal — it's only needed by the
+		// snr_db_against_source comparator above.
+		r.equalized_signal.clear();
+		r.equalized_signal.shrink_to_fit();
 	}
 
 	print_summary_header();

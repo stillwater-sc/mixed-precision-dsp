@@ -22,48 +22,40 @@ mixed-precision finding the sweep produces.
 ## Pipeline
 
 ```text
-+---------------------------+    +-----------------------------------+
-| simulate_adc(N_bits, Fs)  | -> | EqualizerFilter                   |
-|   50 MHz square wave      |    |   <EqCoeff, EqState, EqSample>    |
-|   +/- 0.5 amplitude       |    |   FIR inverse of calibration      |
-|   5 ns +0.95 glitch       |    |   profile, 31 taps                |
-|   AWGN sigma=0.005        |    |   <-- the ONLY arithmetic stage   |
-|   12-bit uniform quant    |    |       on the streaming path       |
-+---------------------------+    +-----------+-----------------------+
-                                             |
-                                             v cast to StorageScalar
-                                 +-----------+-----------+
-                                 | EdgeTrigger           |
-                                 | + AutoTriggerWrapper  |
-                                 +-----------+-----------+
-                                             |
-                                             v
-                                 +-----------+-----------+
-                                 | TriggerRingBuffer     |
-                                 |   pre + 1 + post      |
-                                 +-----------+-----------+
-                                             |
-                                             v
-                                 +-----------+-----------+
-                                 | PeakDetectDecimator   |
-                                 |   preserves glitch    |
-                                 +-----------+-----------+
-                                             |
-                                             v
-                                 +-----------+-----------+
-                                 | render_envelope       |
-                                 |   -> N pixel columns  |
-                                 +-----------+-----------+
-                                             |
-                                             v
-                                 +-----------+-----------+
-                                 | measurements (always  |
-                                 |   accumulate in       |
-                                 |   double internally)  |
-                                 +-----------+-----------+
-                                             |
-                                             v
-                                 scope_demo.csv + console
+   simulate_clean_source       <-- the SOURCE, what you'd see at an ideal
+       (50 MHz sq wave             signal generator. Used as the "ground
+        + 5 ns glitch)              truth" for the SNR-vs-source metric.
+            |
+            v
+   forward calibration FIR     <-- analog-front-end MODEL (probe + amp +
+       (31-tap inline,             sample-and-hold). Distorts the source
+        sw::dsp design)            with the same profile the equalizer
+            |                       inverts on the digital side.
+            v
+   AWGN + 12-bit ADC           <-- thermal noise added at the ADC input;
+            |                       quantization to 12 bits.
+            v
+   EqualizerFilter<EqCoeff,    <-- the ONLY arithmetic stage on the
+       EqState, EqSample>          streaming digital path. Inverts the
+       (FIR, 31 taps)              forward profile to recover the source.
+            |
+            v cast to StorageScalar
+   EdgeTrigger + AutoTrigger
+            |
+            v
+   TriggerRingBuffer (pre + 1 + post)
+            |
+            v
+   PeakDetectDecimator (preserves glitch)
+            |
+            v
+   render_envelope (-> pixel columns)
+            |
+            v
+   measurements (rise time, RMS, ... — always accumulate in double internally)
+            |
+            v
+   scope_demo.csv + console summary
 ```
 
 ## Per-stage precision contract
@@ -93,27 +85,71 @@ The demo's `run_pipeline<EqCoeff, EqState, EqSample, StorageScalar>`
 template takes the four scalars independently. Each row of the sweep
 table is a different (EQ-tuple, Storage) plan.
 
+## Pre-distortion: making the equalizer's job realistic
+
+The demo models the analog front end **explicitly** rather than
+pretending the equalizer corrects a clean signal. In `simulate_adc()`:
+
+1. `simulate_clean_source()` builds the SOURCE signal — what you'd see
+   at the output of an ideal signal generator (50 MHz square + glitch,
+   no noise, no quantization, no profile coloring).
+2. The source is run through a **forward calibration FIR** designed
+   from the same `CalibrationProfile` the equalizer inverts — but
+   **without** the inversion step. This filter applies the profile's
+   magnitude and phase response to the source, modeling what the
+   probe + amplifier + sample-and-hold network does to the signal
+   before it reaches the ADC.
+3. AWGN is added (front-end thermal noise, added at the ADC input).
+4. Samples are quantized to 12 bits.
+
+The equalizer on the digital side then inverts the same profile,
+recovering the source. The post-equalizer output is a delayed,
+slightly noise-degraded copy of the source — which is exactly what
+a real scope's calibration loop produces.
+
+### Why this matters for the precision sweep
+
+Without pre-distortion, the equalizer would be applying a tiny
+correction to a clean signal — the FIR multiply-accumulate would
+barely exercise its arithmetic precision, and posit16 vs. double
+would look identical at the output. With pre-distortion, the
+equalizer is doing **substantial** work — boosting +10 dB at Nyquist
+to invert -10 dB attenuation — and the per-stage precision shows up
+clearly in the SNR table.
+
+### A note on FIR settling
+
+Forward and inverse FIRs each have a 15-sample group delay (for the
+31-tap design); their cascade has a combined 30-sample settling
+transient at the start of the stream. The demo skips these samples
+before feeding the trigger pipeline so the captured pre-trigger
+window contains steady-state carrier, not FIR ringing. (If you forget
+to skip them, the trigger fires inside the transient and the captured
+segment is mostly garbage. The cost — discarding 30 samples — is
+negligible vs the 8192-sample stream length.)
+
 ## Calibration profile
 
-A synthetic mild rolloff:
+The synthetic profile models a realistic high-bandwidth scope front
+end with a -3 dB corner near 100 MHz:
 
 ```cpp
 freqs    = {0,  50e6, 100e6, 250e6, 500e6};   // up to Nyquist
-gains_dB = {0, -0.5,  -2.0,  -3.0,  -3.0};
-phases   = {0, -0.10, -0.20, -0.30, -0.30};
+gains_dB = {0, -0.5,  -3.0,  -6.0, -10.0};
+phases   = {0, -0.10, -0.20, -0.40, -0.60};
 ```
 
-This models a typical analog front end with a 100 MHz-ish corner.
-The equalizer's job is to apply the inverse — a small, mostly-flat
-boost — so the streaming output is closer to the source signal.
+In-band content (the 50 MHz carrier) is barely touched (-0.5 dB);
+above the corner, attenuation grows progressively to -10 dB at
+Nyquist. Phase walks roughly linearly with frequency, modeling the
+front end's group delay.
 
-A more aggressive profile (e.g., -10 dB at Nyquist) would force the
-equalizer to apply +10 dB at Nyquist, which would ring on every sharp
-edge and turn the square wave into something that doesn't look like a
-square wave anymore. That's a real tradeoff scope designers face. For
-this demo we keep the corrections under +2 dB so the analytical
-measurements remain interpretable across all configs and the
-**precision-impact comparison** is the headline.
+The aggressiveness here is calibrated to what a 31-tap
+Hamming-windowed FIR cascade can faithfully invert — too much
+attenuation at Nyquist (e.g., -18 dB) and the inverse FIR runs into
+its own bandwidth limit, leaving residual error in the equalized
+signal. -10 dB is the deepest attenuation that still gives sample-
+level SNR-vs-source > 30 dB on the reference plan.
 
 ## Precision plans
 
@@ -143,34 +179,52 @@ run_pipeline<float, float, float, fixpnt<16,12>>(...);
 ## Sweep result
 
 ```text
-plan (EQ x storage)              B/samp glitch?    peak  rise  freq(MHz)  SNR(dB)
----------------------------------------------------------------------------------
-reference (double x double)           8    PASS   1.459  9.36     58.507      inf
-eq_double_storage_fx16 (double..)     2    PASS   1.458  9.36     58.510    78.75
-eq_posit32_storage_double (p32..)     8    PASS   1.459  9.36     58.507   162.92
-eq_posit16_storage_double (p16..)     8    PASS   1.458  9.36     58.507    66.32
-eq_float_storage_fx16 (float ..)      2    PASS   1.458  9.36     58.510    78.75
+plan (EQ x storage)             B/samp glitch?    peak  rise  freq(MHz) SNRref SNRsrc
+-------------------------------------------------------------------------------------
+reference (double x double)          8    PASS   0.972  0.81     50.001    inf  33.49
+eq_double_storage_fx16 (double..)    2    PASS   0.972  0.81     50.001  76.70  33.49
+eq_posit32_storage_double (p32..)    8    PASS   0.972  0.81     50.001 162.10  33.49
+eq_posit16_storage_double (p16..)    8    PASS   0.972  0.81     50.001  66.69  33.51
+eq_float_storage_fx16 (float ..)     2    PASS   0.972  0.81     50.001  76.70  33.49
 ```
 
-The carrier measurements (rise time, frequency, glitch peak) reflect
-the **equalized** signal, not the raw source — the equalizer reshapes
-edges (its ~31-sample group delay + impulse-response width inflates
-the apparent 10/90 rise time relative to the input's one-sample
-edge). All five plans agree on the qualitative measurement, which is
-the right consistency check.
+Now that the equalizer is undoing real distortion (not correcting a
+clean signal), the carrier measurements recover the **source** values
+within the 5% acceptance the v0.6 demo had to relax:
 
-### What the SNR column actually means
+- Frequency: 50.001 MHz vs source 50.000 MHz (0.002% error)
+- Rise time: 0.81 samples vs source 0.80 (1.3% error)
+- Glitch peak: 0.972 vs source 0.95 (2.3% over — small overshoot from
+  the FIR cascade's edge response, well within physical limits)
 
-`SNR(dB) = inf` for the reference plan (vs itself). For every other
-plan, SNR is computed against the reference plan's rendered envelope:
+### What the SNR columns actually mean
+
+Two SNR metrics, each answering a different question:
+
+**`SNRref`** — vs the reference (all-double) plan's rendered envelope:
 
 ```text
-SNR_dB(plan) = 10 * log10(sum(reference^2) / sum((reference - plan)^2))
+SNRref(plan) = 10 * log10(sum(reference^2) / sum((reference - plan)^2))
 ```
 
-So a higher number means "this plan's pipeline output matches the
-all-double reference more closely" — i.e., less precision-induced
-drift.
+`inf` for the reference plan (vs itself). Higher = "this plan's
+pipeline output matches the all-double reference more closely" — i.e.,
+less precision-induced drift. The classic apples-to-apples comparison
+across plans of the same pipeline.
+
+**`SNRsrc`** — vs the original clean source signal:
+
+```text
+SNRsrc(plan) = 10 * log10(sum(source^2) / sum((post_equalizer - source_delayed)^2))
+```
+
+(`source_delayed` accounts for the combined forward + inverse FIR
+group delay of `eq_taps - 1` samples.) This metric answers the
+**equalizer's reason for existing**: how well does it un-distort the
+front-end-distorted ADC samples back to the source? All five plans
+score ~33.5 dB — limited by the FIR cascade's edge-response error and
+the ADC's 12-bit quantization noise, not by precision narrowing
+within the equalizer.
 
 ## The mixed-precision finding
 
@@ -181,7 +235,8 @@ profiles:
 
 `eq_double_storage_fx16` runs the equalizer in full-precision `double`
 and stores everything downstream in `fixpnt<16,12>`. The result:
-**4× memory reduction (8 → 2 bytes/sample)** at a cost of ~80 dB SNR.
+**4× memory reduction (8 → 2 bytes/sample)** at a cost of ~77 dB
+SNRref — well below any practical noise floor.
 
 That's a real-but-acceptable cost. The ADC produces 12-bit samples;
 storing them in 16-bit fixpnt is essentially storing them at native
@@ -193,14 +248,21 @@ doesn't compound.
 
 `eq_posit16_storage_double` keeps storage at `double` (no memory
 reduction) but narrows the equalizer's streaming arithmetic to
-`posit16`. The result: **66 dB SNR**, which is ~12 dB *worse* than
-the storage-narrowing-only plan despite using 4× *more* memory.
+`posit16`. The result: **~67 dB SNRref**, which is ~10 dB *worse*
+than the storage-narrowing-only plan despite using 4× *more* memory.
 
-Why? The equalizer is a 31-tap FIR multiply-accumulate. At each tap,
-posit16's ~12-bit fraction precision rounds the partial product. Those
-rounding errors accumulate across the 31 taps. Repeated arithmetic in
-a 16-bit type is fundamentally noisier than repeated copies of a
-16-bit type.
+Why? The equalizer is a 31-tap FIR multiply-accumulate, and now —
+thanks to pre-distortion — it's doing **substantial** arithmetic
+work to invert the calibration profile (boosting +10 dB at Nyquist).
+At each tap, posit16's ~12-bit fraction precision rounds the partial
+product. Those rounding errors accumulate across the 31 taps.
+Repeated arithmetic in a 16-bit type is fundamentally noisier than
+repeated copies of a 16-bit type.
+
+The pre-distortion stage is what makes this finding meaningful: in
+the v0.6 demo (clean source, no pre-distortion), the equalizer's
+correction was so small that posit16 and double tied. With realistic
+front-end distortion to invert, the precision gap opens up.
 
 ### The headline takeaway
 
@@ -214,8 +276,29 @@ the compute stage maintains enough precision.
 
 The `eq_float_storage_fx16` row is the FPGA-pragmatic version of this
 lesson: float for the equalizer (cheap on most fabric) plus
-fixpnt<16,12> for storage gives you 4× memory reduction *and* 78 dB
-SNR — better than pure posit16 EQ.
+fixpnt<16,12> for storage gives you 4× memory reduction *and* ~77 dB
+SNRref — better than pure posit16 EQ.
+
+### Why all plans tie on SNRsrc
+
+The five plans show a 100 dB spread on SNRref (162 → 67 dB) but tie
+at ~33.5 dB on SNRsrc. That isn't a contradiction:
+
+- **SNRref** measures *precision-induced drift between plans* — it's
+  bounded by the precision of the narrowest type in the pipeline.
+- **SNRsrc** measures *distance from the source signal* — it's
+  bounded by the FIR cascade's edge-response error and the ADC's
+  12-bit quantization noise, neither of which the precision sweep
+  changes.
+
+So even posit16 EQ recovers the source within ~33.5 dB (the cascade-
+limited ceiling); narrowing precision further than what the
+non-precision noise sources allow doesn't move the SNRsrc needle.
+That's the cleanest available demonstration that *the right
+precision is the one that matches the surrounding noise floor* —
+not the highest one available, not the lowest your hardware can
+afford. Pick precision to match the system's other noise sources;
+spending more is wasted, spending less degrades.
 
 ## Two non-obvious pitfalls (captured in code + docs)
 
@@ -278,17 +361,21 @@ hundreds of parallel taps; this CPU implementation is for
 
 ## Out of scope (deferred)
 
-The issue ([#152](https://github.com/stillwater-sc/mixed-precision-dsp/issues/152))
-explicitly defers:
+The original v0.6 capstone ([#152](https://github.com/stillwater-sc/mixed-precision-dsp/issues/152))
+explicitly deferred several items; the v0.7 follow-up
+([#172](https://github.com/stillwater-sc/mixed-precision-dsp/issues/172))
+landed the pre-distortion stage. What's still deferred:
 
 - **Real ADC interfacing** (e.g. TI ADC12DJ5200RF). Simulated only.
 - **Image rendering** of the envelope. CSV is the deliverable.
-- **Multi-channel demonstration**. Single-channel for v0.6.
-- **Pre-distortion of the input** with the calibration profile so the
-  equalizer is undoing a real frequency-domain distortion. Currently
-  the equalizer applies a small correction to the clean source. A
-  follow-up could synthesize a profile-distorted signal and let the
-  equalizer flatten it for an even more realistic demo.
+- **Multi-channel demonstration**. Tracked separately as
+  [#173](https://github.com/stillwater-sc/mixed-precision-dsp/issues/173).
+- **Public `design_fir_from_profile()` API.** The forward-FIR design
+  helper is currently inline in `scope_demo.cpp` (per #172's
+  out-of-scope note). Lifting it into `instrument/calibration.hpp`
+  alongside the equalizer's inverse-FIR designer is a separate
+  refactor.
+- **Real (measured) calibration profiles.** Synthetic only.
 
 ## See also
 
