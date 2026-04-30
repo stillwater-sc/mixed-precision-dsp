@@ -313,7 +313,11 @@ std::vector<double> simulate_clean_source(unsigned seed = 0xACDC) {
 std::vector<double> simulate_adc(const std::vector<double>& source,
                                   const CalibrationProfile& profile,
                                   unsigned seed = 0xACDC) {
-	std::vector<double> samples(params.num_samples);
+	// Output length tracks the source argument, not params.num_samples.
+	// Keeps the helper self-consistent with its input (and lets callers
+	// pass a different-length vector for unit testing or sub-segment
+	// experiments).
+	std::vector<double> samples(source.size());
 	std::mt19937 rng(seed);
 	std::normal_distribution<double> noise(0.0, params.noise_rms);
 
@@ -329,13 +333,15 @@ std::vector<double> simulate_adc(const std::vector<double>& source,
 	auto fwd_taps = design_forward_fir(profile, params.eq_taps,
 	                                    params.sample_rate_hz);
 	// Bare FIR convolution in double — this is the conceptual analog
-	// front end, not part of the precision sweep.
+	// front end, not part of the precision sweep. The FIR head is
+	// zero-padded (k <= n bound) rather than indexing source[0] for
+	// n < k, which would convolve the first source sample N times with
+	// itself and create a synthetic prehistory artifact.
 	const std::size_t N = fwd_taps.size();
-	for (std::size_t n = 0; n < params.num_samples; ++n) {
+	for (std::size_t n = 0; n < source.size(); ++n) {
 		double y = 0.0;
-		for (std::size_t k = 0; k < N; ++k) {
-			const std::size_t idx = (n >= k) ? (n - k) : 0;
-			y += fwd_taps[k] * source[idx];
+		for (std::size_t k = 0; k < N && k <= n; ++k) {
+			y += fwd_taps[k] * source[n - k];
 		}
 		// Add thermal noise AFTER the front-end distortion (matches real
 		// scope topology: front-end thermal noise is added at the ADC
@@ -353,39 +359,49 @@ std::vector<double> simulate_adc(const std::vector<double>& source,
 // ============================================================================
 // Synthetic analog-front-end calibration profile.
 //
-// Models a realistic high-bandwidth scope front end: shallow rolloff
-// in-band (the signal of interest at 50 MHz is barely touched, -1 dB),
-// progressively steeper attenuation above the -3 dB corner, and -18 dB
-// at Nyquist:
+// Models a realistic high-bandwidth scope front end: very shallow
+// rolloff in-band (the signal of interest at 50 MHz is barely
+// touched, -0.5 dB), a -3 dB corner near 100 MHz, then progressively
+// steeper attenuation toward Nyquist:
 //
 //     freq           gain
 //      0 Hz          0 dB     (DC: flat)
-//     50 MHz        -1 dB     (in-band: slight rolloff)
-//    100 MHz        -6 dB     (corner of the bandwidth-limited path)
-//    250 MHz       -12 dB     (well above corner; expected ASIC stop-band)
-//    500 MHz       -18 dB     (Nyquist: deep stop-band)
+//     50 MHz       -0.5 dB    (in-band: slight rolloff)
+//    100 MHz        -3 dB     (corner of the bandwidth-limited path)
+//    250 MHz        -6 dB     (well above corner; in-band edge attenuation)
+//    500 MHz       -10 dB     (Nyquist: deep stop-band)
 //
-// Phase walks roughly linearly with frequency, modelling the front end's
-// group delay. These numbers are representative of a real high-speed
-// front end where the analog stages have a 2-3x bandwidth margin above
-// the carrier of interest, but a hard rolloff above their design
-// corner.
+// Phase walks roughly linearly with frequency, modelling the front
+// end's group delay. These numbers are representative of a real
+// high-speed front end where the analog stages have a 2-3x bandwidth
+// margin above the carrier of interest, but a noticeable rolloff
+// above their design corner.
 //
-// Now that the input is *pre-distorted* (the source signal is run through
-// this profile's forward FIR before the ADC), the equalizer's inverse
-// boost is RESTORING attenuated content rather than over-amplifying clean
-// content. So the aggressive corner here is realistic, not destructive:
-// the equalizer's inverse FIR tries to invert these dB attenuations,
-// recovering the source.
+// Now that the input is *pre-distorted* (the source signal is run
+// through this profile's forward FIR before the ADC), the equalizer's
+// inverse boost is RESTORING attenuated content rather than
+// over-amplifying clean content. So the rolloff here is realistic,
+// not destructive: the equalizer's inverse FIR tries to invert these
+// dB attenuations, recovering the source.
 //
 // Pre-distortion and the precision sweep:
 //
 //   With pre-distortion, the equalizer is doing SUBSTANTIAL arithmetic
-//   work (boosting +18 dB at Nyquist back from -18 dB), which makes its
-//   per-stage precision sensitivity much more pronounced. The
-//   posit16 / float / posit32 plans therefore show larger SNR spread
-//   than the v0.6 demo (which fed the equalizer a clean signal needing
-//   only a tiny correction).
+//   work (boosting up to +10 dB at Nyquist to undo the -10 dB
+//   attenuation), which makes its per-stage precision sensitivity
+//   much more pronounced. The posit16 / float / posit32 plans
+//   therefore show larger SNR spread than the v0.6 demo (which fed
+//   the equalizer a clean signal needing only a tiny correction).
+//
+// Why the corner stops at -10 dB and not -18 dB:
+//
+//   A 31-tap Hamming-windowed FIR cascade can faithfully invert a
+//   -10 dB attenuation at Nyquist; a -18 dB attenuation runs into
+//   the cascade's own bandwidth limit (the inverse FIR can't boost
+//   that much without windowing artifacts), leaving residual error
+//   in the equalized signal. -10 dB is the deepest attenuation the
+//   31-tap cascade can recover with sample-level SNR-vs-source
+//   above the 30 dB acceptance criterion from #172.
 // ============================================================================
 
 CalibrationProfile make_test_profile() {
