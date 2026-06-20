@@ -101,12 +101,12 @@ if(MTL5_FOUND)
 	message(STATUS "Found MTL5 via find_package")
 else()
 	message(STATUS "MTL5 not found via find_package, fetching headers from GitHub")
-	# Pinned to v5.3.0 -- the first tagged MTL5 release that includes
+	# Pinned to a tagged MTL5 release. v5.3.0+ includes
 	# `mtl/operation/ldlt.hpp` (used by `include/sw/dsp/estimation/ukf.hpp`),
 	# which landed post-v5.2.0.
 	dsp_fetch_headers_only(mtl5
 		https://github.com/stillwater-sc/mtl5.git
-		v5.3.0)
+		v5.4.0)
 	# SYSTEM: see Universal block above for rationale.
 	target_include_directories(${PROJECT_NAME} SYSTEM INTERFACE
 		$<BUILD_INTERFACE:${mtl5_SOURCE_DIR}/include>)
