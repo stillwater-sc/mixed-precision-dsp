@@ -25,5 +25,5 @@ function(dsp_add_regression_test test_name folder)
 	)
 endfunction()
 
-# Add regression tests here as they land, e.g.:
-#   dsp_add_regression_test(regression_filter_long_run "Filter")
+# Spectral — large-N FFT / DFT stability
+dsp_add_regression_test(regression_fft_roundtrip "Spectral")
