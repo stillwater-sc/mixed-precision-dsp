@@ -126,3 +126,11 @@ dsp_add_test(test_kalman          "Tests/Estimation")
 dsp_add_test(test_image           "Tests/Image")
 dsp_add_test(test_image_generators "Tests/Image")
 dsp_add_test(test_image_io        "Tests/Image")
+
+# =============================================================================
+# Regression — large-scale / slow tests, gated by DSP_BUILD_REGRESSION_TESTS
+# (OFF by default). See tests/regression/CMakeLists.txt.
+# =============================================================================
+if(DSP_BUILD_REGRESSION_TESTS)
+	add_subdirectory(regression)
+endif()

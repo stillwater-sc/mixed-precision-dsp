@@ -123,8 +123,9 @@ target_compile_options(${PROJECT_NAME} INTERFACE
 
 ####
 # Build options
-option(DSP_BUILD_APPLICATIONS "Build demonstration applications" ON)
-option(DSP_BUILD_TESTS        "Build unit tests"                 ON)
+option(DSP_BUILD_APPLICATIONS      "Build demonstration applications"                ON)
+option(DSP_BUILD_TESTS             "Build unit tests"                                ON)
+option(DSP_BUILD_REGRESSION_TESTS  "Build large-scale regression tests (slow)"       OFF)
 
 if(DSP_BUILD_APPLICATIONS)
 	add_subdirectory(applications)

@@ -1,0 +1,52 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 22, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "dev",
+            "displayName": "Development",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_STANDARD": "20",
+                "DSP_BUILD_TESTS": "ON",
+                "DSP_BUILD_APPLICATIONS": "ON",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release",
+            "binaryDir": "${sourceDir}/build-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "20",
+                "DSP_BUILD_TESTS": "OFF",
+                "DSP_BUILD_APPLICATIONS": "OFF"
+            }
+        },
+        {
+            "name": "ci",
+            "displayName": "CI",
+            "binaryDir": "${sourceDir}/build-ci",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "20",
+                "DSP_BUILD_TESTS": "ON",
+                "DSP_BUILD_APPLICATIONS": "ON"
+            }
+        },
+        {
+            "name": "ci-regression",
+            "displayName": "CI + Regression Tests",
+            "binaryDir": "${sourceDir}/build-ci-regression",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "20",
+                "DSP_BUILD_TESTS": "ON",
+                "DSP_BUILD_APPLICATIONS": "OFF",
+                "DSP_BUILD_REGRESSION_TESTS": "ON"
+            }
+        }
+    ]
+}
