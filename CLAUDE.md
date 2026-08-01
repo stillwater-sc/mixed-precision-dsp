@@ -39,7 +39,25 @@ cmake -B build_rv64 -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/riscv64-gcc.cmake -W
 cmake --build build_rv64 -j4
 ```
 
-CTest labels: `ctest -L regression` runs only regression tests; `ctest -LE regression` runs only unit tests.
+### CTest labels
+
+Every test carries labels for selective runs:
+
+- **`unit`** — attached to all unit tests (via `dsp_add_test()` in `tests/CMakeLists.txt`).
+- **`regression`** — attached to tests under `tests/regression/` (via `dsp_add_regression_test()`).
+- **Per-module** — first path segment of the folder argument, lowercased. Current modules: `acquisition`, `analysis`, `conditioning`, `estimation`, `filter`, `foundation`, `image`, `instrument`, `quantization`, `signals`, `spectral`, `spectrum`, `windows`.
+
+Common invocations:
+
+```bash
+ctest --print-labels                # list every label in the current build
+ctest -L unit                       # only unit tests
+ctest -L regression                 # only regression tests (requires ci-regression preset)
+ctest -LE regression                # everything except regression
+ctest -L filter                     # only filter-module tests (IIR + FIR + generic)
+```
+
+The `-L` and `-LE` flags take extended regexes, so `ctest -L 'filter|spectrum'` selects tests matching either module.
 
 ## Architecture
 
