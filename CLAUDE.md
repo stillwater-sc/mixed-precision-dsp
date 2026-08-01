@@ -4,17 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
+Preferred entry points are the CMake presets in `CMakePresets.json`:
+
+| Preset          | Build type | Tests | Apps | Regression | Binary dir              |
+|-----------------|------------|-------|------|------------|-------------------------|
+| `dev`           | Debug      | ON    | ON   | OFF        | `build/`                |
+| `release`       | Release    | OFF   | OFF  | OFF        | `build-release/`        |
+| `ci`            | Release    | ON    | ON   | OFF        | `build-ci/`             |
+| `ci-regression` | Release    | ON    | OFF  | ON         | `build-ci-regression/`  |
+
+`dev` also sets `CMAKE_EXPORT_COMPILE_COMMANDS=ON` for clangd.
+
 ```bash
-# Configure (FetchContent pulls Universal and MTL5 automatically)
-cmake -B build -Wno-dev
-
-# Build all targets
+# Configure via preset (FetchContent pulls Universal and MTL5 automatically)
+cmake --preset dev
 cmake --build build -j4
-
-# Run tests
 ctest --test-dir build --output-on-failure
 
-# Build with clang
+# CI-style build
+cmake --preset ci && cmake --build build-ci -j4
+ctest --test-dir build-ci --output-on-failure
+
+# Regression suite (slow — gated by DSP_BUILD_REGRESSION_TESTS)
+cmake --preset ci-regression && cmake --build build-ci-regression -j4
+ctest --test-dir build-ci-regression -L regression --output-on-failure
+
+# Manual configure (no preset) — e.g. clang or cross-compile
 cmake -B build_clang -DCMAKE_CXX_COMPILER=clang++ -Wno-dev
 cmake --build build_clang -j4
 ctest --test-dir build_clang --output-on-failure
@@ -23,6 +38,8 @@ ctest --test-dir build_clang --output-on-failure
 cmake -B build_rv64 -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/riscv64-gcc.cmake -Wno-dev
 cmake --build build_rv64 -j4
 ```
+
+CTest labels: `ctest -L regression` runs only regression tests; `ctest -LE regression` runs only unit tests.
 
 ## Architecture
 
