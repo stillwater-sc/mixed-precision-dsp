@@ -6,6 +6,12 @@ include(CTest)
 # IDE displays in its Solution Explorer; Makefile / Ninja generators
 # ignore the FOLDER target property so this is a no-op for them.
 #
+# CTest labels attached: "unit" (symmetry with the "regression"
+# label used by tests/regression/) plus a per-module label derived
+# from the first path segment after "Tests/", lowercased — e.g.
+# "Tests/Filter/IIR" → labels {unit, filter}. Enables selective
+# runs like `ctest -L filter` or `ctest -LE regression`.
+#
 # Modeled after Universal's compile_all() macro, simplified for our
 # 1-test-per-source-file convention. See README.md in this directory
 # for the test-folder hierarchy and rationale.
@@ -14,6 +20,14 @@ function(dsp_add_test test_name folder)
 	target_link_libraries(${test_name} PRIVATE sw::dsp)
 	set_target_properties(${test_name} PROPERTIES FOLDER "${folder}")
 	add_test(NAME ${test_name} COMMAND ${test_name})
+
+	# Derive a module label from the folder path: strip leading
+	# "Tests/", take the first segment, lowercase it.
+	string(REGEX REPLACE "^Tests/" "" _module_path "${folder}")
+	string(REPLACE "/" ";" _module_parts "${_module_path}")
+	list(GET _module_parts 0 _module)
+	string(TOLOWER "${_module}" _module)
+	set_tests_properties(${test_name} PROPERTIES LABELS "unit;${_module}")
 endfunction()
 
 # =============================================================================
