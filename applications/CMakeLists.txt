@@ -50,6 +50,10 @@ add_subdirectory(acquisition_demo)
 # Scope demonstrator (Issue #152) — capstone for #133
 add_subdirectory(scope_demo)
 
+# Two-channel scope extension (Issue #173) — CrossChannelTrigger +
+# ChannelAligner over the scope_demo pipeline shape.
+add_subdirectory(scope_demo_2ch)
+
 # Spectrum-analyzer demonstrator (Issue #183) — capstone for #134
 add_subdirectory(spectrum_analyzer_demo)
 

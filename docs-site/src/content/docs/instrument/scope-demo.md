@@ -359,6 +359,134 @@ arithmetic, and it does N\_taps multiplies + adds per sample. Real
 hundreds of parallel taps; this CPU implementation is for
 *understanding the gap*, not closing it.
 
+## Multi-channel extension (2-channel variant)
+
+Real digital scopes are 2-channel or 4-channel — cross-channel comparison
+is one of their primary uses. The `applications/scope_demo_2ch/`
+executable
+([#173](https://github.com/stillwater-sc/mixed-precision-dsp/issues/173))
+extends the pipeline shape above to two channels, exercising two
+`instrument/` primitives the single-channel demo doesn't touch:
+
+- **`CrossChannelTrigger`** composes two per-channel triggers into a
+  single fire event under one of six modes (`AandB`, `AorB`, `AxorB`,
+  `AnotB`, `BnotA`, `OnlyA` / `OnlyB`) with a coincidence window. The
+  demo uses `AandB` with an 8-sample window — both channels' rising
+  edges must land within 8 samples for the composite trigger to fire.
+- **`ChannelAligner`** — post-capture sub-sample time-alignment of
+  channels that arrive with different physical routing delays. Channel
+  A is the reference (skew 0); channel B carries a synthetic 0.3-sample
+  skew injected via linear interpolation of the source signal (a pure
+  fractional delay, no FIR group-delay artifact).
+
+### Pipeline shape
+
+```text
+       simulate_adc(seed_A)              simulate_skewed_adc(seed_B, 0.3)
+              |                                        |
+              v                                        v
+  EqualizerFilter<ChA EQ scalars>           EqualizerFilter<ChB EQ scalars>
+              |                                        |
+              +--> EdgeTrigger<Storage> ---+--- EdgeTrigger<Storage>
+                                           |
+                                           v
+                       CrossChannelTrigger (AandB, window=8)
+                                           |
+                       (single fire drives both rings' push_trigger)
+                                           |
+       +------------------------ ring A ---+--- ring B ---------------+
+       v                                                              v
+  ChannelAligner<Aligner scalar> (chA skew=0, chB skew=0.3)  <-------+
+       |                                                              |
+       v                                                              v
+  peak-detect + render_envelope                       peak-detect + render_envelope
+       |                                                              |
+       +------> measurements + cross-channel Pearson correlation <-----+
+                                           |
+                                           v
+                              scope_demo_2ch.csv
+```
+
+### Per-channel precision plans
+
+Each plan is a tuple of eight scalar types:
+
+- `(EqCoeff_A, EqState_A, EqSample_A)` — channel A equalizer arithmetic
+- `(EqCoeff_B, EqState_B, EqSample_B)` — channel B equalizer arithmetic
+- `AlignerScalar` — the `FractionalDelay` FIR inside `ChannelAligner`
+- `StorageScalar` — trigger / ring / peak-detect / envelope
+
+The five plans surface different aspects of the multi-channel picture:
+
+| Plan | Ch A EQ | Ch B EQ | Aligner | Storage | Purpose |
+|------|---------|---------|---------|---------|---------|
+| `reference` | double | double | double | double | Baseline |
+| `symmetric_posit16` | posit&lt;16,2&gt; | posit&lt;16,2&gt; | double | double | Both channels narrow, symmetric |
+| `asymmetric_p32A_p16B` | posit&lt;32,2&gt; | posit&lt;16,2&gt; | double | double | **Asymmetric** — reference-quality A + narrow B |
+| `storage_fx16` | double | double | double | fixpnt&lt;16,12&gt; | Storage narrowing (comparison-only chain) |
+| `float_streaming` | float | float | float | fixpnt&lt;16,12&gt; | FPGA-pragmatic all-narrow |
+
+The **asymmetric plan** is the multi-channel-specific one: it surfaces
+what happens when a scope's channels are configured at different
+precisions (e.g. one channel doing high-precision analysis, another
+doing fast triage). Cross-channel correlation is bounded by the
+noisier of the two channels — measuring it directly quantifies the
+mismatch cost.
+
+### Headline metrics
+
+Beyond the per-channel measurements from the single-channel demo,
+two multi-channel metrics land per plan:
+
+- **Cross-channel Pearson correlation** on the aligned streams.
+  Reference plan converges above 0.99; narrow-EQ plans stay in the
+  same regime because the noise added by narrow arithmetic is
+  independent between channels but small relative to the source signal.
+- **Residual skew** — integer-lag argmax of the aligned-stream
+  cross-correlation. The reference plan reports 0, confirming the
+  aligner correctly compensated the injected 0.3-sample skew.
+
+### Sample output
+
+```text
+================================================================================================================
+plan                              chA rise    chB rise  chA freq/MHz  chB freq/MHz    cross-corr    resid-skew
+----------------------------------------------------------------------------------------------------------------
+reference                             0.83        2.27         50.00         50.00        0.9907          0.00
+symmetric_posit16                     0.83        2.28         50.00         50.00        0.9907          0.00
+asymmetric_p32A_p16B                  0.83        2.28         50.00         50.00        0.9907          0.00
+storage_fx16                          0.83        2.27         50.00         50.00        0.9907          0.00
+float_streaming                       0.83        2.27         50.00         50.00        0.9907          0.00
+================================================================================================================
+```
+
+Both channels report the 50 MHz source frequency. Channel B's slightly
+larger rise time (2.27 vs 0.83 samples) is the linear-interpolation
+edge-smearing from the skew injection — realistic, since a physical
+routing skew's associated bandwidth limitation would produce similar
+edge softening. The cross-correlation of 0.99+ across all plans confirms
+that alignment + narrow-EQ arithmetic composes cleanly.
+
+### CSV schema
+
+The output CSV extends the single-channel schema with a `channel`
+column (values `A`, `B`, or `X` for cross-channel-summary rows). The
+extra `cross_correlation` and `residual_skew_samples` columns are
+populated only on the `X` rows (per-plan, not per-pixel):
+
+```
+pipeline,plan_name,channel,eq_coeff,eq_state,eq_sample,storage,
+storage_bytes_per_sample,pixel_index,envelope_min,envelope_max,
+glitch_survived,glitch_peak,rise_time_samples,rms,mean,
+cross_correlation,residual_skew_samples
+```
+
+Rows with `channel="A"` or `channel="B"` contain per-pixel envelope
+data (like the single-channel CSV); rows with `channel="X"` are a
+summary line per plan with just the two cross-channel columns
+populated. A downstream reader that ignores the `channel` column can
+treat the file as a superset of the single-channel schema.
+
 ## Out of scope (deferred)
 
 The original v0.6 capstone ([#152](https://github.com/stillwater-sc/mixed-precision-dsp/issues/152))
@@ -368,8 +496,12 @@ landed the pre-distortion stage. What's still deferred:
 
 - **Real ADC interfacing** (e.g. TI ADC12DJ5200RF). Simulated only.
 - **Image rendering** of the envelope. CSV is the deliverable.
-- **Multi-channel demonstration**. Tracked separately as
-  [#173](https://github.com/stillwater-sc/mixed-precision-dsp/issues/173).
+- **4-channel demonstration.** The 2-channel variant (previous
+  section) landed the pipeline shape; a 4-channel extension would be
+  a natural follow-up but is not yet on the roadmap.
+- **Asymmetric per-channel calibration profiles.** The 2-channel demo
+  shares one `CalibrationProfile` between channels. Real scopes have
+  independent per-channel calibration.
 - **Public `design_fir_from_profile()` API.** The forward-FIR design
   helper is currently inline in `scope_demo.cpp` (per #172's
   out-of-scope note). Lifting it into `instrument/calibration.hpp`
