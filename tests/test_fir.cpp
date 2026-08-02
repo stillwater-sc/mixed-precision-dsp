@@ -14,6 +14,7 @@
 #include <vector>
 
 #include <universal/number/posit/posit.hpp>
+#include <universal/number/cfloat/cfloat.hpp>
 
 using namespace sw::dsp;
 
@@ -327,6 +328,41 @@ void test_design_in_posit_precision() {
 	          << ", passed\n";
 }
 
+// Regression guard for issue #201: design_fir_lowpass center-tap NaN under
+// narrow cfloat CoeffScalar. The previous implementation used a threshold
+// `T(1) / T(1e12)` that overflows the 5-bit exponent of cfloat<16,5> and
+// cfloat<24,5>, collapsing to zero. That let the sinc(0) = 0/0 case fall
+// through at the center tap, producing NaN. Fixed by comparing on integer
+// index (n == center) instead of float value (abs(x) < tiny).
+void test_fir_design_narrow_cfloat_no_nan() {
+	using half_t = sw::universal::cfloat<16, 5, uint16_t, true, false, false>;
+	using cf24_t = sw::universal::cfloat<24, 5, uint32_t, true, false, false>;
+
+	auto check = [](const auto& taps, const char* name, std::size_t N) {
+		for (std::size_t i = 0; i < N; ++i) {
+			const double v = static_cast<double>(taps[i]);
+			if (!std::isfinite(v))
+				throw std::runtime_error(std::string("test failed: ") + name
+					+ " NaN/inf tap at index " + std::to_string(i));
+		}
+	};
+
+	// The reported reproducer parameters (num_taps=61, cutoff=1/6, Kaiser
+	// window with beta=5). Also covers a smaller odd-length case and an
+	// even-length case (even-length never hits the sinc(0) branch, so
+	// success there just guards against unrelated regressions).
+	for (std::size_t N : {31u, 61u, 32u}) {
+		auto win_h = kaiser_window<half_t>(N, 5.0);
+		auto lp_h = design_fir_lowpass<half_t>(N, static_cast<half_t>(1.0 / 6.0), win_h);
+		check(lp_h, "cfloat<16,5>", N);
+
+		auto win_c24 = kaiser_window<cf24_t>(N, 5.0);
+		auto lp_c24 = design_fir_lowpass<cf24_t>(N, static_cast<cf24_t>(1.0 / 6.0), win_c24);
+		check(lp_c24, "cfloat<24,5>", N);
+	}
+	std::cout << "  design_narrow_cfloat_no_nan: passed\n";
+}
+
 void test_fir_validation() {
 	// Empty taps should throw
 	bool caught = false;
@@ -353,6 +389,7 @@ int main() {
 		test_design_highpass();
 		test_design_bandpass();
 		test_design_in_posit_precision();
+		test_fir_design_narrow_cfloat_no_nan();
 		test_fir_filtering_signal();
 		test_fir_validation();
 

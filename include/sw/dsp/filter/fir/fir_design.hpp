@@ -44,20 +44,32 @@ mtl::vec::dense_vector<T> design_fir_lowpass(std::size_t num_taps, T cutoff,
 	constexpr T two    = T(2);
 	constexpr T pi_T   = T(pi);
 	constexpr T two_pi_T = T(two_pi);
-	// Odd num_taps gives M/2 an integer, so x=0 at the center tap exactly.
-	// Even num_taps gives M/2 a half-integer, so the sinc argument never
-	// lands on 0. `tiny` is a safety threshold against floating-point drift.
-	const     T tiny   = T(1) / T(1'000'000'000'000LL);
 
+	// Detect the center tap via integer INDEX equality instead of a
+	// float-space threshold. Only odd num_taps produces x = 0 exactly (at
+	// n = M/2, an integer); for even num_taps M/2 is a half-integer and the
+	// sinc argument never lands on zero.
+	//
+	// Previous code used a threshold `T(1) / T(1e12)` for float-space
+	// comparison. For narrow cfloat CoeffScalar types (cfloat<16,5>,
+	// cfloat<24,5>) T(1e12) overflows the 5-bit exponent range (max ~65k),
+	// saturating to +inf and collapsing tiny to 0. That made the guard
+	// `abs(x) < tiny` never fire, so the sinc(0) = 0/0 case fell through
+	// to `sin(0) / (pi*0) = NaN` at the center tap — see issue #201 for
+	// the reproducer and root-cause analysis. The integer-index check
+	// below is representation-independent by construction.
 	const std::size_t M = num_taps - 1;
 	const T half_M = T(M) / two;
+	const bool is_odd_length = (num_taps % 2) == 1;
+	const std::size_t center = M / 2;  // exact center only when is_odd_length
 
 	for (std::size_t n = 0; n < num_taps; ++n) {
-		T x = T(n) - half_M;
 		T h;
-		if (abs(x) < tiny) {
-			h = two * cutoff;  // sinc(0) = 1, scaled by 2*fc
+		if (is_odd_length && n == center) {
+			// L'Hopital limit of sin(2π·fc·x) / (π·x) at x=0 is 2·fc.
+			h = two * cutoff;
 		} else {
+			T x = T(n) - half_M;
 			h = sin(two_pi_T * cutoff * x) / (pi_T * x);
 		}
 		taps[n] = h * window[n];
