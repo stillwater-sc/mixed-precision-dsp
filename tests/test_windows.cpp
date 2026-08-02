@@ -156,6 +156,37 @@ void test_dolph_chebyshev() {
 			throw std::runtime_error("test failed: dolph_chebyshev negative value at " +
 			                         std::to_string(i));
 	}
+
+	// Peak sits at the CENTER of the window, not at the edges. Regression
+	// guard against the issue #200 collapse where the whole window went
+	// to ~1.0 (all "peaks" everywhere).
+	if (!(static_cast<double>(w[32]) > static_cast<double>(w[0]) + 0.5))
+		throw std::runtime_error("test failed: dolph_chebyshev peak should be "
+		                         "near the middle, not everywhere");
+
+	// EDGE VALUES should be MEANINGFULLY SMALLER than the peak. The peak-
+	// to-edge ratio should track the requested attenuation. At 100 dB the
+	// ideal edge is 10^(-100/20) = 1e-5; finite-N Dolph-Chebyshev gives
+	// somewhat higher edges but still small relative to 1.0. We use a
+	// loose check (edge < 0.5 of peak) that would trivially fail for the
+	// old-bug all-ones output.
+	if (!(static_cast<double>(w[0]) < 0.5))
+		throw std::runtime_error("test failed: dolph_chebyshev edges should "
+		                         "be well below peak (was the window flat?)");
+
+	// DIFFERENT attenuation settings should produce DIFFERENT windows.
+	// Under the pre-#200 bug both were essentially the same constant.
+	auto w_low  = dolph_chebyshev_window<double>(64, 40.0);
+	auto w_high = dolph_chebyshev_window<double>(64, 120.0);
+	double diff = 0.0;
+	for (std::size_t i = 0; i < 64; ++i) {
+		diff += std::abs(static_cast<double>(w_low[i]) -
+		                  static_cast<double>(w_high[i]));
+	}
+	if (!(diff > 1e-3))
+		throw std::runtime_error("test failed: dolph_chebyshev windows for 40 dB "
+		                         "vs. 120 dB attenuation should differ");
+
 	std::cout << "  dolph_chebyshev: passed\n";
 }
 

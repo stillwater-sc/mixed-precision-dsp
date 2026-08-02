@@ -94,7 +94,6 @@ mtl::vec::dense_vector<T> dolph_chebyshev_window(std::size_t length,
 	const int order = N - 1;
 
 	constexpr T zero = T(0);
-	constexpr T one  = T(1);
 	constexpr T half = T(0.5);
 	constexpr T ten  = T(10);
 	constexpr T twenty = T(20);
@@ -105,27 +104,55 @@ mtl::vec::dense_vector<T> dolph_chebyshev_window(std::size_t length,
 	const T atten_linear = pow(ten, atten_db / twenty);
 	const T x0 = cosh(acosh(atten_linear) / T(order));
 
-	// Frequency-domain window W[k]. The (-1)^k factor ensures the IDFT
-	// produces a real, symmetric result.
+	// Frequency-domain window W[k] = |T_{N-1}(x0 * cos(πk/N))| / atten_linear.
+	//
+	// Two subtleties packed into that formula:
+	//
+	//   1. The absolute value makes W SYMMETRIC around k=N/2 for any N.
+	//      Without it, W[N-k] = T_{N-1}(-x0 cos(πk/N)) = (-1)^{N-1} W[k],
+	//      which is symmetric only for odd N. Taking |·| forces symmetry
+	//      universally — the DSP interpretation is that we care about the
+	//      magnitude spectrum |W(f)| with equiripple sidelobes (the standard
+	//      Dolph-Chebyshev design goal), not the signed polynomial.
+	//
+	//   2. NO (-1)^k twist here. Earlier versions of this file applied a
+	//      sign = (-1)^k factor intending to shift the IDFT output from
+	//      n=0 to n=N/2 (fftshift-in-frequency-domain). That combined with
+	//      the T_{N-1} parity property gave W[N-k] = -W[k] (anti-symmetric),
+	//      and the cos-only IDFT of an anti-symmetric spectrum cancels
+	//      term-by-term at every n — producing a near-constant output that
+	//      normalized to 1.0 (issue #200). The fix here is to build a
+	//      symmetric magnitude W and fftshift AFTER the transform.
+	using std::abs;
 	mtl::vec::dense_vector<T> W(static_cast<std::size_t>(N));
 	for (int k = 0; k < N; ++k) {
-		const T sign = (k % 2 == 0) ? one : -one;
-		const T arg  = x0 * cos(pi_T * T(k) / T(N));
+		const T arg = x0 * cos(pi_T * T(k) / T(N));
 		W[static_cast<std::size_t>(k)] =
-			sign * detail::chebyshev_poly(order, arg) / atten_linear;
+			abs(detail::chebyshev_poly(order, arg)) / atten_linear;
 	}
 
-	// Inverse DFT (direct-form O(N^2) sum) — real-valued by construction.
-	mtl::vec::dense_vector<T> wn(static_cast<std::size_t>(N));
-	T max_val = zero;
+	// Inverse DFT (direct-form O(N^2) sum) — real-valued because W is
+	// real and symmetric. Peak lands at n=0; we fftshift below.
+	mtl::vec::dense_vector<T> wn_raw(static_cast<std::size_t>(N));
 	for (int n = 0; n < N; ++n) {
 		T sum = zero;
 		for (int k = 0; k < N; ++k) {
 			sum = sum + W[static_cast<std::size_t>(k)] *
 				cos(two_pi_T * T(k) * T(n) / T(N));
 		}
-		wn[static_cast<std::size_t>(n)] = sum;
-		if (abs(sum) > max_val) max_val = abs(sum);
+		wn_raw[static_cast<std::size_t>(n)] = sum;
+	}
+
+	// fftshift: rotate wn_raw by N/2 so the peak lands at the middle
+	// index (n = N/2 for even N, n = (N-1)/2 for odd N). For any n:
+	//   wn[n] = wn_raw[(n + N/2) mod N]
+	// This is the standard numpy.fft.fftshift for a length-N array.
+	const std::size_t shift = static_cast<std::size_t>(N) / 2;
+	mtl::vec::dense_vector<T> wn(static_cast<std::size_t>(N));
+	for (int n = 0; n < N; ++n) {
+		const std::size_t src =
+			(static_cast<std::size_t>(n) + shift) % static_cast<std::size_t>(N);
+		wn[static_cast<std::size_t>(n)] = wn_raw[src];
 	}
 
 	// Enforce symmetry (a small IDFT rounding asymmetry can accumulate)
@@ -137,7 +164,7 @@ mtl::vec::dense_vector<T> dolph_chebyshev_window(std::size_t length,
 		wn[i_lo] = avg;
 		wn[i_hi] = avg;
 	}
-	max_val = zero;
+	T max_val = zero;
 	for (int n = 0; n < N; ++n) {
 		const T v = abs(wn[static_cast<std::size_t>(n)]);
 		if (v > max_val) max_val = v;
