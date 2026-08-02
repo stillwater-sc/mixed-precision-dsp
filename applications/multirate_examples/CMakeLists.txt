@@ -4,3 +4,4 @@
 # CIC decimator, etc.) get their own subdirectory here.
 
 add_subdirectory(audio_resampler)
+add_subdirectory(fractional_delay)
