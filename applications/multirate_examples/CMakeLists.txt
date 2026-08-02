@@ -5,3 +5,4 @@
 
 add_subdirectory(audio_resampler)
 add_subdirectory(fractional_delay)
+add_subdirectory(channelizer)
