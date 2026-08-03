@@ -6,3 +6,4 @@
 add_subdirectory(audio_resampler)
 add_subdirectory(fractional_delay)
 add_subdirectory(channelizer)
+add_subdirectory(software_radio)
