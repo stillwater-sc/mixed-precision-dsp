@@ -40,6 +40,7 @@ dsp_add_test(test_projection      "Tests/Foundation")
 # Probe - pipeline sample-tap primitives (Epic #160)
 # =============================================================================
 dsp_add_test(test_probe_signal_probe "Tests/Probe")
+dsp_add_test(test_probe_views        "Tests/Probe")
 
 # =============================================================================
 # Signals — generators + I/O
