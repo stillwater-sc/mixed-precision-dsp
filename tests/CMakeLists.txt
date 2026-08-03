@@ -43,6 +43,11 @@ dsp_add_test(test_probe_signal_probe "Tests/Probe")
 dsp_add_test(test_probe_views        "Tests/Probe")
 
 # =============================================================================
+# Transfer function - Bode + pole/zero (Epic #160)
+# =============================================================================
+dsp_add_test(test_transfer_function_bode "Tests/TransferFunction")
+
+# =============================================================================
 # Signals — generators + I/O
 # =============================================================================
 dsp_add_test(test_generators      "Tests/Signals")
