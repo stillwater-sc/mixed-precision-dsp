@@ -29,10 +29,13 @@
 #include <cstddef>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <numbers>
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <sw/dsp/filter/iir/elliptic.hpp>
+#include <sw/dsp/filter/layout/layout.hpp>
 #include <sw/dsp/math/root_finder.hpp>
 
 namespace sw::dsp::transfer_function {
@@ -280,24 +283,96 @@ inline PoleZeroPlot bessel_prototype(int order, double cutoff_hz) {
 	return p;
 }
 
-// Elliptic prototype - not implemented in this header yet.
+// Elliptic (Cauer) LP prototype: has both finite s-plane poles (LHP)
+// and finite imaginary-axis zeros. Delegates to the existing
+// `iir::EllipticAnalogPrototype::design_from_modulus` so the returned
+// pole/zero locations match exactly what the library's elliptic filter
+// design uses at runtime.
 //
-// The library's filter/iir/elliptic.hpp already computes elliptic
-// pole/zero locations via a Jacobi-sn helper and a Bairstow-method
-// polynomial factorer. Extracting a reusable, standalone API for the
-// prototype builder here would require pulling those helpers out into
-// sw::dsp::math (or a subheader). Tracked as a follow-up so this file
-// stays scoped to closed-form families that don't require additional
-// math infrastructure.
-inline PoleZeroPlot elliptic_prototype(int /*order*/,
-                                        double /*cutoff_hz*/,
-                                        double /*ripple_dB*/,
-                                        double /*stopband_dB*/) {
-	throw std::runtime_error(
-		"elliptic_prototype: not yet exposed as a standalone API. "
-		"See filter/iir/elliptic.hpp for the underlying design; a "
-		"follow-up will factor the Jacobi sn helper into "
-		"sw::dsp::math for reuse here.");
+// Parameters:
+//   order          - filter order (max supported = 12, capped by the
+//                    library's fixed-size PoleZeroLayout template).
+//   cutoff_hz      - passband edge frequency.
+//   ripple_dB      - peak passband ripple (positive value).
+//   selectivity_k  - k = f_passband / f_stopband, in (0, 1). Smaller k
+//                    means a sharper transition (steeper stopband
+//                    skirt). Typical values: 0.5 (moderate) down to
+//                    0.1 (very steep).
+//
+// Note: the issue #158 signature used `stopband_dB` as the fourth
+// parameter, but the library's elliptic filter design takes
+// `selectivity_k` directly. Callers who need stopband-dB semantics can
+// map A_s (in dB) to k via the standard elliptic-filter design
+// equations; this API stays close to the underlying primitive to
+// avoid an implicit inverse-elliptic-function step.
+inline PoleZeroPlot elliptic_prototype(int order, double cutoff_hz,
+                                        double ripple_dB,
+                                        double selectivity_k) {
+	if (order < 1)
+		throw std::invalid_argument("elliptic_prototype: order must be >= 1");
+	constexpr int kMaxOrder = 12;
+	if (order > kMaxOrder)
+		throw std::invalid_argument(
+			"elliptic_prototype: order > 12 not supported");
+	if (!(ripple_dB > 0.0))
+		throw std::invalid_argument(
+			"elliptic_prototype: ripple_dB must be > 0");
+	if (!(selectivity_k > 0.0 && selectivity_k < 1.0))
+		throw std::invalid_argument(
+			"elliptic_prototype: selectivity_k must be in (0, 1)");
+
+	PoleZeroPlot p;
+	p.design = "elliptic";
+	p.order = order;
+	p.cutoff_hz = cutoff_hz;
+	p.ripple_dB = ripple_dB;
+	// Store selectivity in stopband_dB slot (informational only).
+	p.stopband_dB = selectivity_k;
+
+	// Invoke the library's elliptic prototype in normalized (omega_c = 1)
+	// coordinates, then scale poles + zeros by omega_c = 2*pi*cutoff_hz.
+	iir::EllipticAnalogPrototype<double, kMaxOrder> proto;
+	PoleZeroLayout<double, kMaxOrder> layout;
+	proto.design_from_modulus(order, ripple_dB, selectivity_k, layout);
+
+	const double omega_c = 2.0 * std::numbers::pi_v<double> * cutoff_hz;
+	// Extract complex pole/zero pairs from the layout. Each pair is
+	// either a conjugate pair (paired) or a single real term (last
+	// slot for odd-order filters).
+	p.s_poles.reserve(order);
+	p.s_zeros.reserve(order);
+	const int npairs = layout.num_pairs();
+	int extracted = 0;
+	for (int i = 0; i < npairs && extracted < order; ++i) {
+		const auto& pair = layout[i];
+		// First (always present).
+		p.s_poles.emplace_back(
+			static_cast<double>(pair.poles.first.real()) * omega_c,
+			static_cast<double>(pair.poles.first.imag()) * omega_c);
+		// Zero at infinity in the layout maps to no finite zero in the
+		// pole/zero plot (the plot's zero count naturally shrinks; the
+		// bilinear map later fills these in as z = -1 zeros).
+		const auto z1 = pair.zeros.first;
+		if (std::isfinite(z1.real()) && std::isfinite(z1.imag())) {
+			p.s_zeros.emplace_back(
+				static_cast<double>(z1.real()) * omega_c,
+				static_cast<double>(z1.imag()) * omega_c);
+		}
+		++extracted;
+		if (!pair.is_single_pole() && extracted < order) {
+			p.s_poles.emplace_back(
+				static_cast<double>(pair.poles.second.real()) * omega_c,
+				static_cast<double>(pair.poles.second.imag()) * omega_c);
+			const auto z2 = pair.zeros.second;
+			if (std::isfinite(z2.real()) && std::isfinite(z2.imag())) {
+				p.s_zeros.emplace_back(
+					static_cast<double>(z2.real()) * omega_c,
+					static_cast<double>(z2.imag()) * omega_c);
+			}
+			++extracted;
+		}
+	}
+	return p;
 }
 
 // ============================================================================

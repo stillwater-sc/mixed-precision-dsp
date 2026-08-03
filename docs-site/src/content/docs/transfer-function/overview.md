@@ -119,10 +119,13 @@ so the viewer can render either.
   zeros on the imaginary axis.
 - `bessel_prototype(order, cutoff)` — poles are the LHP roots of
   the reverse Bessel polynomial (via Laguerre root-finder).
-- `elliptic_prototype(...)` — **stub, throws**. The library's
-  `filter/iir/elliptic.hpp` computes elliptic pole/zero via internal
-  Jacobi-sn helpers; exposing a reusable analytical API here awaits
-  a follow-up that factors those helpers into `sw::dsp::math`.
+- `elliptic_prototype(order, cutoff, ripple_dB, selectivity_k)` —
+  Cauer filter with both finite LHP poles and imaginary-axis zeros.
+  Delegates to the library's `iir::EllipticAnalogPrototype` so the
+  extracted pole/zero locations match exactly what the elliptic
+  filter design uses at runtime (verified by cross-check test).
+  `selectivity_k` is $f_{\text{passband}} / f_{\text{stopband}} \in
+  (0, 1)$; smaller = sharper transition.
 
 ### Constantinides transformations
 

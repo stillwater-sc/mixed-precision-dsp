@@ -266,25 +266,12 @@ private:
 		return a;
 	}
 
-	// Jacobi sn function via q-series
+	// Jacobi sn q-series expansion.
+	// Thin wrapper over sw::dsp::elliptic_sn_series (extracted to
+	// sw/dsp/math/elliptic_integrals.hpp so the transfer_function
+	// pole/zero prototype builder can reuse it).
 	static T calcsn(T u, T K, T Kprime) {
-		using std::exp;
-		using std::pow;
-		using std::sin;
-
-		T q = exp(T{-1} * pi_v<T> * Kprime / K);
-		T v = half_pi_v<T> * u / K;
-		// Convergence threshold: use T-scaled epsilon to avoid
-		// premature termination at high precision or excessive
-		// iterations at low precision
-		T tol = std::numeric_limits<T>::epsilon() * T{1000};
-		T sn = T{};
-		for (int j = 0; ; ++j) {
-			T w = pow(q, static_cast<T>(j) + T{0.5});
-			sn = sn + w * sin((T{2} * static_cast<T>(j) + T{1}) * v) / (T{1} - w * w);
-			if (w < tol) break;
-		}
-		return sn;
+		return sw::dsp::elliptic_sn_series<T>(u, K, Kprime);
 	}
 };
 
