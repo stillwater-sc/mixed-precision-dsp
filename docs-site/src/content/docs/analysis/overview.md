@@ -34,3 +34,17 @@ The umbrella header `sw/dsp/analysis/analysis.hpp` includes all four.
   Pareto data compatible with the existing `precision_sweep.csv`
   visualization. See the [acquisition pipeline precision
   analysis](./acquisition-precision/) page.
+
+## See also
+
+- [Pipeline Probes](../probe/overview/) — sample-capture primitives
+  for inspecting intermediate signals in an assembled pipeline. The
+  probe stream feeds domain views (time / magnitude / phase / I-Q)
+  that complement the analytical measurements here.
+- [Transfer Function Monitor](../transfer-function/overview/) —
+  numerical Bode sweeps for any LTI block, plus closed-form
+  analytical pole/zero extraction from filter prototypes. The Bode
+  side is empirical (measures the compiled filter's real response);
+  the pole/zero side is the exact ideal. Together they let you
+  quantify precision-induced deviation from ideal at the pole/zero
+  level, complementing the stability + sensitivity primitives here.

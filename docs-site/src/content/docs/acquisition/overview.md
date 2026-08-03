@@ -239,3 +239,9 @@ hard ceiling on `posit<32,2>` in this kind of chain.
   [CIC](./cic/), [Half-Band](./halfband/),
   [Polyphase Decimator](./polyphase-decimator/),
   [Decimation Chain](./decimation-chain/), [Demo](./demo/)
+- [Pipeline Probes](../../probe/overview/) — for inspecting
+  intermediate signals in your acquisition pipeline (attach a probe
+  to any stage; dump captured samples for external analysis)
+- [Transfer Function Monitor](../../transfer-function/overview/) —
+  Bode sweeps + closed-form pole/zero extraction for the LTI blocks
+  in your chain

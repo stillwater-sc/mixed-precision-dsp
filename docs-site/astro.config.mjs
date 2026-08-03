@@ -69,6 +69,14 @@ export default defineConfig({
           autogenerate: { directory: 'analysis' },
         },
         {
+          label: 'Pipeline Probes',
+          autogenerate: { directory: 'probe' },
+        },
+        {
+          label: 'Transfer Function Monitor',
+          autogenerate: { directory: 'transfer-function' },
+        },
+        {
           label: 'State Estimation',
           autogenerate: { directory: 'estimation' },
         },
