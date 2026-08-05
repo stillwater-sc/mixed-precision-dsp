@@ -1,6 +1,6 @@
 ---
 title: Software-Radio Receiver Demo — 100 MHz → 100 kHz
-description: End-to-end 1000:1 SDR receiver chain — DDC + CIC + polyphase decimators — exercised across six numeric configurations with realistic strong-adjacent-channel interferer rejection
+description: End-to-end 1000:1 SDR receiver chain — DDC + CIC + half-band decimators — exercised across six numeric configurations with realistic strong-adjacent-channel interferer rejection
 ---
 
 The `software_radio` demonstrator (issue [#139](https://github.com/stillwater-sc/dsp/issues/139))
@@ -27,32 +27,48 @@ Split I / Q; run each independently through:
 CIC decimator (R=125, N=2 stages)           I/Q @ 400 kHz
      |                                       CIC gain = R^N = 15625,
      |                                       explicitly divided out here
-PolyphaseDecimator /2  (Kaiser sinc)         I/Q @ 200 kHz
+HalfBandFilter /2      (equiripple)          I/Q @ 200 kHz
      |
-PolyphaseDecimator /2  (Kaiser sinc)         I/Q @ 100 kHz baseband
+HalfBandFilter /2      (equiripple)          I/Q @ 100 kHz baseband
      v
 [Baseband IQ output]
 ```
 
 Total decimation: $2 \times 125 \times 2 \times 2 = 1000$.
 
-### Why polyphase, not halfband
+### Why halfband
 
-An earlier iteration used `HalfBandFilter` for the two final /2 stages
-(the natural choice for 2:1 decimation — half the taps are zero by
-construction). At the tap counts needed to reject the strong
-adjacent-channel interferer, `design_halfband()` produced Remez
-outputs whose stopband depth capped at about -25 dB regardless of tap
-count, so the pipeline settled at ~27 dB rejection instead of the
-target 60+ dB.
+Half-band filters are the natural choice for 2:1 decimation: every
+even-offset tap is zero by construction, so `HalfBandFilter` skips
+them and a 67-tap stage costs only 35 multiplies. At
+`transition_width = 0.10` (passband edge 0.20, stopband edge 0.30 of
+the stage input rate) that buys about -104 dB of stopband, which puts
+the interferer's 175 kHz baseband image (0.4375 normalized) deep into
+the stopband of the first stage.
 
-Falling back to `PolyphaseDecimator` with `design_fir_lowpass<double>`
-+ Kaiser $\beta = 10$ (51 taps, ~-85 dB stopband) reaches 121 dB
-rejection on the reference config. This is not a design decision
-about halfbands generally — it's a specific limitation of the current
-`design_halfband` implementation that a future library update will
-fix, at which point this demo can revert to the more efficient
-halfband path.
+This demo previously used `PolyphaseDecimator` with
+`design_fir_lowpass<double>` + Kaiser $\beta = 10$ instead, because
+`design_halfband()` returned filters whose stopband depth capped near
+-25 dB regardless of tap count and collapsed entirely past 63 taps.
+That was [issue #203](https://github.com/stillwater-sc/mixed-precision-dsp/issues/203)
+— the Remez exchange was not producing equiripple designs — and it is
+fixed. The half-band path is both cheaper and deeper than the Kaiser
+fallback it replaces: 35 multiplies at -104 dB against 51 multiplies
+at -99.5 dB.
+
+One number moved the "wrong" way in the swap and is worth understanding,
+because it is the equiripple-versus-window trade in miniature. Reference
+rejection went from 121.1 dB to 119.5 dB. A windowed design's stopband
+*decays* with frequency, so it is deeper than it needs to be at some
+frequencies and shallowest at its worst point; an equiripple design
+spends its taps making the worst point as good as possible and is flat
+everywhere else. The interferer happens to land at 0.4375 normalized,
+where the Kaiser measures -115.3 dB against the half-band's -113.7 dB —
+a 1.6 dB edge at exactly one frequency, which is the entire end-to-end
+difference. Across the whole stopband the half-band guarantees 5 dB more
+rejection than the Kaiser can, using two thirds of the multiplies. Had
+the interferer been placed at 0.40 instead, the half-band would have
+measured 6 dB deeper.
 
 ## Running the demo
 
@@ -77,7 +93,7 @@ cmake --build build-ci --target software_radio -j4
 - **Signal**: weak tone at IF + 5 kHz (amp 0.1) — lands at +5 kHz
   in the baseband output, well inside the 100 kHz output passband.
 - **Interferer**: strong tone at IF + 175 kHz (amp 0.9) — sits in
-  the first polyphase decimator's stopband and MUST be attenuated
+  the first half-band decimator's stopband and MUST be attenuated
   before it can alias down into the output band. This is the
   classic strong-adjacent-channel scenario.
 
@@ -102,24 +118,24 @@ metric captures purely what the filter chain added on top.
 ## Reference results
 
 At the default parameters (DDC 63-tap Hamming FIR, CIC R=125 N=2,
-polyphase /2 stages with 51-tap Kaiser $\beta = 10$ FIRs):
+half-band /2 stages with 67 taps at `transition_width = 0.10`):
 
 | Config | Signal (dBFS) | Interferer (dBFS) | SNR (dB) | Rejection (dB) |
 |---|---:|---:|---:|---:|
-| `reference` (double)    |  -9.08 | -130.21 |  65.19 | 121.13 |
-| `float`                  |  -9.08 | -108.55 |  53.73 |  99.47 |
-| `posit<32,2>`            |  -9.08 |  -77.48 |  26.26 |  68.40 |
-| `cfloat<32,8>`           |  -9.08 | -108.55 |  53.73 |  99.47 |
-| `posit<16,2>`            | -19.19 |  -40.58 | -11.16 |  21.39 |
-| `fixpnt<32,14>` (Q18.14) |  -9.47 |  -89.04 |  52.74 |  79.57 |
+| `reference` (double)    |  -9.08 | -128.62 |  65.19 | 119.54 |
+| `float`                  |  -9.08 | -109.58 |  52.47 | 100.50 |
+| `posit<32,2>`            |  -9.08 |  -77.46 |  25.50 |  68.38 |
+| `cfloat<32,8>`           |  -9.08 | -109.58 |  52.47 | 100.50 |
+| `posit<16,2>`            | -19.20 |  -40.59 | -12.35 |  21.39 |
+| `fixpnt<32,14>` (Q18.14) |  -9.49 |  -90.97 |  54.32 |  81.48 |
 
 **Rejection** cleanly exceeds the 60 dB acceptance floor across all
-32-bit configs, with the reference reaching 121 dB. Even `posit<32,2>`
+32-bit configs, with the reference reaching 119.5 dB. Even `posit<32,2>`
 delivers 68 dB rejection — nominally passing. `fixpnt<32,14>` in Q18.14
-holds up remarkably well (79 dB rejection, 53 dB SNR) given its 14
+holds up remarkably well (81 dB rejection, 54 dB SNR) given its 14
 fractional bits of precision.
 
-`posit<16,2>` completely falls off (rejection 21 dB, SNR negative) —
+`posit<16,2>` completely falls off (rejection 21 dB, SNR -12 dB) —
 expected for this pipeline. The CIC integrator state grows to ~14000
 (gain $R^N = 15625$ times the ~0.9-amplitude interferer), which
 requires ~14 bits of dynamic-range headroom. `posit<16,2>` at unity
@@ -130,7 +146,7 @@ sweep to document precisely this failure mode.
 **SNR** for the double reference measures 65 dB. The remainder to the
 issue's aspirational 80 dB target comes from spectral leakage of the
 strong (amp 0.9) interferer past the SNR window's guard band. In
-practice, a receiver that rejects an adjacent channel by 121 dB and
+practice, a receiver that rejects an adjacent channel by 120 dB and
 delivers 65 dB in-band SNR meets or exceeds most SDR figures of merit;
 the 80 dB acceptance was aspirational for the issue and the actual
 demo bar is 60 dB.
@@ -154,7 +170,7 @@ fractional bits of precision. Both compress somewhat under this
 ## When to reach for this pipeline pattern
 
 This demo's topology — **DDC with polyphase pre-decimation, CIC for
-bulk rate reduction, cascaded polyphase decimators for final shaping** —
+bulk rate reduction, cascaded half-band decimators for final shaping** —
 is the standard software-radio receiver front-end for turning a
 GHz-scale ADC into a manageable baseband stream. The tradeoffs at each
 stage:
@@ -167,10 +183,11 @@ stage:
   the highest sample rate that survives the DDC. Its droop is a real
   cost, but at moderate stage count (N=2 here) the passband droop is
   ~-1 dB over the retained bandwidth.
-- **Polyphase (or halfband, once the design bug is fixed) for the
-  finishers** because these run at low rates where extra taps are
-  cheap and the sharp anti-alias skirts that halfband decimators
-  provide are the entire point of the design.
+- **Half-band for the finishers** because these run at low rates where
+  extra taps are cheap, half of a half-band's taps are zero so the
+  taps that do cost something go further, and the sharp anti-alias
+  skirts that half-band decimators provide are the entire point of
+  the design.
 
 ## Source
 

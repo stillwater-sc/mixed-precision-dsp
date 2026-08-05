@@ -63,11 +63,11 @@
 
 #include <sw/dsp/acquisition/cic.hpp>
 #include <sw/dsp/acquisition/ddc.hpp>
+#include <sw/dsp/acquisition/halfband.hpp>
 #include <sw/dsp/filter/fir/fir_design.hpp>
 #include <sw/dsp/filter/fir/polyphase.hpp>
 #include <sw/dsp/spectral/fft.hpp>
 #include <sw/dsp/windows/hamming.hpp>
-#include <sw/dsp/windows/kaiser.hpp>
 
 #include <mtl/vec/dense_vector.hpp>
 
@@ -143,14 +143,13 @@ struct DemoParams {
 	std::size_t cic_ratio      = 125;
 	int         cic_stages     = 2;        // gain = R^N = 15625
 	std::size_t ddc_fir_taps   = 63;       // odd; ~-70 dB stopband
-	// Post-CIC decimation-by-2 stages use Kaiser-windowed sinc lowpass
-	// FIRs (via PolyphaseDecimator) rather than library HalfBandFilter -
-	// the design_halfband() Remez output at large tap counts (>63)
-	// degrades to nearly all-zero taps, so we fall back to the more
-	// predictable Kaiser design here. 51 taps + Kaiser beta=10 gives
-	// ~-85 dB stopband with ~0.1 normalized transition width.
-	std::size_t decim_taps     = 51;       // per PolyphaseDecimator stage
-	double      decim_beta     = 10.0;     // Kaiser sharpness
+	// Post-CIC decimation-by-2 stages use the library HalfBandFilter. Half
+	// of a half-band filter's taps are exactly zero, so HalfBandFilter
+	// skips them: 67 taps costs 35 multiplies and buys -104 dB, against
+	// the 51 multiplies and -99.5 dB of the Kaiser-windowed sinc this
+	// replaces. num_taps must be of the form 4K+3.
+	std::size_t decim_taps     = 67;       // per half-band stage (4K+3)
+	double      decim_tw       = 0.10;     // transition width -> pass 0.20 / stop 0.30
 
 	// Analysis. num_output_samples must be at least a power of two so
 	// the FFT consumes the full trimmed window without zero-padding
@@ -246,38 +245,35 @@ run_pipeline(const std::vector<double>& adc_in_d) {
 	for (auto& x : i1) x = x * cic_gain_inv;
 	for (auto& x : q1) x = x * cic_gain_inv;
 
-	// --- Stage 3: polyphase decimator down-2 (first) ---
-	// Kaiser-windowed sinc at cutoff 0.45/2 = 0.225 (of the 400 kHz
-	// input rate). Kaiser beta=10 gives ~-85 dB stopband; combined with
-	// 51 taps and 0.1 transition-width the stopband edge sits comfortably
+	// --- Stage 3: half-band decimator down-2 (first) ---
+	// Equiripple half-band at pass 0.20 / stop 0.30 of the 400 kHz input
+	// rate, ~-104 dB stopband at 67 taps. The stopband edge sits comfortably
 	// past the interferer's 175 kHz baseband location (0.4375 normalized).
-	const auto dec_win = kaiser_window<double>(params.decim_taps,
-	                                             params.decim_beta);
-	const auto dec_taps_d = design_fir_lowpass<double>(
-		params.decim_taps, 0.45 / 2.0, dec_win);
-	mtl::vec::dense_vector<T> dec_taps(dec_taps_d.size());
-	std::transform(dec_taps_d.begin(), dec_taps_d.end(), dec_taps.begin(),
+	const auto hb_taps_d = design_halfband<double>(params.decim_taps,
+	                                                 params.decim_tw);
+	mtl::vec::dense_vector<T> hb_taps(hb_taps_d.size());
+	std::transform(hb_taps_d.begin(), hb_taps_d.end(), hb_taps.begin(),
 	                [](double d) { return static_cast<T>(d); });
 
-	PolyphaseDecimator<T, T, T> dec1_i(dec_taps, 2), dec1_q(dec_taps, 2);
+	HalfBandFilter<T, T, T> dec1_i(hb_taps), dec1_q(hb_taps);
 	std::vector<T> i2, q2;
 	i2.reserve(i1.size() / 2 + 1);
 	q2.reserve(q1.size() / 2 + 1);
 	for (std::size_t n = 0; n < i1.size(); ++n) {
-		auto [ri, yi] = dec1_i.process(i1[n]);
-		auto [rq, yq] = dec1_q.process(q1[n]);
+		auto [ri, yi] = dec1_i.process_decimate(i1[n]);
+		auto [rq, yq] = dec1_q.process_decimate(q1[n]);
 		if (ri) i2.push_back(yi);
 		if (rq) q2.push_back(yq);
 	}
 
-	// --- Stage 4: polyphase decimator down-2 (second) ---
-	PolyphaseDecimator<T, T, T> dec2_i(dec_taps, 2), dec2_q(dec_taps, 2);
+	// --- Stage 4: half-band decimator down-2 (second) ---
+	HalfBandFilter<T, T, T> dec2_i(hb_taps), dec2_q(hb_taps);
 	std::vector<T> i3, q3;
 	i3.reserve(i2.size() / 2 + 1);
 	q3.reserve(q2.size() / 2 + 1);
 	for (std::size_t n = 0; n < i2.size(); ++n) {
-		auto [ri, yi] = dec2_i.process(i2[n]);
-		auto [rq, yq] = dec2_q.process(q2[n]);
+		auto [ri, yi] = dec2_i.process_decimate(i2[n]);
+		auto [rq, yq] = dec2_q.process_decimate(q2[n]);
 		if (ri) i3.push_back(yi);
 		if (rq) q3.push_back(yq);
 	}
@@ -490,7 +486,7 @@ int main(int argc, char** argv) try {
 	          << (params.ddc_decimation * params.cic_ratio * 4) << " ("
 	          << "DDC/" << params.ddc_decimation
 	          << " -> CIC/" << params.cic_ratio << ",N=" << params.cic_stages
-	          << " -> Poly/2 -> Poly/2)\n"
+	          << " -> HB/2 -> HB/2)\n"
 	          << "  IF frequency:  " << (params.if_freq_hz / 1e6) << " MHz\n"
 	          << "  signal:        "
 	          << ((params.if_freq_hz + params.signal_offset_hz) / 1e6)
