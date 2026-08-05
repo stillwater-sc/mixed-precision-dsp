@@ -10,7 +10,15 @@ those are summarized from their release commits and are intentionally terse.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- Tests: four test files hardcoded `/tmp/...` output paths, which do not exist
+  on Windows, so `test_probe_signal_probe`, `test_probe_views`,
+  `test_transfer_function_bode`, and `test_transfer_function_pole_zero` failed
+  under MSVC while passing on every other platform. They now resolve scratch
+  files through `std::filesystem::temp_directory_path()`. Test-only change; no
+  library code is affected. The breakage dates from v0.8.0 and left CI red on
+  the Windows job for the whole v0.9 cycle.
 
 ## [0.9.0] — 2026-08-05
 

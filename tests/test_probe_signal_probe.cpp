@@ -5,6 +5,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <filesystem>
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
@@ -15,6 +16,13 @@
 #include <utility>
 
 #include <sw/dsp/probe/signal_probe.hpp>
+
+// Portable scratch path. These tests used to hardcode "/tmp/...", which does
+// not exist on Windows, so every CSV/JSON round-trip here failed under MSVC
+// while passing everywhere else.
+static std::string temp_test_path(const char* filename) {
+	return (std::filesystem::temp_directory_path() / filename).string();
+}
 
 using sw::dsp::probe::SignalProbe;
 using sw::dsp::probe::NoOpProbe;
@@ -80,7 +88,7 @@ static void test_clear() {
 static void test_dump_csv() {
 	SignalProbe<double> p("dump_test", 4, 48000.0);
 	for (int i = 0; i < 3; ++i) p.push(0.1 * i);
-	const std::string csv_path = "/tmp/_test_probe_signal_probe.csv";
+	const std::string csv_path = temp_test_path("_test_probe_signal_probe.csv");
 	p.dump_csv(csv_path);
 
 	// Verify CSV contents.
@@ -125,7 +133,7 @@ static void test_noop_probe() {
 	if (p.capacity() != 0) throw std::runtime_error("NoOpProbe.capacity() must be 0");
 	if (p.is_full())       throw std::runtime_error("NoOpProbe.is_full() must be false");
 	p.clear();
-	p.dump_csv("/tmp/_should_not_exist.csv");  // must not throw
+	p.dump_csv(temp_test_path("_should_not_exist.csv"));  // must not throw
 }
 
 // ---------------------------------------------------------------------------

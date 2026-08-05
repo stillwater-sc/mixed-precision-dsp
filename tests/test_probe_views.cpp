@@ -5,6 +5,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <filesystem>
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -18,6 +19,13 @@
 
 #include <sw/dsp/probe/signal_probe.hpp>
 #include <sw/dsp/probe/views.hpp>
+
+// Portable scratch path. These tests used to hardcode "/tmp/...", which does
+// not exist on Windows, so every CSV/JSON round-trip here failed under MSVC
+// while passing everywhere else.
+static std::string temp_test_path(const char* filename) {
+	return (std::filesystem::temp_directory_path() / filename).string();
+}
 
 using sw::dsp::probe::SignalProbe;
 using sw::dsp::probe::WindowType;
@@ -53,7 +61,7 @@ static void test_time_view() {
 		if (v.samples[i] != static_cast<double>(i))
 			throw std::runtime_error("time_view: sample value wrong");
 	}
-	const std::string path = "/tmp/_test_probe_time_view.csv";
+	const std::string path = temp_test_path("_test_probe_time_view.csv");
 	v.dump_csv(path);
 	std::ifstream in(path);
 	if (!in) throw std::runtime_error("time_view: CSV not created");
@@ -150,7 +158,7 @@ static void test_iq_constellation() {
 		if (std::abs(r - A) > 1e-9)
 			throw std::runtime_error("iq: point off the expected circle");
 	}
-	const std::string path = "/tmp/_test_probe_iq.csv";
+	const std::string path = temp_test_path("_test_probe_iq.csv");
 	c.dump_csv(path);
 	std::ifstream in(path);
 	if (!in) throw std::runtime_error("iq: CSV not created");

@@ -5,6 +5,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <filesystem>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -16,6 +17,13 @@
 #include <sw/dsp/filter/filter.hpp>
 #include <sw/dsp/filter/iir/butterworth.hpp>
 #include <sw/dsp/transfer_function/bode.hpp>
+
+// Portable scratch path. These tests used to hardcode "/tmp/...", which does
+// not exist on Windows, so every CSV/JSON round-trip here failed under MSVC
+// while passing everywhere else.
+static std::string temp_test_path(const char* filename) {
+	return (std::filesystem::temp_directory_path() / filename).string();
+}
 
 using sw::dsp::transfer_function::sweep_bode;
 using sw::dsp::transfer_function::BodeResult;
@@ -123,7 +131,7 @@ static void test_butterworth_monotone() {
 static void test_dump_csv() {
 	IdentityBlock id;
 	auto b = sweep_bode(id, 1000.0, 10.0, 400.0, 10);
-	const std::string path = "/tmp/_test_bode.csv";
+	const std::string path = temp_test_path("_test_bode.csv");
 	b.dump_csv(path);
 	std::ifstream in(path);
 	if (!in) throw std::runtime_error("dump_csv: file not created");

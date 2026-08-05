@@ -5,6 +5,7 @@
 // Copyright (C) 2024-2026 Stillwater Supercomputing, Inc.
 // SPDX-License-Identifier: MIT
 
+#include <filesystem>
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -20,6 +21,13 @@
 #include <sw/dsp/filter/iir/elliptic.hpp>
 #include <sw/dsp/filter/layout/layout.hpp>
 #include <sw/dsp/transfer_function/pole_zero.hpp>
+
+// Portable scratch path. These tests used to hardcode "/tmp/...", which does
+// not exist on Windows, so every CSV/JSON round-trip here failed under MSVC
+// while passing everywhere else.
+static std::string temp_test_path(const char* filename) {
+	return (std::filesystem::temp_directory_path() / filename).string();
+}
 
 using sw::dsp::transfer_function::PoleZeroPlot;
 using sw::dsp::transfer_function::butterworth_prototype;
@@ -486,7 +494,7 @@ static void test_bilinear_maps_lhp_inside_unit_circle() {
 static void test_dump_json() {
 	auto p = butterworth_prototype(4, 1000.0);
 	apply_bilinear(p, 48000.0);
-	const std::string path = "/tmp/_test_pole_zero.json";
+	const std::string path = temp_test_path("_test_pole_zero.json");
 	p.dump_json(path);
 	std::ifstream in(path);
 	if (!in) throw std::runtime_error("dump_json: file not created");
