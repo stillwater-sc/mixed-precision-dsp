@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -33,7 +34,60 @@ enum class RemezBandType { bandpass, differentiator, hilbert };
 // separate "converged" from "diverged", not grade near-misses.
 inline constexpr double remez_convergence_tol = 1.05;
 
+// Worst weighted error, relative to the problem scale, below which a design
+// is accepted without proving it equiripple. Specifications the exchange can
+// solve almost exactly drive delta into rounding noise, and the alternation
+// test then compares against a meaningless number. 1e-4 is roughly -80 dB:
+// well past anything a design that is actually broken could reach — the
+// non-convergence this guards against overshoots by four or more orders of
+// magnitude — while still admitting the good-but-not-provably-optimal
+// designs the exchange returns in that regime.
+inline constexpr double remez_exactness_floor = 1e-4;
+
 namespace detail {
+
+// The four linear-phase FIR types.
+//
+// Every type realizes its zero-phase amplitude as
+//
+//     A(f) = q(f) * P(cos 2*pi*f)
+//
+// for a type-specific factor q and a cosine polynomial P. Only Type I has
+// q == 1. The Remez exchange solves for a cosine polynomial, so the other
+// three are made tractable by folding q into the problem statement:
+//
+//     W(f)*(D(f) - A(f)) = (W(f)*q(f)) * (D(f)/q(f) - P(f))
+//
+// i.e. run the exchange on W' = W*q and D' = D/q, recover P, then reapply
+// q analytically when converting P's coefficients to taps.
+//
+//   type  taps  symmetry       q(f)          deg P        center
+//   I     odd   symmetric      1             (N-1)/2      sample
+//   II    even  symmetric      cos(pi*f)     N/2 - 1      half-sample
+//   III   odd   antisymmetric  sin(2*pi*f)   (N-1)/2 - 1  sample (zero)
+//   IV    even  antisymmetric  sin(pi*f)     N/2 - 1      half-sample
+//
+// (issue #205)
+enum class LinearPhaseType { I, II, III, IV };
+
+inline double basis_factor(LinearPhaseType t, double f) {
+	switch (t) {
+		case LinearPhaseType::I:   return 1.0;
+		case LinearPhaseType::II:  return std::cos(pi * f);
+		case LinearPhaseType::III: return std::sin(two_pi * f);
+		default:                   return std::sin(pi * f);
+	}
+}
+
+// q vanishes at f = 0 for the antisymmetric types and at f = 0.5 for
+// Types II and III. D/q is singular there, so those endpoints must be kept
+// off the grid.
+inline bool basis_vanishes_at_zero(LinearPhaseType t) {
+	return t == LinearPhaseType::III || t == LinearPhaseType::IV;
+}
+inline bool basis_vanishes_at_nyquist(LinearPhaseType t) {
+	return t == LinearPhaseType::II || t == LinearPhaseType::III;
+}
 
 // Build a dense frequency grid covering all specified bands.
 // Grid density controls the number of points per band per tap.
@@ -48,6 +102,7 @@ inline std::vector<double> build_grid(
     std::size_t num_taps,
     int grid_density,
     RemezBandType type,
+    LinearPhaseType lp_type,
     std::vector<std::size_t>* band_start = nullptr) {
 
 	std::size_t num_bands = bands.size() / 2;
@@ -58,6 +113,11 @@ inline std::vector<double> build_grid(
 		band_start->reserve(num_bands + 1);
 	}
 
+	// One grid step, used to pull the grid off the frequencies where the
+	// type's basis factor vanishes and D/q would blow up.
+	const double delf = 0.5 / static_cast<double>(
+	    static_cast<std::size_t>(grid_density) * num_taps);
+
 	for (std::size_t b = 0; b < num_bands; ++b) {
 		double f_start = bands[2 * b];
 		double f_end   = bands[2 * b + 1];
@@ -65,6 +125,13 @@ inline std::vector<double> build_grid(
 		// Avoid exact 0 for differentiator (weight function has 1/f singularity)
 		if (type == RemezBandType::differentiator && f_start < 1e-6)
 			f_start = 1e-6;
+
+		// Keep the basis-factor zeros off the grid (issue #205)
+		if (basis_vanishes_at_zero(lp_type) && f_start < delf)
+			f_start = delf;
+		if (basis_vanishes_at_nyquist(lp_type) && f_end > 0.5 - delf)
+			f_end = 0.5 - delf;
+		if (!(f_end > f_start)) continue;   // band collapsed by the clamp
 
 		std::size_t npts = std::max<std::size_t>(
 		    static_cast<std::size_t>(grid_density * num_taps * (f_end - f_start) / 0.5), 4);
@@ -154,6 +221,32 @@ inline double lagrange_interp(
 	return (std::abs(denom) > 1e-300) ? numer / denom : 0.0;
 }
 
+// Scale factor folded into every node difference when forming barycentric
+// weights.
+//
+// A weight is 1 / prod_{j!=i} (x_i - x_j) over n-1 factors. On nodes spread
+// over an interval of width W those products run like (W/4)^(n-1), so the
+// raw weights grow or shrink exponentially in n: 65 nodes packed into a
+// narrow band drive them past 1e80, and any quantity formed as a ratio of
+// alternating-sign sums of numbers that large is pure cancellation noise.
+// Scaling each difference by 4/W normalizes the product to O(1) regardless
+// of n and of how wide the nodes actually spread. The classic
+// Parks-McClellan factor of 2 is this expression for W = 2, the full range
+// of cos over [0, 0.5]; using the actual node range instead is what keeps
+// narrow-band and high-tap designs conditioned. The factor is common to
+// every weight and appears only in ratios, so it cancels exactly and
+// changes nothing but the exponent range. (issues #203, #205)
+inline double barycentric_scale(const std::vector<double>& x, std::size_t n) {
+	if (n < 2) return 2.0;
+	double lo = x[0], hi = x[0];
+	for (std::size_t i = 1; i < n; ++i) {
+		lo = std::min(lo, x[i]);
+		hi = std::max(hi, x[i]);
+	}
+	const double width = hi - lo;
+	return (width > 1e-12) ? 4.0 / width : 2.0;
+}
+
 // Compute delta (equiripple deviation) from the current extremal set
 // using the Remez formula.
 //
@@ -183,8 +276,9 @@ inline double compute_delta(
     std::size_t n_extremals) {
 
 	// Compute barycentric weights for the Chebyshev interpolation.
-	// The factor of 2 per difference is required, not cosmetic — see the
-	// note on bary_scale in remez() below.
+	// The per-difference scaling is required, not cosmetic — see the note on
+	// bary_scale in remez() below.
+	const double bary_scale = barycentric_scale(extremal_cos, n_extremals);
 	std::vector<double> bary(n_extremals);
 	for (std::size_t i = 0; i < n_extremals; ++i) {
 		double prod = 1.0;
@@ -192,7 +286,7 @@ inline double compute_delta(
 			if (j != i) {
 				double diff = extremal_cos[i] - extremal_cos[j];
 				if (std::abs(diff) < 1e-15) diff = 1e-15;
-				prod *= 2.0 * diff;
+				prod *= bary_scale * diff;
 			}
 		}
 		bary[i] = 1.0 / prod;
@@ -303,29 +397,53 @@ mtl::vec::dense_vector<T> remez(
 	bool is_symmetric = (type == RemezBandType::bandpass);
 	bool is_odd = (num_taps & 1) != 0;
 
-	// Effective half-length for the cosine polynomial
-	std::size_t L; // order of cosine polynomial
-	if (is_symmetric) {
-		L = is_odd ? (num_taps - 1) / 2 : num_taps / 2;
-	} else {
-		L = is_odd ? (num_taps - 1) / 2 : num_taps / 2 - 1;
+	// Linear-phase type, and with it the basis factor q(f) and the degree
+	// of the cosine polynomial P the exchange actually solves for. See the
+	// LinearPhaseType comment above. (issue #205)
+	const detail::LinearPhaseType lp_type =
+	    is_symmetric ? (is_odd ? detail::LinearPhaseType::I   : detail::LinearPhaseType::II)
+	                 : (is_odd ? detail::LinearPhaseType::III : detail::LinearPhaseType::IV);
+
+	std::size_t L; // degree of the cosine polynomial P
+	switch (lp_type) {
+		case detail::LinearPhaseType::I:   L = (num_taps - 1) / 2;     break;
+		case detail::LinearPhaseType::II:  L = num_taps / 2 - 1;       break;
+		case detail::LinearPhaseType::III: L = (num_taps - 1) / 2 - 1; break;
+		default:                           L = num_taps / 2 - 1;       break;
 	}
 	std::size_t n_extremals = L + 2;
 
 	// Build dense frequency grid
 	std::vector<std::size_t> band_start;
-	auto grid = detail::build_grid(d_bands, num_taps, grid_density, type, &band_start);
+	auto grid = detail::build_grid(d_bands, num_taps, grid_density, type,
+	                               lp_type, &band_start);
 	std::size_t grid_size = grid.size();
 
 	if (grid_size < n_extremals)
 		throw std::invalid_argument("remez: grid too sparse for the given num_taps");
 
-	// Compute desired and weight for each grid point
+	// Compute desired and weight for each grid point, then fold the type's
+	// basis factor in: the exchange approximates P = A/q, so it must see
+	// D' = D/q against W' = W*q. q is bounded away from zero on the grid
+	// because build_grid() excluded the frequencies where it vanishes.
+	// (issue #205)
 	std::vector<double> grid_des(grid_size), grid_wt(grid_size);
 	for (std::size_t i = 0; i < grid_size; ++i) {
 		detail::eval_desired_weight(grid[i], d_bands, d_desired, d_weights, type,
 		                            grid_des[i], grid_wt[i]);
+		const double q = detail::basis_factor(lp_type, grid[i]);
+		grid_des[i] /= q;
+		grid_wt[i]  *= q;
 	}
+
+	// Scale of the problem: the largest weighted desired magnitude on the
+	// grid. Absolute error thresholds below are expressed relative to it so
+	// they mean the same thing for a unit-gain lowpass and for a
+	// differentiator whose desired response runs to 0.5.
+	double problem_scale = 0.0;
+	for (std::size_t i = 0; i < grid_size; ++i)
+		problem_scale = std::max(problem_scale, std::abs(grid_wt[i] * grid_des[i]));
+	if (!(problem_scale > 0.0)) problem_scale = 1.0;
 
 	// Initialize extremal set with uniform spacing across grid
 	std::vector<std::size_t> extremal_idx(n_extremals);
@@ -335,6 +453,23 @@ mtl::vec::dense_vector<T> remez(
 
 	// Remez exchange iteration
 	double delta = 0.0;
+
+	// Best iterate seen, by worst weighted grid error.
+	//
+	// The exchange is not monotone. On specifications it can solve almost
+	// exactly — a wide-band Hilbert transformer with a generous tap budget,
+	// say — delta collapses toward rounding noise, after which the error
+	// curve the extremal search reads is partly noise, the reference set can
+	// stampede into a narrow cluster, and the interpolation over
+	// near-coincident nodes blows up. Keeping the best iterate means a later
+	// divergence cannot destroy an already-good answer, which is what lets
+	// the loop keep running in that regime instead of having to bail out
+	// early and settle for a worse design. (issue #205)
+	// (No best_delta: the final delta is re-derived from whichever reference
+	// set is chosen, so storing it here would be redundant.)
+	std::vector<std::size_t> best_idx = extremal_idx;
+	double best_max_err = std::numeric_limits<double>::infinity();
+	bool   have_best    = false;
 
 	for (int iter = 0; iter < max_iterations; ++iter) {
 		// Extract extremal frequencies, desired values, weights, and cosines
@@ -346,25 +481,17 @@ mtl::vec::dense_vector<T> remez(
 			ext_wt[i]   = grid_wt[extremal_idx[i]];
 			ext_cos[i]  = std::cos(two_pi * ext_freq[i]);
 		}
+		// The (reference set, delta) pair measured below is this one, so
+		// snapshot it before the exchange replaces it further down.
+		std::vector<std::size_t> this_idx = extremal_idx;
 
 		// Compute delta (equiripple deviation)
 		double new_delta = detail::compute_delta(ext_des, ext_wt, ext_cos, n_extremals);
 
-		// Compute barycentric weights for the polynomial (excluding last extremal).
-		//
-		// bary_scale: each weight is 1 / prod_{j!=i} (x_i - x_j) over n_poly-1
-		// factors. On a Chebyshev-like node distribution that product runs
-		// about N/2^(N-1), so the unscaled weights grow like 2^N: by 65 nodes
-		// (127 taps) they reach ~1e99, and delta — formed as a ratio of sums of
-		// alternating-sign terms that large — is destroyed by cancellation.
-		// Folding a factor of 2 into every difference normalizes the product to
-		// O(N). The factor is common to all i and appears only in ratios
-		// (numer/denom here and in compute_delta), so it cancels exactly and
-		// changes nothing but the exponent range. Without it, designs with many
-		// taps and a narrow transition returned filters whose stopband sat
-		// ABOVE the passband. (issue #203)
-		constexpr double bary_scale = 2.0;
+		// Compute barycentric weights for the polynomial (excluding last
+		// extremal). See barycentric_scale() for why the scaling is required.
 		std::size_t n_poly = n_extremals - 1;
+		const double bary_scale = detail::barycentric_scale(ext_cos, n_poly);
 		std::vector<double> bary_weights(n_poly);
 		for (std::size_t i = 0; i < n_poly; ++i) {
 			double prod = 1.0;
@@ -386,6 +513,12 @@ mtl::vec::dense_vector<T> remez(
 			                                     ext_cos, bary_weights, new_delta, n_poly);
 			error[i] = grid_wt[i] * (grid_des[i] - approx);
 			max_err = std::max(max_err, std::abs(error[i]));
+		}
+
+		if (std::isfinite(max_err) && std::isfinite(new_delta) && max_err < best_max_err) {
+			best_idx     = this_idx;
+			best_max_err = max_err;
+			have_best    = true;
 		}
 
 		// Find local extrema of the error function, BAND BY BAND.
@@ -464,6 +597,9 @@ mtl::vec::dense_vector<T> remez(
 		if (max_err <= std::abs(delta) * (1.0 + 1e-9)) break;
 	}
 
+	// Continue from the best iterate rather than the last one.
+	if (have_best) extremal_idx = best_idx;
+
 	// Final: evaluate the converged approximation on a dense grid
 	// and extract tap coefficients via inverse cosine/sine transform.
 
@@ -492,9 +628,9 @@ mtl::vec::dense_vector<T> remez(
 	delta = detail::compute_delta(ext_des, ext_wt, ext_cos, n_extremals);
 
 	// Compute barycentric weights for final polynomial
-	// (same factor-of-2 scaling as inside the exchange loop)
-	constexpr double bary_scale = 2.0;
+	// (same scaling as inside the exchange loop)
 	std::size_t n_poly = n_extremals - 1;
+	const double bary_scale = detail::barycentric_scale(ext_cos, n_poly);
 	std::vector<double> bary_weights(n_poly);
 	for (std::size_t i = 0; i < n_poly; ++i) {
 		double prod = 1.0;
@@ -522,26 +658,30 @@ mtl::vec::dense_vector<T> remez(
 	// working filter until something downstream measures it. Fail loudly.
 	// (issue #203)
 	//
-	// Restricted to the symmetric (bandpass) path deliberately. The
-	// antisymmetric types solve the exchange in the cosine basis but realize
-	// H(f) = sin(2*pi*f) * P(cos 2*pi*f); the standard treatment folds that
-	// sin factor into the weight (W' = W*sin, D' = D/sin) so the exchange
-	// sees a pure cosine-polynomial problem, and this implementation does
-	// not. Their delta therefore does not describe the filter they return,
-	// so the alternation test does not apply to them and would reject
-	// designs that are merely suboptimal rather than broken. Left as-is
-	// pending the Type II/III/IV rework; see the follow-up issue.
-	if (is_symmetric) {
+	// Applies to all four types: since #205 folded each type's basis factor
+	// into the weight, delta describes the filter every type returns.
+	//
+	// The second acceptance route covers specifications the exchange solves
+	// so nearly exactly that delta underflows into rounding noise. There the
+	// alternation test cannot be applied — it is comparing against a number
+	// that is no longer meaningful — but the design can still be judged on
+	// its own terms: a worst weighted error this far below the problem scale
+	// is a filter no realizable arithmetic will distinguish from optimal.
+	// Without this route a 64-tap Hilbert transformer over [0.10, 0.5], which
+	// lands near 130 dB, would be rejected for not being provably optimal.
+	// (issue #205)
+	{
 		double final_max_err = 0.0;
 		for (std::size_t i = 0; i < grid_size; ++i) {
 			double approx = detail::eval_approx(grid[i], ext_freq, ext_des, ext_wt,
 			                                    ext_cos, bary_weights, delta, n_poly);
 			final_max_err = std::max(final_max_err, std::abs(grid_wt[i] * (grid_des[i] - approx)));
 		}
-		bool ok = std::isfinite(delta) && std::isfinite(final_max_err) &&
-		          std::abs(delta) > 0.0 &&
-		          final_max_err <= std::abs(delta) * remez_convergence_tol;
-		if (!ok) {
+		const bool finite      = std::isfinite(delta) && std::isfinite(final_max_err);
+		const bool equiripples = std::abs(delta) > 0.0 &&
+		                         final_max_err <= std::abs(delta) * remez_convergence_tol;
+		const bool exact_enough = final_max_err <= remez_exactness_floor * problem_scale;
+		if (!finite || !(equiripples || exact_enough)) {
 			throw std::runtime_error(
 			    "remez: failed to converge for num_taps=" + std::to_string(num_taps) +
 			    " (ripple " + std::to_string(std::abs(delta)) +
@@ -550,114 +690,117 @@ mtl::vec::dense_vector<T> remez(
 		}
 	}
 
-	// Evaluate the converged H(f) on a dense uniform grid and
-	// recover cosine polynomial coefficients via inverse DCT.
-	// Use a large grid for accurate coefficient recovery.
+	// Evaluate the converged P(f) on a dense uniform grid and recover its
+	// cosine-polynomial coefficients via an inverse DCT-I.
+	//
+	// This is now the same computation for all four types: the exchange
+	// approximates P, not A, and the type's basis factor q is reapplied
+	// analytically by the conversion below. (issue #205)
 	std::size_t M_eval = std::max<std::size_t>(4 * (L + 1), 128);
 
-	mtl::vec::dense_vector<T> taps(num_taps);
+	// Evaluate P on the CLOSED interval [0, 0.5], i = 0..M_eval. The closed
+	// grid is required for the inverse transform to be orthogonal; see the
+	// DCT-I note below. P itself is a polynomial in cos(2*pi*f) and has no
+	// singularity at the endpoints, so it is safe to evaluate there even
+	// though the exchange grid excluded them.
+	std::vector<double> Pv(M_eval + 1);
+	for (std::size_t i = 0; i <= M_eval; ++i) {
+		double f = 0.5 * static_cast<double>(i) / static_cast<double>(M_eval);
+		Pv[i] = detail::eval_approx(f, ext_freq, ext_des, ext_wt,
+		                            ext_cos, bary_weights, delta, n_poly);
+	}
 
-	if (is_symmetric) {
-		// Type I (odd N=2L+1) or Type II (even N=2L):
-		// H(f) = sum_{k=0}^{L} a[k] * cos(2*pi*f*k)
-		// Taps: h[L-k] = h[L+k] = a[k]/2, h[L] = a[0]
-
-		// Evaluate H on the CLOSED interval [0, 0.5], i = 0..M_eval.
-		// The closed grid is required for the inverse transform below to be
-		// orthogonal; see the DCT-I note there.
-		std::vector<double> H(M_eval + 1);
+	// Inverse DCT-I: p[k] = (2/M) * sum_i'' P(f_i) * cos(2*pi*f_i*k),
+	// where sum'' half-weights the two endpoints i = 0 and i = M_eval.
+	// With f_i = 0.5*i/M the basis is cos(pi*i*k/M), which is orthogonal
+	// on the closed grid ONLY under those endpoint weights. Sampling the
+	// half-open [0, 0.5) with uniform weights instead leaves every p[k]
+	// with an O(1/M) error; with the weights the recovery is exact to
+	// machine precision at any M >= L. (issue #203)
+	// p[0] uses (1/M) since cos(0) = 1 for all terms (DC has no alternation)
+	std::vector<double> p(L + 1, 0.0);
+	for (std::size_t k = 0; k <= L; ++k) {
+		double sum = 0.0;
 		for (std::size_t i = 0; i <= M_eval; ++i) {
 			double f = 0.5 * static_cast<double>(i) / static_cast<double>(M_eval);
-			H[i] = detail::eval_approx(f, ext_freq, ext_des, ext_wt,
-			                           ext_cos, bary_weights, delta, n_poly);
+			double w = (i == 0 || i == M_eval) ? 0.5 : 1.0;
+			sum += w * Pv[i] * std::cos(two_pi * f * static_cast<double>(k));
 		}
+		double scale = (k == 0) ? 1.0 : 2.0;
+		p[k] = sum * scale / static_cast<double>(M_eval);
+	}
 
-		// Inverse DCT-I: a[k] = (2/M) * sum_i'' H(f_i) * cos(2*pi*f_i*k),
-		// where sum'' half-weights the two endpoints i = 0 and i = M_eval.
-		// With f_i = 0.5*i/M the basis is cos(pi*i*k/M), which is orthogonal
-		// on the closed grid ONLY under those endpoint weights. Sampling the
-		// half-open [0, 0.5) with uniform weights instead leaves every a[k]
-		// with an O(1/M) error; with the weights the recovery is exact to
-		// machine precision at any M >= L. (issue #203)
-		// a[0] uses (1/M) since cos(0) = 1 for all terms (DC has no alternation)
-		std::vector<double> a(L + 1, 0.0);
-		for (std::size_t k = 0; k <= L; ++k) {
-			double sum = 0.0;
-			for (std::size_t i = 0; i <= M_eval; ++i) {
-				double f = 0.5 * static_cast<double>(i) / static_cast<double>(M_eval);
-				double w = (i == 0 || i == M_eval) ? 0.5 : 1.0;
-				sum += w * H[i] * std::cos(two_pi * f * static_cast<double>(k));
-			}
-			double scale = (k == 0) ? 1.0 : 2.0;
-			a[k] = sum * scale / static_cast<double>(M_eval);
-		}
+	// Reapply q(f) analytically and convert to taps.
+	//
+	// Each identity below expands q(f)*cos(2*pi*f*k) back onto the type's
+	// natural basis, so the conversion is exact rather than a resampling:
+	//
+	//   II   cos(pi*f)   * cos(k*w) = 1/2 [cos((k+1/2)w) + cos((k-1/2)w)]
+	//   III  sin(2*pi*f) * cos(k*w) = 1/2 [sin((k+1)w)   - sin((k-1)w)]
+	//   IV   sin(pi*f)   * cos(k*w) = 1/2 [sin((k+1/2)w) - sin((k-1/2)w)]
+	//
+	// with w = 2*pi*f. The k = 0 term of each folds onto itself (cos and
+	// sin of a negated argument), which is why the first coefficient of
+	// each list carries a whole p[0] rather than half of one.
+	// (issue #205)
+	mtl::vec::dense_vector<T> taps(num_taps);
+	auto p_at = [&](std::size_t k) -> double { return (k <= L) ? p[k] : 0.0; };
 
-		// Convert cosine coefficients to symmetric tap coefficients
-		if (is_odd) {
-			// Type I: N = 2L+1, center tap at index L
-			// h[L] = a[0], h[L±k] = a[k]/2
-			taps[L] = static_cast<T>(a[0]);
-			for (std::size_t k = 1; k <= L; ++k) {
-				T val = static_cast<T>(a[k] / 2.0);
-				taps[L - k] = val;
-				taps[L + k] = val;
-			}
-		} else {
-			// Type II: N = 2L, center between indices L-1 and L
-			// h[n] computed via IDFT from the cos polynomial with half-sample shift
-			// b[k] = a[k] for even, but cos((k+0.5)*...) basis
-			// Simpler: directly evaluate h[n] = (1/N)*sum H(f)*e^{j2pi*f*n} via real IDFT
-			double half = static_cast<double>(num_taps - 1) / 2.0;
-			for (std::size_t n = 0; n < num_taps; ++n) {
-				double val = a[0];
-				for (std::size_t k = 1; k <= L; ++k) {
-					val += a[k] * std::cos(pi * static_cast<double>(k) *
-					       (2.0 * static_cast<double>(n) - 2.0 * half) /
-					       static_cast<double>(num_taps));
-				}
-				taps[n] = static_cast<T>(val / static_cast<double>(num_taps));
-			}
+	switch (lp_type) {
+	case detail::LinearPhaseType::I: {
+		// A(f) = sum_{k=0}^{L} p[k] cos(2*pi*f*k)
+		// h[L] = p[0], h[L-k] = h[L+k] = p[k]/2
+		taps[L] = static_cast<T>(p[0]);
+		for (std::size_t k = 1; k <= L; ++k) {
+			T val = static_cast<T>(p[k] / 2.0);
+			taps[L - k] = val;
+			taps[L + k] = val;
 		}
-	} else {
-		// Type III (odd) / Type IV (even): antisymmetric
-		std::vector<double> H(M_eval);
-		for (std::size_t i = 0; i < M_eval; ++i) {
-			double f = 0.5 * static_cast<double>(i) / static_cast<double>(M_eval);
-			H[i] = detail::eval_approx(f, ext_freq, ext_des, ext_wt,
-			                           ext_cos, bary_weights, delta, n_poly);
+		break;
+	}
+	case detail::LinearPhaseType::II: {
+		// A(f) = sum_{j=1}^{M} b[j] cos(2*pi*f*(j-1/2)),  M = N/2, L = M-1
+		// h[M-j] = h[M+j-1] = b[j]/2
+		const std::size_t M = num_taps / 2;
+		std::vector<double> b(M + 1, 0.0);
+		b[1] = p_at(0) + 0.5 * p_at(1);
+		for (std::size_t j = 2; j <= M; ++j) b[j] = 0.5 * (p_at(j - 1) + p_at(j));
+		for (std::size_t j = 1; j <= M; ++j) {
+			T val = static_cast<T>(b[j] / 2.0);
+			taps[M - j]     = val;
+			taps[M + j - 1] = val;
 		}
-
-		// Inverse DST: b[k] = (2/M) * sum_i H(f_i) * sin(2*pi*f_i*(k+1))
-		std::vector<double> b(L + 1, 0.0);
-		for (std::size_t k = 0; k <= L; ++k) {
-			double sum = 0.0;
-			for (std::size_t i = 0; i < M_eval; ++i) {
-				double f = 0.5 * static_cast<double>(i) / static_cast<double>(M_eval);
-				sum += H[i] * std::sin(two_pi * f * static_cast<double>(k + 1));
-			}
-			b[k] = sum * 2.0 / static_cast<double>(M_eval);
+		break;
+	}
+	case detail::LinearPhaseType::III: {
+		// A(f) = sum_{m=1}^{Lf} c[m] sin(2*pi*f*m),  Lf = (N-1)/2, L = Lf-1
+		// h[Lf] = 0, h[Lf-m] = -h[Lf+m] = c[m]/2
+		const std::size_t Lf = (num_taps - 1) / 2;
+		std::vector<double> c(Lf + 1, 0.0);
+		c[1] = p_at(0) - 0.5 * p_at(2);
+		for (std::size_t m = 2; m <= Lf; ++m) c[m] = 0.5 * (p_at(m - 1) - p_at(m + 1));
+		taps[Lf] = T{0};
+		for (std::size_t m = 1; m <= Lf; ++m) {
+			double val = c[m] / 2.0;
+			taps[Lf - m] = static_cast<T>(val);
+			taps[Lf + m] = static_cast<T>(-val);
 		}
-
-		if (is_odd) {
-			// Type III: h[L] = 0, h[L±k] = ±b[k-1]/2
-			taps[L] = T{0};
-			for (std::size_t k = 1; k <= L; ++k) {
-				T val = static_cast<T>(b[k - 1] / 2.0);
-				taps[L + k] = val;
-				taps[L - k] = static_cast<T>(-static_cast<double>(val));
-			}
-		} else {
-			double half = static_cast<double>(num_taps - 1) / 2.0;
-			for (std::size_t n = 0; n < num_taps; ++n) {
-				double val = 0.0;
-				for (std::size_t k = 0; k <= L; ++k) {
-					val += b[k] * std::sin(pi * static_cast<double>(k + 1) *
-					       (2.0 * static_cast<double>(n) - 2.0 * half) /
-					       static_cast<double>(num_taps));
-				}
-				taps[n] = static_cast<T>(val / static_cast<double>(num_taps));
-			}
+		break;
+	}
+	default: {
+		// Type IV: A(f) = sum_{m=1}^{M} d[m] sin(2*pi*f*(m-1/2)), M = N/2, L = M-1
+		// h[M-m] = -h[M+m-1] = d[m]/2
+		const std::size_t M = num_taps / 2;
+		std::vector<double> d(M + 1, 0.0);
+		d[1] = p_at(0) - 0.5 * p_at(1);
+		for (std::size_t m = 2; m <= M; ++m) d[m] = 0.5 * (p_at(m - 1) - p_at(m));
+		for (std::size_t m = 1; m <= M; ++m) {
+			double val = d[m] / 2.0;
+			taps[M - m]     = static_cast<T>(val);
+			taps[M + m - 1] = static_cast<T>(-val);
 		}
+		break;
+	}
 	}
 
 	return taps;

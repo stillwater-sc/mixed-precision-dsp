@@ -50,7 +50,38 @@ those are summarized from their release commits and are intentionally terse.
   tap count and transition width; every cell where scipy converges now matches
   it.
 
-### Changed
+- `filter/fir/remez`: all four linear-phase FIR types are now designed
+  correctly (#205). The exchange solves for a cosine polynomial, which is only
+  valid for Type I; Types II, III and IV realize their zero-phase amplitude as
+  `A(f) = q(f) * P(cos 2*pi*f)` for `q = cos(pi*f)`, `sin(2*pi*f)` and
+  `sin(pi*f)` respectively. That factor is now folded into the problem
+  statement (`W' = W*q`, `D' = D/q`) so the exchange sees a pure
+  cosine-polynomial problem, and is reapplied analytically when converting
+  the recovered coefficients to taps. The polynomial degree was also wrong for
+  Types II and III — both were one too high — and the grid now excludes the
+  frequencies where `q` vanishes, since `D/q` is singular there.
+
+  Type II (even tap counts) previously returned roughly half the intended DC
+  gain with ~90 dB of passband ripple; at 64 taps on `{0, 0.20, 0.25, 0.5}` it
+  now measures DC 0.9987, ripple 0.0234 dB, stopband 57.4 dB — the
+  Parks-McClellan values to three digits. A 31-tap Hilbert transformer over
+  `[0.05, 0.45]` went from 1.487 dB of ripple to 0.047 dB (reference: 0.047).
+  Across 42 specifications spanning all four types and both parities, 40 agree
+  with `scipy.signal.remez` within 3%; the two that do not are wide-band
+  Hilbert designs where both implementations are past -160 dB.
+
+  The convergence check added for #203 now applies to all four types rather
+  than only the symmetric ones, since `delta` finally describes what every
+  type returns.
+
+- `filter/fir/remez`: the exchange keeps the best iterate seen rather than the
+  last one, and the barycentric scale factor is derived from the actual node
+  range instead of being fixed at 2. Together these fix designs whose optimum
+  lies near the double-precision floor — a wide-band Hilbert transformer with
+  a generous tap budget — where `delta` collapses toward rounding noise and
+  the reference set could stampede into a narrow cluster and blow up the
+  interpolation. A 64-tap Hilbert over `[0.10, 0.5]` now lands at 9.0e-10
+  against scipy's 3.1e-10, where before it diverged outright.
 
 - `filter/fir/remez`: `remez()` now throws `std::runtime_error` when the
   exchange fails to converge, instead of returning the non-converged iterate.
@@ -59,8 +90,12 @@ those are summarized from their release commits and are intentionally terse.
   represent and are degenerate for the exchange; reference implementations
   report this rather than returning a filter whose stopband sits above its
   passband. The check is the alternation theorem applied to the design that is
-  about to be returned. It is scoped to the symmetric (bandpass) path; see the
-  known limitation below.
+  about to be returned. A second acceptance route admits designs whose worst
+  weighted error is below 1e-4 of the problem scale (about -80 dB) without
+  proving them equiripple, since specifications solved almost exactly drive
+  `delta` into rounding noise and the alternation test then compares against a
+  meaningless number. Specifications that neither route admits are the ones
+  `scipy.signal.remez` also refuses.
 - `filter/fir/remez`: barycentric weights now fold a factor of 2 into each node
   difference, the standard Parks-McClellan scaling. The factor is common to all
   weights and cancels in every ratio it appears in, but it keeps the products
@@ -68,81 +103,13 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Known limitations
 
-- `remez()` solves the exchange in the cosine basis for all filter types, but
-  Types II, III, and IV realize `H(f)` with an extra `cos(pi*f)`, `sin(2*pi*f)`,
-  or `sin(pi*f)` factor that must be folded into the weight
-  (`W' = W*q`, `D' = D/q`) for the exchange to be solving the right problem.
-  It is not, so:
-  - Type II (even tap counts, symmetric) returns a filter with roughly half the
-    intended DC gain and is not equiripple.
-  - Types III and IV (Hilbert transformers, differentiators) return suboptimal
-    but structurally correct filters — a 31-tap Hilbert transformer ripples
-    about 1.5 dB where it should ripple well under 0.1 dB.
-
-  These are pre-existing and out of scope for #203, which covers the symmetric
-  odd-length path. The convergence check is restricted to that path for the
-  same reason: for the other types delta does not describe the filter returned,
-  so the alternation test does not apply.
 - `design_halfband()` renormalizes the odd-offset taps so the DC gain is
   exactly 1. Since the Remez solution places a ripple extremum at DC, this
   scaling roughly doubles the stopband error, costing a consistent ~6 dB of
   attenuation (e.g. 87.1 dB before normalization, 81.1 dB after, at 51 taps
   with a 0.10 transition). It is what keeps the existing DC-gain test within
   tolerance at wide transition widths; trading it away is a deliberate design
-  decision that has not been made.
-
-## [0.8.0] — 2026-08-03
-
-Two multi-issue tracks land on top of v0.7: the multirate demonstrator backlog
-and the Pipeline Probe & Transfer-Function Monitor epic. All 10 issues in the
-v0.8 milestone are closed.
-
-### Added
-
-**Pipeline Probe module — `sw::dsp::probe`**
-
-- `SignalProbe` + `NoOpProbe` + `ProbedStage` capture infrastructure, letting any
-  pipeline stage be instrumented without changing its type when probing is off
-  (#155). `include/sw/dsp/probe/signal_probe.hpp`
-- Four domain views over captured buffers — time, magnitude, phase, and I-Q
-  constellation (#156). `include/sw/dsp/probe/views.hpp`
-
-**Transfer-Function Monitor module — `sw::dsp::transfer_function`**
-
-- `sweep_bode` numerical Bode analyzer for arbitrary LTI blocks — magnitude,
-  phase, and group-delay sweeps (#157). `include/sw/dsp/transfer_function/bode.hpp`
-- Closed-form analytical pole/zero extraction for all five filter families —
-  Butterworth, Chebyshev I, Chebyshev II, Bessel, and Elliptic (#158, #202).
-  `include/sw/dsp/transfer_function/pole_zero.hpp`
-
-**Multirate demonstrators — `applications/multirate_examples/`**
-
-- `audio_resampler` — 44.1/48 kHz rational sample-rate conversion (#136)
-- `fractional_delay` — polyphase 1/L-sample fractional delay (#138)
-- `channelizer` — Bellanger polyphase M-channel analysis bank (#137)
-- `software_radio` — 100 MHz → 100 kHz SDR receiver chain (#139)
-
-Every demo carries an acceptance criterion that is checked at exit, so a
-regression in the underlying DSP fails the demo rather than printing bad numbers.
-
-**Library**
-
-- `sw::dsp::multirate` gains the `FractionalDelay` and `Channelizer` classes.
-- `elliptic_sn_series` promoted from an internal helper in `filter/iir/elliptic.hpp`
-  to public API in `include/sw/dsp/math/elliptic_integrals.hpp`, so the elliptic
-  pole/zero prototype and the elliptic filter design share one implementation.
-
-**Documentation**
-
-- New docs-site sidebar categories for Pipeline Probes and the Transfer Function
-  Monitor, with overview pages for `probe`, `probe/views`, and
-  `transfer-function`, plus cross-references from the `analysis` and
-  `acquisition` overviews (#159).
-
-### Changed
-
-- `filter/iir/elliptic.hpp` now consumes the shared `elliptic_sn_series` instead
-  of its own local copy (net −23 lines).
+  decision that has not been made. Tracked as #206.
 
 ## [0.7.0] — 2026-08-02
 

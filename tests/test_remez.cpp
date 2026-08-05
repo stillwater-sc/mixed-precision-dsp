@@ -25,6 +25,18 @@ void check(bool condition, const std::string& msg) {
 	if (!condition) throw std::runtime_error("test failed: " + msg);
 }
 
+// |H(f)| for an arbitrary tap vector — works for every linear-phase type,
+// unlike type1_amplitude() further down, which assumes odd-length symmetry.
+double magnitude(const mtl::vec::dense_vector<double>& h, double f) {
+	double re = 0.0, im = 0.0;
+	for (std::size_t n = 0; n < h.size(); ++n) {
+		double angle = two_pi * f * static_cast<double>(n);
+		re += h[n] * std::cos(angle);
+		im -= h[n] * std::sin(angle);
+	}
+	return std::sqrt(re * re + im * im);
+}
+
 // Test 1: Basic equiripple lowpass design — verify filter produces taps
 // and has the right number of them
 void test_basic_lowpass() {
@@ -266,7 +278,22 @@ void test_hilbert() {
 	for (std::size_t i = 0; i < N; ++i) dc += taps[i];
 	check(near(dc, 0.0, 1e-8), "hilbert DC gain = " + std::to_string(dc));
 
-	std::cout << "  hilbert: passed (antisymmetric, DC=" << dc << ")\n";
+	// RESPONSE quality, not just structure. Every assertion above holds for
+	// any antisymmetric tap vector, including a badly designed one — which
+	// is exactly why this path shipped a filter rippling 1.487 dB until
+	// #205. A 31-tap Type III Hilbert transformer over this band should
+	// ripple about 0.047 dB (Parks-McClellan reference).
+	double lo = 1e30, hi = 0.0;
+	for (int i = 0; i <= 2000; ++i) {
+		double m = magnitude(taps, 0.05 + 0.40 * i / 2000.0);
+		lo = std::min(lo, m);
+		hi = std::max(hi, m);
+	}
+	double ripple_db = 20.0 * std::log10(hi / lo);
+	check(ripple_db < 0.10,
+	      "hilbert in-band ripple " + std::to_string(ripple_db) + " dB, expected < 0.10");
+
+	std::cout << "  hilbert: passed (ripple " << ripple_db << " dB, DC=" << dc << ")\n";
 }
 
 // Test 12: Differentiator — antisymmetric taps, DC gain = 0
@@ -291,7 +318,21 @@ void test_differentiator() {
 	for (std::size_t i = 0; i < N; ++i) dc += taps[i];
 	check(near(dc, 0.0, 1e-8), "differentiator DC gain = " + std::to_string(dc));
 
-	std::cout << "  differentiator: passed (antisymmetric, DC=" << dc << ")\n";
+	// RESPONSE quality: |H(f)| must track the requested ramp. The 1/f weight
+	// asks for constant RELATIVE error, so check relative error across the
+	// band rather than absolute.
+	double worst_rel = 0.0;
+	for (int i = 0; i <= 400; ++i) {
+		double f = 0.01 + 0.44 * i / 400.0;
+		double m = magnitude(taps, f);
+		worst_rel = std::max(worst_rel, std::abs(m - f) / f);
+	}
+	check(worst_rel < 0.02,
+	      "differentiator worst relative error " + std::to_string(worst_rel) +
+	      ", expected < 0.02");
+
+	std::cout << "  differentiator: passed (worst rel err " << worst_rel
+	          << ", DC=" << dc << ")\n";
 }
 
 // Test 13: Extended validation
@@ -455,6 +496,121 @@ void test_bandpass_symmetric_rejection() {
 	             std::to_string(lower_db) + " / " + std::to_string(upper_db) + " dB)\n";
 }
 
+// ---------------------------------------------------------------------------
+// Issue #205 regression tests: the non-Type-I linear-phase types.
+//
+// remez() solves the exchange in the cosine basis, which is only correct for
+// Type I. Types II, III and IV realize A(f) = q(f) * P(cos 2*pi*f) for
+// q = cos(pi*f), sin(2*pi*f) and sin(pi*f) respectively, and that factor has
+// to be folded into the weight before the exchange sees the problem. It was
+// not, so Type II came back with roughly half the intended DC gain and the
+// antisymmetric types came back merely structurally valid.
+// ---------------------------------------------------------------------------
+
+// Type II: even tap count, symmetric. DC gain was pinned near 0.45 for every
+// length and the passband rippled by ~90 dB.
+void test_type2_lowpass() {
+	const std::vector<double> bands   = {0.0, 0.20, 0.25, 0.5};
+	const std::vector<double> desired = {1.0, 1.0, 0.0, 0.0};
+	const std::vector<double> weights = {1.0, 1.0};
+
+	// Parks-McClellan reference stopband attenuation for this spec.
+	const struct { std::size_t taps; double min_db; } expect[] = {
+		{ 64,  51.0},   // reference 57.4 dB
+		{ 96,  75.0},   // reference 81.6 dB
+		{128,  98.0},   // reference 105.1 dB
+	};
+
+	double prev_db = 0.0;
+	for (const auto& e : expect) {
+		auto h = remez<double>(e.taps, bands, desired, weights);
+		check(h.size() == e.taps, "type2 tap count");
+
+		// Even length, so the filter is symmetric about a half-sample.
+		for (std::size_t i = 0; i < e.taps / 2; ++i)
+			check(near(h[i], h[e.taps - 1 - i], 1e-10),
+			      "type2 symmetry at " + std::to_string(i));
+
+		double dc = magnitude(h, 0.0);
+		check(std::abs(dc - 1.0) < 5e-3,
+		      "type2 N=" + std::to_string(e.taps) + " DC gain " +
+		      std::to_string(dc) + ", expected ~1.0 (was ~0.45)");
+
+		double lo = 1e30, hi = 0.0;
+		for (int i = 0; i <= 1000; ++i) {
+			double m = magnitude(h, 0.20 * i / 1000.0);
+			lo = std::min(lo, m);
+			hi = std::max(hi, m);
+		}
+		double ripple_db = 20.0 * std::log10(hi / lo);
+		check(ripple_db < 0.05,
+		      "type2 N=" + std::to_string(e.taps) + " passband ripple " +
+		      std::to_string(ripple_db) + " dB, expected < 0.05");
+
+		double worst = 0.0;
+		for (int i = 0; i <= 2000; ++i)
+			worst = std::max(worst, magnitude(h, 0.25 + 0.25 * i / 2000.0));
+		double atten_db = -20.0 * std::log10(worst);
+		check(atten_db > e.min_db,
+		      "type2 N=" + std::to_string(e.taps) + " stopband " +
+		      std::to_string(atten_db) + " dB, expected > " + std::to_string(e.min_db));
+		check(atten_db > prev_db,
+		      "type2 N=" + std::to_string(e.taps) + " stopband did not improve with taps");
+		prev_db = atten_db;
+	}
+
+	std::cout << "  type2_lowpass: passed (128 taps -> " +
+	             std::to_string(prev_db) + " dB)\n";
+}
+
+// Type IV: even tap count, antisymmetric. Unlike Type III it does not force a
+// zero at Nyquist, so its band may run all the way to 0.5.
+void test_type4_hilbert() {
+	for (std::size_t N : {32u, 64u}) {
+		auto h = remez<double>(N, {0.05, 0.5}, {1.0, 1.0}, {1.0},
+		                       RemezBandType::hilbert);
+		check(h.size() == N, "type4 tap count");
+
+		for (std::size_t i = 0; i < N / 2; ++i)
+			check(near(h[i], -h[N - 1 - i], 1e-10),
+			      "type4 antisymmetry at " + std::to_string(i));
+
+		double lo = 1e30, hi = 0.0;
+		for (int i = 0; i <= 2000; ++i) {
+			double m = magnitude(h, 0.05 + 0.45 * i / 2000.0);
+			lo = std::min(lo, m);
+			hi = std::max(hi, m);
+		}
+		double ripple_db = 20.0 * std::log10(hi / lo);
+		check(ripple_db < 0.10,
+		      "type4 N=" + std::to_string(N) + " in-band ripple " +
+		      std::to_string(ripple_db) + " dB, expected < 0.10");
+	}
+
+	std::cout << "  type4_hilbert: passed\n";
+}
+
+// Every type must place its structural zeros where its symmetry demands:
+// Type II and III are forced to zero at Nyquist, Type III and IV at DC.
+void test_type_structural_zeros() {
+	// Type II (even, symmetric): A(0.5) = 0
+	auto t2 = remez<double>(64, {0.0, 0.20, 0.25, 0.45}, {1.0, 1.0, 0.0, 0.0}, {1.0, 1.0});
+	check(magnitude(t2, 0.5) < 1e-9,
+	      "type2 must vanish at Nyquist, got " + std::to_string(magnitude(t2, 0.5)));
+
+	// Type III (odd, antisymmetric): A(0) = A(0.5) = 0
+	auto t3 = remez<double>(31, {0.05, 0.45}, {1.0, 1.0}, {1.0}, RemezBandType::hilbert);
+	check(magnitude(t3, 0.0) < 1e-9, "type3 must vanish at DC");
+	check(magnitude(t3, 0.5) < 1e-9, "type3 must vanish at Nyquist");
+
+	// Type IV (even, antisymmetric): A(0) = 0, but Nyquist is unconstrained
+	auto t4 = remez<double>(32, {0.05, 0.5}, {1.0, 1.0}, {1.0}, RemezBandType::hilbert);
+	check(magnitude(t4, 0.0) < 1e-9, "type4 must vanish at DC");
+	check(magnitude(t4, 0.5) > 0.5, "type4 should NOT be forced to zero at Nyquist");
+
+	std::cout << "  type_structural_zeros: passed\n";
+}
+
 // A specification the exchange cannot solve must be reported, not returned
 // as a filter whose stopband sits above its passband.
 void test_nonconvergence_throws() {
@@ -492,6 +648,9 @@ int main() {
 		test_equiripple_passband();
 		test_stopband_grows_with_taps();
 		test_bandpass_symmetric_rejection();
+		test_type2_lowpass();
+		test_type4_hilbert();
+		test_type_structural_zeros();
 		test_nonconvergence_throws();
 
 		std::cout << "All Remez tests passed.\n";
