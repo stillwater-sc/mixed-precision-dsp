@@ -11,6 +11,7 @@
 
 #include <sw/dsp/sdr/agc.hpp>
 #include <sw/dsp/sdr/carrier_recovery.hpp>
+#include <sw/dsp/sdr/channelizer.hpp>
 #include <sw/dsp/sdr/constellation.hpp>
 #include <sw/dsp/sdr/loop_filter.hpp>
 #include <sw/dsp/sdr/metrics.hpp>

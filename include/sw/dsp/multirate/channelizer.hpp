@@ -151,6 +151,18 @@ public:
 
 	std::size_t M() const { return M_; }
 	std::size_t taps_per_phase() const { return K_; }
+
+	// The polyphase decomposition of the shared prototype, exposed so a
+	// synthesis bank can be built on the SAME filter. The two halves of an
+	// analysis/synthesis pair must use one prototype: mismatching them
+	// destroys reconstruction rather than merely degrading it, so there is
+	// no second copy of this design to drift out of step.
+	// (sw::dsp::sdr::SynthesisChannelizer)
+	static std::vector<mtl::vec::dense_vector<CoeffScalar>>
+	prototype_bank(std::size_t M, std::size_t taps_per_phase,
+	               double kaiser_beta = 8.0) {
+		return design_polyphase_prototype(M, taps_per_phase, kaiser_beta);
+	}
 	std::size_t num_taps() const { return M_ * K_; }
 
 private:

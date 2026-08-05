@@ -12,6 +12,33 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- `sdr/channelizer`: 2x-oversampled analysis/synthesis filter bank with
+  perfect reconstruction (#102, part of #85). `OversampledChannelizer` splits
+  a wideband stream into M channels at a hop of M/2;
+  `OversampledSynthesizer` recombines them. The existing maximally-decimated
+  analysis bank is re-exported alongside them.
+
+  Reconstruction is exact — 1e-16 relative error at M from 4 to 64 — and the
+  cascade delay formula is exact too, confirmed against least-squares
+  alignment.
+
+  Two structural facts drove the design, both established by measurement:
+
+  * **A maximally-decimated bank cannot reconstruct** with a plain
+    prototype. Across all four FFT-direction and commutator-order
+    conventions the best was a 17% relative residual: each channel is
+    decimated by M, the channel responses overlap, and the aliasing does not
+    cancel. Hence the 2x oversampling.
+  * **The prototype spans exactly one transform.** A longer one must be
+    folded into M bins first, and that fold aliases in time — measured
+    residual 1.1e-16 at K=1, 4.5e-02 at K=2, 2.2e-01 at K=4. So K is not
+    offered as a parameter. Sharper channel responses without reconstruction
+    remain available through `multirate::Channelizer`, which takes
+    `taps_per_phase`.
+
+  Adjacent-channel rejection is 22 dB three channels out — modest, and the
+  documented price of exact reconstruction from a single-transform window.
+
 - `sdr/carrier_recovery`, `sdr/loop_filter`: Costas carrier recovery (#99,
   part of #85), completing phase 2 of the SDR epic. BPSK, QPSK and
   decision-directed detectors, AFC for wide-offset acquisition, and frequency
