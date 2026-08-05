@@ -678,6 +678,99 @@ void test_stopband_scaling() {
 }
 
 // ============================================================================
+// Issue #206: exact DC gain vs. full equiripple
+// ============================================================================
+
+// design_halfband() rescales the odd-offset taps so the DC gain is exactly 1,
+// which costs ~6 dB of stopband. The two properties are mutually exclusive:
+// the half-band structure forces A(0) + A(0.5) = 1 identically, and A(0.5) is
+// a stopband extremum, so an equiripple half-band has A(0) = 1 -/+ delta.
+// exact_dc_gain=false returns the untouched equiripple design.
+void test_exact_dc_gain_tradeoff() {
+	auto amplitude = [](const mtl::vec::dense_vector<double>& h, double f) {
+		std::size_t L = (h.size() - 1) / 2;
+		double v = static_cast<double>(h[L]);
+		for (std::size_t k = 1; k <= L; ++k)
+			v += 2.0 * static_cast<double>(h[L + k]) *
+			     std::cos(sw::dsp::two_pi * f * static_cast<double>(k));
+		return v;
+	};
+	auto stopband_delta = [&](const mtl::vec::dense_vector<double>& h, double f_start) {
+		double worst = 0.0;
+		for (int i = 0; i <= 2000; ++i)
+			worst = std::max(worst, std::abs(
+			    amplitude(h, f_start + (0.5 - f_start) * i / 2000.0)));
+		return worst;
+	};
+
+	for (auto spec : {std::pair<std::size_t, double>{31, 0.10},
+	                  std::pair<std::size_t, double>{51, 0.10},
+	                  std::pair<std::size_t, double>{51, 0.05}}) {
+		const std::size_t N  = spec.first;
+		const double      tw = spec.second;
+		const double      se = 0.25 + tw / 2;
+
+		auto forced = design_halfband<double>(N, tw);           // default: true
+		auto ripple = design_halfband<double>(N, tw, false);
+
+		const double d_forced = stopband_delta(forced, se);
+		const double d_ripple = stopband_delta(ripple, se);
+
+		// The equiripple design must reject strictly better.
+		if (!(d_ripple < d_forced))
+			throw std::runtime_error("test failed: equiripple half-band N=" +
+				std::to_string(N) + " did not beat the DC-normalized one");
+
+		// And by close to a factor of two — the ~6 dB the normalization costs.
+		const double gain_db = 20.0 * std::log10(d_forced / d_ripple);
+		if (!(gain_db > 4.0 && gain_db < 8.0))
+			throw std::runtime_error("test failed: expected ~6 dB, got " +
+				std::to_string(gain_db) + " dB at N=" + std::to_string(N));
+
+		// The forced design has exactly unity DC gain...
+		if (!near(amplitude(forced, 0.0), 1.0, 1e-9))
+			throw std::runtime_error("test failed: forced DC gain = " +
+				std::to_string(amplitude(forced, 0.0)));
+
+		// ...and the equiripple one is off by exactly delta, no more.
+		const double dc_err = std::abs(amplitude(ripple, 0.0) - 1.0);
+		if (!(dc_err <= d_ripple * 1.01))
+			throw std::runtime_error("test failed: equiripple DC error " +
+				std::to_string(dc_err) + " exceeds its own ripple " +
+				std::to_string(d_ripple));
+
+		// The identity that makes the two mutually exclusive.
+		const double identity = amplitude(ripple, 0.0) + amplitude(ripple, 0.5);
+		if (!near(identity, 1.0, 1e-9))
+			throw std::runtime_error("test failed: A(0)+A(0.5) = " +
+				std::to_string(identity) + ", must be 1 for a half-band");
+	}
+
+	std::cout << "  exact_dc_gain_tradeoff: passed\n";
+}
+
+// The half-band structural constraints must survive either mode.
+void test_structure_both_modes() {
+	for (bool exact : {true, false}) {
+		auto taps = design_halfband<double>(31, 0.1, exact);
+		std::size_t center = (taps.size() - 1) / 2;
+
+		if (!near(static_cast<double>(taps[center]), 0.5, 1e-12))
+			throw std::runtime_error("test failed: center tap must be 0.5");
+		for (std::size_t k = 2; k <= center; k += 2) {
+			if (taps[center - k] != 0.0 || taps[center + k] != 0.0)
+				throw std::runtime_error("test failed: even-offset tap nonzero");
+		}
+		for (std::size_t k = 1; k <= center; ++k) {
+			if (!near(static_cast<double>(taps[center - k]),
+			          static_cast<double>(taps[center + k]), 1e-15))
+				throw std::runtime_error("test failed: taps not symmetric");
+		}
+	}
+	std::cout << "  structure_both_modes: passed\n";
+}
+
+// ============================================================================
 
 int main() {
 	try {
@@ -702,6 +795,8 @@ int main() {
 		test_constructor_validation();
 		test_parameter_validation();
 		test_stopband_scaling();
+		test_exact_dc_gain_tradeoff();
+		test_structure_both_modes();
 		std::cout << "All half-band tests passed.\n";
 		return 0;
 	} catch (const std::exception& e) {

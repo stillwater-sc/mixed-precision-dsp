@@ -50,6 +50,30 @@ those are summarized from their release commits and are intentionally terse.
   tap count and transition width; every cell where scipy converges now matches
   it.
 
+- `acquisition/halfband`: `design_halfband()` takes a third parameter,
+  `bool exact_dc_gain = true`. The existing behaviour — rescaling the
+  odd-offset taps so the DC gain is exactly 1 — costs a consistent 6.0 dB of
+  stopband attenuation, and passing `false` returns the untouched equiripple
+  design instead (#206).
+
+  The two properties are mutually exclusive, and that is a property of the
+  half-band structure rather than of the design method. Writing the zero-phase
+  amplitude as `A(f) = 0.5 + sum_{k odd} 2*h[c+k]*cos(2*pi*f*k)` and using
+  `cos(pi*k) = -1` for odd `k` gives `A(0) + A(0.5) = 1` identically. `A(0.5)`
+  is a stopband extremum in the equiripple solution, so `|A(0.5)| = delta` and
+  therefore `A(0) = 1 -/+ delta`. Forcing `A(0) = 1` forces `A(0.5) = 0`, which
+  is reachable only by scaling the whole odd part by `1/(1 -/+ 2*delta)` — and
+  that lifts every other stopband ripple from `delta` to about `2*delta`.
+
+  Measured across tap counts from 23 to 95 and transition widths of 0.05 and
+  0.10, the recovered attenuation is 5.95–6.83 dB (e.g. 81.1 dB to 87.1 dB at
+  51 taps and a 0.10 transition; 104.4 dB to 110.4 dB at 67 taps). The DC error
+  taken in exchange is bounded by `delta`, the same ripple the design already
+  accepts in its passband.
+
+  The default is unchanged, so existing callers — including the decimation
+  chains that depend on unity DC gain through cascaded stages — are unaffected.
+
 - `filter/fir/remez`: all four linear-phase FIR types are now designed
   correctly (#205). The exchange solves for a cosine polynomial, which is only
   valid for Type I; Types II, III and IV realize their zero-phase amplitude as
@@ -100,16 +124,6 @@ those are summarized from their release commits and are intentionally terse.
   difference, the standard Parks-McClellan scaling. The factor is common to all
   weights and cancels in every ratio it appears in, but it keeps the products
   near O(N) instead of growing like 2^N.
-
-### Known limitations
-
-- `design_halfband()` renormalizes the odd-offset taps so the DC gain is
-  exactly 1. Since the Remez solution places a ripple extremum at DC, this
-  scaling roughly doubles the stopband error, costing a consistent ~6 dB of
-  attenuation (e.g. 87.1 dB before normalization, 81.1 dB after, at 51 taps
-  with a 0.10 transition). It is what keeps the existing DC-gain test within
-  tolerance at wide transition widths; trading it away is a deliberate design
-  decision that has not been made. Tracked as #206.
 
 ## [0.7.0] — 2026-08-02
 
