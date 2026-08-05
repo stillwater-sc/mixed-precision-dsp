@@ -13,3 +13,4 @@
 #include <sw/dsp/sdr/constellation.hpp>
 #include <sw/dsp/sdr/metrics.hpp>
 #include <sw/dsp/sdr/rrc.hpp>
+#include <sw/dsp/sdr/timing_recovery.hpp>

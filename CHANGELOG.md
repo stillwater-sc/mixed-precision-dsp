@@ -12,6 +12,42 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- `sdr/timing_recovery`: symbol timing recovery (#98, part of #85). Gardner
+  (non-data-aided, >= 2 samples/symbol) and Mueller-Muller (decision-directed,
+  1 sample/symbol) detectors, a proportional-integral loop filter
+  parameterized by normalized noise bandwidth and damping, a cubic Farrow
+  interpolator, and a lock detector.
+
+  Interpolation uses a four-point cubic Lagrange rather than the library's
+  polyphase `FractionalDelay`, which quantizes delay to 1/L — that
+  quantization would appear directly as timing jitter, the quantity this
+  module exists to measure.
+
+  Two state-representation decisions are precision-critical rather than
+  stylistic, and both were found by measurement:
+
+  * The symbol clock holds the next symbol's position **relative** to the
+    newest input sample, never an absolute time. An absolute accumulator
+    grows without bound — 8000 symbols at 2 samples each reaches 16000, where
+    `posit16`'s ULP is about 8, so a step of ~2 cannot advance it and the
+    loop freezes with the eye shut. Kept relative it stays within `[-1, 2]`.
+  * The integrator holds the **deviation** from nominal samples-per-symbol,
+    not the absolute value, so its small corrections land near zero where
+    resolution is finest.
+
+  With both, `posit16` tracks indistinguishably from `double` (omega 1.999512
+  against 1.999680, identical eye opening); without the first it failed at
+  every loop bandwidth tested.
+
+  Measured bandwidth trade, acquisition against jitter:
+
+  | Bn*T | symbols to acquire | mu jitter |
+  |---:|---:|---:|
+  | 0.002 | 4922 | 2.85e-03 |
+  | 0.005 |  421 | 5.37e-03 |
+  | 0.020 |   20 | 1.91e-02 |
+  | 0.050 |    7 | 5.07e-02 |
+
 - `sdr/agc`: automatic gain control (#100, part of #85), the first stateful
   component in the SDR module.
 
