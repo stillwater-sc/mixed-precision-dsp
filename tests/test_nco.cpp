@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+#include <universal/number/cfloat/cfloat.hpp>
+#include <universal/number/fixpnt/fixpnt.hpp>
 #include <universal/number/posit/posit.hpp>
 
 using namespace sw::dsp;
@@ -550,6 +552,62 @@ void test_nyquist_frequency() {
 
 // ============================================================================
 
+// ---------------------------------------------------------------------------
+// Issue #207: absolute RF rates must work for every state type
+//
+// frequency and sample_rate used to be taken at StateScalar and divided only
+// afterwards, so both were converted to the narrow type BEFORE the division
+// that would have brought their ratio back into range. A 1.2 GHz carrier on
+// a 5 GSPS front end — an ordinary direct-sampling configuration — gave a
+// NaN phase accumulator and NaN samples thereafter, with nothing indicating
+// why. They are now taken as configuration and the ratio is formed in double.
+// ---------------------------------------------------------------------------
+template <typename T>
+static void check_rf_rates(const std::string& name, double tol) {
+	sw::dsp::NCO<T> nco(1.2e9, 5.0e9);
+	const double inc = static_cast<double>(nco.phase_increment());
+	if (!std::isfinite(inc))
+		throw std::runtime_error("test failed: " + name +
+			" phase increment is not finite for 1.2 GHz on 5 GSPS");
+	if (std::abs(inc - 0.24) > tol)
+		throw std::runtime_error("test failed: " + name + " phase increment " +
+			std::to_string(inc) + ", expected 0.24");
+
+	// The oscillator must actually turn, and stay finite.
+	for (int n = 0; n < 256; ++n) {
+		const auto s = nco.generate_sample();
+		if (!std::isfinite(static_cast<double>(s.real())) ||
+		    !std::isfinite(static_cast<double>(s.imag())))
+			throw std::runtime_error("test failed: " + name +
+				" produced a non-finite sample at n = " + std::to_string(n));
+	}
+}
+
+static void test_absolute_rf_rates() {
+	using namespace sw::universal;
+	check_rf_rates<double>("double", 1e-12);
+	check_rf_rates<float>("float", 1e-6);
+	check_rf_rates<posit<32, 2>>("posit<32,2>", 1e-6);
+	check_rf_rates<cfloat<32, 8, uint32_t, true, false, false>>("cfloat<32,8>", 1e-6);
+	// Narrow types represent 0.24 only approximately, but must not produce
+	// NaN — that was the reported failure.
+	check_rf_rates<cfloat<16, 5, uint16_t, true, false, false>>("cfloat<16,5>", 1e-3);
+	check_rf_rates<fixpnt<32, 24>>("fixpnt<32,24>", 1e-6);
+
+	// A rate that genuinely cannot work is still reported.
+	bool caught = false;
+	try { sw::dsp::NCO<double> bad(1.0, 0.0); }
+	catch (const std::invalid_argument&) { caught = true; }
+	if (!caught) throw std::runtime_error("test failed: zero sample rate should throw");
+
+	caught = false;
+	try { sw::dsp::NCO<double> bad(1.0, -5.0); }
+	catch (const std::invalid_argument&) { caught = true; }
+	if (!caught) throw std::runtime_error("test failed: negative sample rate should throw");
+
+	std::cout << "  absolute_rf_rates: passed\n";
+}
+
 int main() {
 	try {
 		std::cout << "NCO tests\n";
@@ -572,6 +630,7 @@ int main() {
 		test_phase_wrapping();
 		test_dc_output();
 		test_nyquist_frequency();
+		test_absolute_rf_rates();
 		std::cout << "All NCO tests passed.\n";
 		return 0;
 	} catch (const std::exception& e) {

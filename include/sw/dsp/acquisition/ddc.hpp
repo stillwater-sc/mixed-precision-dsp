@@ -67,23 +67,29 @@ public:
 	using nco_t         = NCO<StateScalar, SampleScalar>;
 	using decimator_t   = Decimator;
 
-	DDC(StateScalar center_frequency,
-	    StateScalar sample_rate,
+	// Frequency and sample rate are configuration, taken as anything
+	// convertible to double and converted before the NCO forms their ratio.
+	// Holding them at StateScalar overflowed every narrow type on a
+	// realistic RF pair. (issue #207)
+	template <typename F, typename R>
+	DDC(const F& center_frequency,
+	    const R& sample_rate,
 	    const Decimator& decimator)
-		: nco_(center_frequency, sample_rate),
+		: nco_(static_cast<double>(center_frequency), static_cast<double>(sample_rate)),
 		  decim_i_(decimator),
 		  decim_q_(decimator),
-		  center_frequency_(center_frequency),
-		  sample_rate_(sample_rate) {}
+		  center_frequency_(static_cast<double>(center_frequency)),
+		  sample_rate_(static_cast<double>(sample_rate)) {}
 
 	// Retune the local oscillator.
-	void set_center_frequency(StateScalar frequency) {
-		nco_.set_frequency(frequency, sample_rate_);
-		center_frequency_ = frequency;
+	template <typename F>
+	void set_center_frequency(const F& frequency) {
+		nco_.set_frequency(static_cast<double>(frequency), sample_rate_);
+		center_frequency_ = static_cast<double>(frequency);
 	}
 
-	StateScalar center_frequency() const { return center_frequency_; }
-	StateScalar sample_rate()      const { return sample_rate_; }
+	double center_frequency()      const { return center_frequency_; }
+	double sample_rate()           const { return sample_rate_; }
 
 	const nco_t& nco() const { return nco_; }
 	nco_t&       nco()       { return nco_; }
@@ -144,8 +150,10 @@ private:
 	nco_t       nco_;
 	Decimator   decim_i_;
 	Decimator   decim_q_;
-	StateScalar center_frequency_;
-	StateScalar sample_rate_;
+	double center_frequency_;
+	// Held as double, not StateScalar: it is configuration, and a realistic
+	// front-end rate overflows the narrow state types outright. (issue #207)
+	double sample_rate_;
 };
 
 } // namespace sw::dsp

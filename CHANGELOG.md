@@ -171,6 +171,27 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Fixed
 
+- `acquisition/nco`, `acquisition/ddc`: absolute RF frequencies and sample
+  rates overflowed narrow state types (#207). `NCO::set_frequency` took both
+  arguments at `StateScalar` and divided only afterwards, so each was
+  converted to the narrow type *before* the division that would have brought
+  their ratio back into range. A 1.2 GHz carrier on a 5 GSPS front end — an
+  ordinary direct-sampling configuration — produced a NaN phase accumulator
+  and NaN samples thereafter, with nothing indicating why; `fixpnt<32,24>`
+  tripped the existing positivity check instead, since 5e9 is not
+  representable at all.
+
+  Frequency and sample rate are now treated as configuration rather than
+  datapath state: the ratio is formed in `double` and only the result is
+  converted, which every state type represents comfortably since it always
+  lies in [0, 0.5). `DDC` holds its rate and centre frequency the same way.
+  The constructors and setters accept anything convertible to `double`, so
+  existing callers passing `StateScalar` are unaffected.
+
+  A post-condition rejects a phase increment that is not finite in the
+  configured type, turning any residual case into a clear error rather than a
+  silent NaN. All six types in the issue's table now yield 0.24.
+
 - Tests: four test files hardcoded `/tmp/...` output paths, which do not exist
   on Windows, so `test_probe_signal_probe`, `test_probe_views`,
   `test_transfer_function_bode`, and `test_transfer_function_pole_zero` failed

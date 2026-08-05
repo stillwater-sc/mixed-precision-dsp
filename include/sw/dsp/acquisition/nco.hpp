@@ -47,21 +47,59 @@ public:
 
 	// Construct an NCO with the given output frequency and sample rate.
 	// Frequency can be positive (counter-clockwise) or negative (clockwise).
-	NCO(StateScalar frequency, StateScalar sample_rate)
+	//
+	// FREQUENCY AND SAMPLE RATE ARE `double`, NOT `StateScalar`. They are
+	// configuration inputs rather than datapath state, and holding them at
+	// the datapath's precision gains nothing while costing a great deal: a
+	// realistic RF pair like 1.2 GHz on a 5 GSPS front end overflows every
+	// narrow state type on the way in, even though the ratio it encodes is
+	// always in [0, 0.5) and every one of those types represents it
+	// comfortably. Converting the arguments before the division that brings
+	// them back into range produced a NaN phase accumulator and NaN output
+	// samples thereafter, with nothing to indicate why. (issue #207)
+	// Accepts any pair convertible to double — including StateScalar, so
+	// existing callers keep working — and converts BEFORE the division
+	// rather than after, which is the whole point.
+	template <typename F, typename R>
+	NCO(const F& frequency, const R& sample_rate)
 		: phase_{},
 		  phase_offset_{},
 		  two_pi_state_(static_cast<StateScalar>(two_pi)) {
-		if (!(sample_rate > StateScalar{}))
-			throw std::invalid_argument("NCO: sample_rate must be positive");
-		set_frequency(frequency, sample_rate);
+		set_frequency(static_cast<double>(frequency), static_cast<double>(sample_rate));
 	}
 
 	// Set output frequency. The phase increment is frequency / sample_rate,
 	// normalized so 1.0 = one full cycle.
-	void set_frequency(StateScalar frequency, StateScalar sample_rate) {
-		if (!(sample_rate > StateScalar{}))
+	//
+	// The ratio is formed in double and only its result is converted, so
+	// absolute Hz work for every StateScalar rather than only the wide ones.
+	template <typename F, typename R>
+	void set_frequency(const F& frequency, const R& sample_rate) {
+		set_frequency(static_cast<double>(frequency), static_cast<double>(sample_rate));
+	}
+
+	void set_frequency(double frequency, double sample_rate) {
+		if (!(sample_rate > 0.0))
 			throw std::invalid_argument("NCO: sample_rate must be positive");
-		phase_inc_ = frequency / sample_rate;
+		const double inc = frequency / sample_rate;
+		if (!std::isfinite(inc))
+			throw std::invalid_argument(
+				"NCO: frequency / sample_rate is not finite");
+		phase_inc_ = static_cast<StateScalar>(inc);
+		// Post-condition: a phase increment that is not finite in the state
+		// type would poison the accumulator and every sample after it, with
+		// no other signal that anything went wrong. (issue #207)
+		if (!is_finite_state(phase_inc_))
+			throw std::invalid_argument(
+				"NCO: phase increment " + std::to_string(inc) +
+				" is not representable in the configured StateScalar");
+	}
+
+	// Finiteness test that works for the native types and for Universal's,
+	// which do not all specialize std::isfinite.
+	static bool is_finite_state(StateScalar v) {
+		const double d = static_cast<double>(v);
+		return std::isfinite(d);
 	}
 
 	// Set a fixed phase offset (in normalized units, 1.0 = full cycle)
