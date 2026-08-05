@@ -53,6 +53,7 @@ dsp_add_test(test_transfer_function_pole_zero "Tests/TransferFunction")
 # =============================================================================
 dsp_add_test(test_sdr_constellation "Tests/SDR")
 dsp_add_test(test_sdr_rrc           "Tests/SDR")
+dsp_add_test(test_sdr_metrics       "Tests/SDR")
 
 # =============================================================================
 # Signals — generators + I/O

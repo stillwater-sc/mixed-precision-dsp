@@ -12,6 +12,33 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- `sdr/metrics`: EVM, MER, BER and constellation impairment measurement
+  (#97, part of #85), completing phase 1 of the SDR epic.
+
+  `evm()` reports RMS and peak error vector magnitude as fraction, percent and
+  dB; `mer_db()` is the same measurement with the sign flipped, provided
+  because both appear in specifications and offering only one invites a sign
+  error at the call site. Everything normalizes by the **mean reference symbol
+  power** — the 3GPP convention. Standards that normalize by peak
+  constellation magnitude report smaller figures for the same signal.
+
+  `theoretical_ber_awgn()` gives Gray-coded AWGN bit error probability against
+  Eb/N0. BPSK and QPSK are exact and share a curve; the higher orders are the
+  standard nearest-neighbour approximations, tight at moderate-to-high SNR.
+  `esn0_db_from_ebn0_db()` and its inverse handle the conversion.
+
+  `iq_imbalance()` fits the general real-linear model plus DC term by least
+  squares and separates gain error, DC offset, common rotation and quadrature
+  error, reporting the EVM that survives removing all of them. That residual
+  is what distinguishes an arithmetic problem — which scatters symbols
+  isotropically and survives the fit — from a structured analog one, which
+  does not. A reference confined to one axis (BPSK) leaves I/Q gain
+  unobservable and is rejected rather than silently fitted.
+
+  Metrics accumulate in double whatever scalar type the symbols arrive in, so
+  a posit16 link and a double reference land on the same axis, matching the
+  convention in `analysis/`.
+
 - `sdr/rrc`: root-raised-cosine and raised-cosine pulse-shaping filter design
   (#96, part of #85), plus `peak_isi()` for measuring residual intersymbol
   interference from a composite response.
