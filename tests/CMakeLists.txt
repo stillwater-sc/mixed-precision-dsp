@@ -49,6 +49,11 @@ dsp_add_test(test_transfer_function_bode      "Tests/TransferFunction")
 dsp_add_test(test_transfer_function_pole_zero "Tests/TransferFunction")
 
 # =============================================================================
+# SDR - modulation & demodulation (Epic #85)
+# =============================================================================
+dsp_add_test(test_sdr_constellation "Tests/SDR")
+
+# =============================================================================
 # Signals — generators + I/O
 # =============================================================================
 dsp_add_test(test_generators      "Tests/Signals")

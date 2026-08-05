@@ -10,6 +10,33 @@ those are summarized from their release commits and are intentionally terse.
 
 ## [Unreleased]
 
+### Added
+
+- `sdr/constellation`: QAM/PSK constellation mapping and demapping, the first
+  piece of the SDR modulation/demodulation epic (#95, part of #85). Supports
+  BPSK, QPSK, 8-PSK, 16-QAM, 64-QAM and 256-QAM with Gray labelling and unit
+  average power, offering hard-decision (minimum-distance) demapping and both
+  exact and max-log soft-decision LLRs.
+
+  `Constellation<T>` is an immutable table rather than a stateful processor —
+  no delay line, no phase — so one instance is safe to share across streams
+  and map/demap are pure functions of their arguments.
+
+  The exact LLR uses the max-subtraction form of log-sum-exp so the
+  exponentials stay bounded at any noise variance. It needs `exp`/`log` for
+  `T`, but being a template member it is only instantiated when called, so a
+  scalar type without transcendentals can still use everything else on the
+  class — including max-log LLRs, which need only arithmetic and `min`.
+
+  Conventions, fixed because a mismatch here silently ruins a receiver: bits
+  are MSB-first one per `uint8_t`; a positive LLR means bit 0 is more likely;
+  `noise_variance` is `E[|n|^2]` for the complex noise, not per dimension.
+
+  New `sdr` CTest label. Tests pin the design's five class invariants
+  explicitly — table size, unit average power, distinctness, Gray adjacency
+  per family, and the scheme/bit-count agreement — since the class has no
+  mutators and the invariants are properties of its construction.
+
 ### Fixed
 
 - Tests: four test files hardcoded `/tmp/...` output paths, which do not exist

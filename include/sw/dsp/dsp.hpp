@@ -61,6 +61,9 @@
 // High-rate data acquisition
 #include <sw/dsp/acquisition/acquisition.hpp>
 
+// Software-defined radio: modulation & demodulation
+#include <sw/dsp/sdr/sdr.hpp>
+
 // Numerical analysis
 #include <sw/dsp/analysis/analysis.hpp>
 
