@@ -26,19 +26,37 @@ namespace sw::dsp {
 
 enum class RemezBandType { bandpass, differentiator, hilbert };
 
+// How far the worst weighted grid error may exceed the converged ripple
+// before remez() declares the design a failure. A converged exchange lands
+// at a ratio of 1.0 to within rounding; the failures this guards against
+// overshoot by many orders of magnitude, so the threshold only has to
+// separate "converged" from "diverged", not grade near-misses.
+inline constexpr double remez_convergence_tol = 1.05;
+
 namespace detail {
 
 // Build a dense frequency grid covering all specified bands.
 // Grid density controls the number of points per band per tap.
+//
+// The grid is a concatenation of per-band segments and is DISCONTINUOUS
+// across transition bands. `band_start` (optional out-param) receives the
+// grid index at which each band begins, plus a trailing sentinel equal to
+// grid.size(), so callers can walk band [band_start[b], band_start[b+1])
+// without straddling a transition gap.
 inline std::vector<double> build_grid(
     const std::vector<double>& bands,
     std::size_t num_taps,
     int grid_density,
-    RemezBandType type) {
+    RemezBandType type,
+    std::vector<std::size_t>* band_start = nullptr) {
 
 	std::size_t num_bands = bands.size() / 2;
 	std::vector<double> grid;
 	grid.reserve(num_taps * static_cast<std::size_t>(grid_density) * num_bands);
+	if (band_start) {
+		band_start->clear();
+		band_start->reserve(num_bands + 1);
+	}
 
 	for (std::size_t b = 0; b < num_bands; ++b) {
 		double f_start = bands[2 * b];
@@ -51,11 +69,13 @@ inline std::vector<double> build_grid(
 		std::size_t npts = std::max<std::size_t>(
 		    static_cast<std::size_t>(grid_density * num_taps * (f_end - f_start) / 0.5), 4);
 
+		if (band_start) band_start->push_back(grid.size());
 		for (std::size_t i = 0; i < npts; ++i) {
 			double f = f_start + static_cast<double>(i) / static_cast<double>(npts - 1) * (f_end - f_start);
 			grid.push_back(f);
 		}
 	}
+	if (band_start) band_start->push_back(grid.size());
 	return grid;
 }
 
@@ -136,13 +156,35 @@ inline double lagrange_interp(
 
 // Compute delta (equiripple deviation) from the current extremal set
 // using the Remez formula.
+//
+// Convention: eval_approx() below builds the interpolant through the
+// reference values
+//
+//     v_i = D_i + (-1)^i * delta / W_i .
+//
+// A polynomial of degree <= n-2 interpolates all n reference points only
+// if the order-(n-1) divided difference of those values vanishes, i.e.
+// sum_i b_i v_i = 0 with b_i the barycentric weights over all n points:
+//
+//     sum_i b_i D_i + delta * sum_i (-1)^i b_i / W_i = 0
+//     delta = -sum_i b_i D_i / sum_i (-1)^i b_i / W_i .
+//
+// The leading minus sign is what makes delta consistent with the "+"
+// in eval_approx. Returning +numer/denom instead yields a delta of the
+// wrong sign, so the interpolant misses the LAST reference point: the
+// error curve then alternates only n-1 times instead of n, the extremal
+// search can never assemble a full alternating set, and the exchange
+// freezes on its first reference set for every remaining iteration.
+// (issue #203)
 inline double compute_delta(
     const std::vector<double>& extremal_des,
     const std::vector<double>& extremal_wt,
     const std::vector<double>& extremal_cos,
     std::size_t n_extremals) {
 
-	// Compute barycentric weights for the Chebyshev interpolation
+	// Compute barycentric weights for the Chebyshev interpolation.
+	// The factor of 2 per difference is required, not cosmetic — see the
+	// note on bary_scale in remez() below.
 	std::vector<double> bary(n_extremals);
 	for (std::size_t i = 0; i < n_extremals; ++i) {
 		double prod = 1.0;
@@ -150,7 +192,7 @@ inline double compute_delta(
 			if (j != i) {
 				double diff = extremal_cos[i] - extremal_cos[j];
 				if (std::abs(diff) < 1e-15) diff = 1e-15;
-				prod *= diff;
+				prod *= 2.0 * diff;
 			}
 		}
 		bary[i] = 1.0 / prod;
@@ -163,7 +205,7 @@ inline double compute_delta(
 		denom += sign * bary[i] / extremal_wt[i];
 	}
 
-	return numer / denom;
+	return -numer / denom;
 }
 
 // Evaluate the current polynomial approximation at cos(2*pi*f)
@@ -271,7 +313,8 @@ mtl::vec::dense_vector<T> remez(
 	std::size_t n_extremals = L + 2;
 
 	// Build dense frequency grid
-	auto grid = detail::build_grid(d_bands, num_taps, grid_density, type);
+	std::vector<std::size_t> band_start;
+	auto grid = detail::build_grid(d_bands, num_taps, grid_density, type, &band_start);
 	std::size_t grid_size = grid.size();
 
 	if (grid_size < n_extremals)
@@ -307,7 +350,20 @@ mtl::vec::dense_vector<T> remez(
 		// Compute delta (equiripple deviation)
 		double new_delta = detail::compute_delta(ext_des, ext_wt, ext_cos, n_extremals);
 
-		// Compute barycentric weights for the polynomial (excluding last extremal)
+		// Compute barycentric weights for the polynomial (excluding last extremal).
+		//
+		// bary_scale: each weight is 1 / prod_{j!=i} (x_i - x_j) over n_poly-1
+		// factors. On a Chebyshev-like node distribution that product runs
+		// about N/2^(N-1), so the unscaled weights grow like 2^N: by 65 nodes
+		// (127 taps) they reach ~1e99, and delta — formed as a ratio of sums of
+		// alternating-sign terms that large — is destroyed by cancellation.
+		// Folding a factor of 2 into every difference normalizes the product to
+		// O(N). The factor is common to all i and appears only in ratios
+		// (numer/denom here and in compute_delta), so it cancels exactly and
+		// changes nothing but the exponent range. Without it, designs with many
+		// taps and a narrow transition returned filters whose stopband sat
+		// ABOVE the passband. (issue #203)
+		constexpr double bary_scale = 2.0;
 		std::size_t n_poly = n_extremals - 1;
 		std::vector<double> bary_weights(n_poly);
 		for (std::size_t i = 0; i < n_poly; ++i) {
@@ -316,7 +372,7 @@ mtl::vec::dense_vector<T> remez(
 				if (j != i) {
 					double diff = ext_cos[i] - ext_cos[j];
 					if (std::abs(diff) < 1e-15) diff = (i < j) ? -1e-15 : 1e-15;
-					prod *= diff;
+					prod *= bary_scale * diff;
 				}
 			}
 			bary_weights[i] = 1.0 / prod;
@@ -324,36 +380,41 @@ mtl::vec::dense_vector<T> remez(
 
 		// Evaluate error on entire grid and find new extremals
 		std::vector<double> error(grid_size);
+		double max_err = 0.0;
 		for (std::size_t i = 0; i < grid_size; ++i) {
 			double approx = detail::eval_approx(grid[i], ext_freq, ext_des, ext_wt,
 			                                     ext_cos, bary_weights, new_delta, n_poly);
 			error[i] = grid_wt[i] * (grid_des[i] - approx);
+			max_err = std::max(max_err, std::abs(error[i]));
 		}
 
-		// Find local extrema of the error function
+		// Find local extrema of the error function, BAND BY BAND.
+		//
+		// The grid is discontinuous across transition bands, so comparing a
+		// band's last point against the next band's first point is comparing
+		// across a gap and says nothing about either being extremal. Every
+		// band edge is therefore an unconditional candidate — in a
+		// Parks-McClellan solution the error is extremal at every band edge,
+		// and the alternation filter below discards any candidate that loses
+		// on magnitude to a same-sign neighbour. Comparing across the gap
+		// instead is what let the band edges escape the extremal set, leaving
+		// the largest errors in the design exactly where they were never
+		// controlled. (issue #203)
 		std::vector<std::size_t> new_extremals;
 		new_extremals.reserve(n_extremals * 2);
 
-		// Check first point
-		if (grid_size > 1) {
-			if ((error[0] > 0 && error[0] >= error[1]) ||
-			    (error[0] < 0 && error[0] <= error[1]))
-				new_extremals.push_back(0);
-		}
-
-		// Interior points
-		for (std::size_t i = 1; i + 1 < grid_size; ++i) {
-			if ((error[i] >= error[i-1] && error[i] >= error[i+1] && error[i] > 0) ||
-			    (error[i] <= error[i-1] && error[i] <= error[i+1] && error[i] < 0))
-				new_extremals.push_back(i);
-		}
-
-		// Check last point
-		if (grid_size > 1) {
-			std::size_t last = grid_size - 1;
-			if ((error[last] > 0 && error[last] >= error[last-1]) ||
-			    (error[last] < 0 && error[last] <= error[last-1]))
-				new_extremals.push_back(last);
+		for (std::size_t b = 0; b + 1 < band_start.size(); ++b) {
+			std::size_t s = band_start[b];
+			std::size_t e = band_start[b + 1];   // one past the band's last point
+			if (e <= s) continue;
+			--e;                                 // band's last grid index
+			new_extremals.push_back(s);          // band start: always a candidate
+			for (std::size_t i = s + 1; i < e; ++i) {
+				if ((error[i] >= error[i-1] && error[i] >= error[i+1]) ||
+				    (error[i] <= error[i-1] && error[i] <= error[i+1]))
+					new_extremals.push_back(i);
+			}
+			if (e > s) new_extremals.push_back(e);  // band end: always a candidate
 		}
 
 		// Select n_extremals extrema with alternating sign, sorted by frequency.
@@ -391,13 +452,16 @@ mtl::vec::dense_vector<T> remez(
 			}
 		}
 
-		// Check convergence
-		if (iter > 0 && std::abs(std::abs(new_delta) - std::abs(delta)) <
-		    std::abs(delta) * 1e-12) {
-			delta = new_delta;
-			break;
-		}
+		// Check convergence.
+		//
+		// The criterion is the Chebyshev alternation theorem: the design is
+		// optimal exactly when no point on the grid has weighted error larger
+		// than the ripple |delta| carried by the extremal set. Testing
+		// "delta stopped changing" instead reports success at any fixed point
+		// of the exchange, including the one it lands on when the extremal
+		// search fails to supply a fresh set. (issue #203)
 		delta = new_delta;
+		if (max_err <= std::abs(delta) * (1.0 + 1e-9)) break;
 	}
 
 	// Final: evaluate the converged approximation on a dense grid
@@ -413,7 +477,23 @@ mtl::vec::dense_vector<T> remez(
 		ext_cos[i]  = std::cos(two_pi * ext_freq[i]);
 	}
 
+	// Re-derive delta for THIS reference set.
+	//
+	// The exchange loop computes delta from the set it starts the iteration
+	// with, then replaces that set before the iteration ends. Carrying the
+	// old delta into the extraction pairs a reference set with the ripple of
+	// a different one, and eval_approx then interpolates values the set does
+	// not satisfy — the polynomial it produces is not the converged design.
+	// On well-behaved specs the two sets are identical by the final
+	// iteration and the mismatch is invisible; on specs where the last
+	// exchange still moves points it produced filters whose measured
+	// stopband bore no relation to the reported delta (45 dB claimed,
+	// 9 dB delivered). (issue #203)
+	delta = detail::compute_delta(ext_des, ext_wt, ext_cos, n_extremals);
+
 	// Compute barycentric weights for final polynomial
+	// (same factor-of-2 scaling as inside the exchange loop)
+	constexpr double bary_scale = 2.0;
 	std::size_t n_poly = n_extremals - 1;
 	std::vector<double> bary_weights(n_poly);
 	for (std::size_t i = 0; i < n_poly; ++i) {
@@ -422,10 +502,52 @@ mtl::vec::dense_vector<T> remez(
 			if (j != i) {
 				double diff = ext_cos[i] - ext_cos[j];
 				if (std::abs(diff) < 1e-15) diff = (i < j) ? -1e-15 : 1e-15;
-				prod *= diff;
+				prod *= bary_scale * diff;
 			}
 		}
 		bary_weights[i] = 1.0 / prod;
+	}
+
+	// Post-condition: the design that is about to be returned must actually
+	// equioscillate. Re-measure the weighted error of the FINAL (reference
+	// set, delta) pair over the whole grid; by the alternation theorem no
+	// grid point may exceed |delta|.
+	//
+	// Some specifications — notably half-band band edges placed symmetrically
+	// about 0.25 with many taps and a narrow transition — are degenerate for
+	// the exchange and it does not converge. Reference implementations report
+	// this ("failure to converge; try reducing the transition band width").
+	// Returning the non-converged iterate instead hands back a filter whose
+	// stopband can sit ABOVE its passband, which is indistinguishable from a
+	// working filter until something downstream measures it. Fail loudly.
+	// (issue #203)
+	//
+	// Restricted to the symmetric (bandpass) path deliberately. The
+	// antisymmetric types solve the exchange in the cosine basis but realize
+	// H(f) = sin(2*pi*f) * P(cos 2*pi*f); the standard treatment folds that
+	// sin factor into the weight (W' = W*sin, D' = D/sin) so the exchange
+	// sees a pure cosine-polynomial problem, and this implementation does
+	// not. Their delta therefore does not describe the filter they return,
+	// so the alternation test does not apply to them and would reject
+	// designs that are merely suboptimal rather than broken. Left as-is
+	// pending the Type II/III/IV rework; see the follow-up issue.
+	if (is_symmetric) {
+		double final_max_err = 0.0;
+		for (std::size_t i = 0; i < grid_size; ++i) {
+			double approx = detail::eval_approx(grid[i], ext_freq, ext_des, ext_wt,
+			                                    ext_cos, bary_weights, delta, n_poly);
+			final_max_err = std::max(final_max_err, std::abs(grid_wt[i] * (grid_des[i] - approx)));
+		}
+		bool ok = std::isfinite(delta) && std::isfinite(final_max_err) &&
+		          std::abs(delta) > 0.0 &&
+		          final_max_err <= std::abs(delta) * remez_convergence_tol;
+		if (!ok) {
+			throw std::runtime_error(
+			    "remez: failed to converge for num_taps=" + std::to_string(num_taps) +
+			    " (ripple " + std::to_string(std::abs(delta)) +
+			    ", worst grid error " + std::to_string(final_max_err) +
+			    "); widen the transition band, change num_taps, or raise max_iterations");
+		}
 	}
 
 	// Evaluate the converged H(f) on a dense uniform grid and
@@ -440,22 +562,31 @@ mtl::vec::dense_vector<T> remez(
 		// H(f) = sum_{k=0}^{L} a[k] * cos(2*pi*f*k)
 		// Taps: h[L-k] = h[L+k] = a[k]/2, h[L] = a[0]
 
-		// Evaluate H at M_eval uniformly spaced points in [0, 0.5)
-		std::vector<double> H(M_eval);
-		for (std::size_t i = 0; i < M_eval; ++i) {
+		// Evaluate H on the CLOSED interval [0, 0.5], i = 0..M_eval.
+		// The closed grid is required for the inverse transform below to be
+		// orthogonal; see the DCT-I note there.
+		std::vector<double> H(M_eval + 1);
+		for (std::size_t i = 0; i <= M_eval; ++i) {
 			double f = 0.5 * static_cast<double>(i) / static_cast<double>(M_eval);
 			H[i] = detail::eval_approx(f, ext_freq, ext_des, ext_wt,
 			                           ext_cos, bary_weights, delta, n_poly);
 		}
 
-		// Inverse DCT: a[k] = (2/M) * sum_i H(f_i) * cos(2*pi*f_i*k)
+		// Inverse DCT-I: a[k] = (2/M) * sum_i'' H(f_i) * cos(2*pi*f_i*k),
+		// where sum'' half-weights the two endpoints i = 0 and i = M_eval.
+		// With f_i = 0.5*i/M the basis is cos(pi*i*k/M), which is orthogonal
+		// on the closed grid ONLY under those endpoint weights. Sampling the
+		// half-open [0, 0.5) with uniform weights instead leaves every a[k]
+		// with an O(1/M) error; with the weights the recovery is exact to
+		// machine precision at any M >= L. (issue #203)
 		// a[0] uses (1/M) since cos(0) = 1 for all terms (DC has no alternation)
 		std::vector<double> a(L + 1, 0.0);
 		for (std::size_t k = 0; k <= L; ++k) {
 			double sum = 0.0;
-			for (std::size_t i = 0; i < M_eval; ++i) {
+			for (std::size_t i = 0; i <= M_eval; ++i) {
 				double f = 0.5 * static_cast<double>(i) / static_cast<double>(M_eval);
-				sum += H[i] * std::cos(two_pi * f * static_cast<double>(k));
+				double w = (i == 0 || i == M_eval) ? 0.5 : 1.0;
+				sum += w * H[i] * std::cos(two_pi * f * static_cast<double>(k));
 			}
 			double scale = (k == 0) ? 1.0 : 2.0;
 			a[k] = sum * scale / static_cast<double>(M_eval);

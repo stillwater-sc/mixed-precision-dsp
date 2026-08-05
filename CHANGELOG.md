@@ -10,7 +10,86 @@ those are summarized from their release commits and are intentionally terse.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- `filter/fir/remez`: the Parks-McClellan designers returned filters that were
+  not equiripple (#203). `remez()`, `design_fir_equiripple_lowpass/bandpass`,
+  and `design_halfband()` all share the affected path. Four defects, each
+  independently sufficient to break the result:
+  - **`compute_delta()` returned the ripple with the wrong sign.** The delta
+    formula must carry a leading minus to match the `D + (-1)^i * delta / W`
+    convention `eval_approx()` interpolates. With the wrong sign the
+    interpolant misses the last reference point, the error curve alternates
+    only n-1 times instead of n, the extremal search can never assemble a full
+    alternating set, and the exchange freezes on its first reference set — the
+    "converges in two iterations and then sits still" symptom in the report.
+  - **The tap extraction was not an orthogonal transform.** The inverse DCT
+    sampled the half-open interval `[0, 0.5)` with uniform weights; DCT-I
+    orthogonality requires the closed interval with half-weighted endpoints.
+    Every recovered coefficient carried an O(1/M) error. This was the root
+    cause identified in the report.
+  - **The extremal search compared across transition bands.** The grid is a
+    concatenation of per-band segments, so testing a band's last point against
+    the next band's first point compares across a gap. Band edges — always
+    extremal in a Parks-McClellan solution — could never enter the reference
+    set, leaving the largest errors in the design uncontrolled. The search is
+    now band-aware and treats every band edge as a candidate.
+  - **The final extraction paired the reference set with a stale delta.** The
+    exchange replaces its reference set after computing delta, so the tap
+    extraction interpolated values the final set does not satisfy. On specs
+    where the last exchange still moved points this produced filters whose
+    measured stopband bore no relation to the reported ripple (45 dB claimed,
+    9 dB delivered). Delta is now re-derived from the final set.
+
+  Measured against `scipy.signal.remez` over 30 lowpass specifications
+  (varying length, band edges, and 1:1 / 1:10 / 10:1 / 1:100 band weights),
+  27 agree within 3% and the remaining 3 within 3.8%. For the report's
+  reference case — 95 taps, bands {0, 0.20, 0.25, 0.5} — passband ripple goes
+  from 2.40 dB to 0.0017 dB with unity DC gain, and stopband attenuation from
+  49 dB to 80.2 dB. `design_halfband()` attenuation is now monotonic in both
+  tap count and transition width; every cell where scipy converges now matches
+  it.
+
+### Changed
+
+- `filter/fir/remez`: `remez()` now throws `std::runtime_error` when the
+  exchange fails to converge, instead of returning the non-converged iterate.
+  Some specifications — notably half-band band edges with many taps and a
+  narrow transition — demand more attenuation than double precision can
+  represent and are degenerate for the exchange; reference implementations
+  report this rather than returning a filter whose stopband sits above its
+  passband. The check is the alternation theorem applied to the design that is
+  about to be returned. It is scoped to the symmetric (bandpass) path; see the
+  known limitation below.
+- `filter/fir/remez`: barycentric weights now fold a factor of 2 into each node
+  difference, the standard Parks-McClellan scaling. The factor is common to all
+  weights and cancels in every ratio it appears in, but it keeps the products
+  near O(N) instead of growing like 2^N.
+
+### Known limitations
+
+- `remez()` solves the exchange in the cosine basis for all filter types, but
+  Types II, III, and IV realize `H(f)` with an extra `cos(pi*f)`, `sin(2*pi*f)`,
+  or `sin(pi*f)` factor that must be folded into the weight
+  (`W' = W*q`, `D' = D/q`) for the exchange to be solving the right problem.
+  It is not, so:
+  - Type II (even tap counts, symmetric) returns a filter with roughly half the
+    intended DC gain and is not equiripple.
+  - Types III and IV (Hilbert transformers, differentiators) return suboptimal
+    but structurally correct filters — a 31-tap Hilbert transformer ripples
+    about 1.5 dB where it should ripple well under 0.1 dB.
+
+  These are pre-existing and out of scope for #203, which covers the symmetric
+  odd-length path. The convergence check is restricted to that path for the
+  same reason: for the other types delta does not describe the filter returned,
+  so the alternation test does not apply.
+- `design_halfband()` renormalizes the odd-offset taps so the DC gain is
+  exactly 1. Since the Remez solution places a ripple extremum at DC, this
+  scaling roughly doubles the stopband error, costing a consistent ~6 dB of
+  attenuation (e.g. 87.1 dB before normalization, 81.1 dB after, at 51 taps
+  with a 0.10 transition). It is what keeps the existing DC-gain test within
+  tolerance at wide transition widths; trading it away is a deliberate design
+  decision that has not been made.
 
 ## [0.8.0] — 2026-08-03
 

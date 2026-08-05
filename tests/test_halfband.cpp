@@ -622,6 +622,62 @@ void test_parameter_validation() {
 }
 
 // ============================================================================
+// Issue #203 regression: stopband attenuation must grow with length
+// ============================================================================
+
+// design_halfband() shares the Remez code path, and inherited its failure to
+// produce equiripple filters: attenuation plateaued near 20 dB regardless of
+// length and then collapsed, reaching -24.7 dB (stopband ABOVE passband) at
+// 127 taps with a 0.15 transition. Both monotonicity properties are pinned
+// here — more taps must reject more, and so must a wider transition band.
+void test_stopband_scaling() {
+	auto stopband_db = [](const mtl::vec::dense_vector<double>& taps, double f_start) {
+		double worst = 0.0;
+		for (int i = 0; i <= 1000; ++i) {
+			double f = f_start + (0.5 - f_start) * i / 1000.0;
+			double re = 0.0, im = 0.0;
+			for (std::size_t n = 0; n < taps.size(); ++n) {
+				double angle = sw::dsp::two_pi * f * static_cast<double>(n);
+				re += static_cast<double>(taps[n]) * std::cos(angle);
+				im -= static_cast<double>(taps[n]) * std::sin(angle);
+			}
+			worst = std::max(worst, std::sqrt(re * re + im * im));
+		}
+		return -20.0 * std::log10(std::max(worst, 1e-300));
+	};
+
+	// More taps at a fixed transition width must reject more.
+	const double tw = 0.10;
+	double prev_db = 0.0;
+	for (std::size_t N : {23u, 31u, 51u}) {
+		double atten = stopband_db(design_halfband<double>(N, tw), 0.25 + tw / 2);
+		if (!(atten > prev_db))
+			throw std::runtime_error("test failed: halfband N=" + std::to_string(N) +
+				" attenuation " + std::to_string(atten) +
+				" dB did not improve on " + std::to_string(prev_db));
+		prev_db = atten;
+	}
+	// The plateau was ~20 dB; 51 taps at tw=0.10 now reaches ~81 dB.
+	if (!(prev_db > 60.0))
+		throw std::runtime_error("test failed: halfband N=51 tw=0.10 attenuation " +
+			std::to_string(prev_db) + " dB, expected > 60");
+
+	// A wider transition band at fixed length must also reject more.
+	prev_db = 0.0;
+	for (double w : {0.05, 0.10, 0.15}) {
+		double atten = stopband_db(design_halfband<double>(31, w), 0.25 + w / 2);
+		if (!(atten > prev_db))
+			throw std::runtime_error("test failed: halfband tw=" + std::to_string(w) +
+				" attenuation " + std::to_string(atten) +
+				" dB did not improve on " + std::to_string(prev_db));
+		prev_db = atten;
+	}
+
+	std::cout << "  stopband_scaling: passed (31 taps, tw=0.15 -> " +
+	             std::to_string(prev_db) + " dB)\n";
+}
+
+// ============================================================================
 
 int main() {
 	try {
@@ -645,6 +701,7 @@ int main() {
 		test_dense_vector();
 		test_constructor_validation();
 		test_parameter_validation();
+		test_stopband_scaling();
 		std::cout << "All half-band tests passed.\n";
 		return 0;
 	} catch (const std::exception& e) {

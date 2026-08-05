@@ -327,6 +327,151 @@ void test_extended_validation() {
 	std::cout << "  extended_validation: passed\n";
 }
 
+// ---------------------------------------------------------------------------
+// Issue #203 regression tests.
+//
+// The Remez designers returned filters that were not equiripple: a fixed
+// ~2.4 dB passband ripple with 1.25 DC gain regardless of length, and
+// stopband attenuation that plateaued near 20 dB and then collapsed as taps
+// were added. The tests below pin the properties that were violated. The
+// reference figures are Parks-McClellan values (cross-checked against
+// scipy.signal.remez for the same specifications).
+// ---------------------------------------------------------------------------
+
+// Zero-phase amplitude response of a Type I (odd-length, symmetric) filter.
+double type1_amplitude(const mtl::vec::dense_vector<double>& h, double f) {
+	std::size_t L = (h.size() - 1) / 2;
+	double v = h[L];
+	for (std::size_t k = 1; k <= L; ++k)
+		v += 2.0 * h[L + k] * std::cos(two_pi * f * static_cast<double>(k));
+	return v;
+}
+
+// Worst |H| over [f0, f1].
+double peak_magnitude(const mtl::vec::dense_vector<double>& h, double f0, double f1) {
+	double worst = 0.0;
+	for (int i = 0; i <= 2000; ++i)
+		worst = std::max(worst, std::abs(type1_amplitude(h, f0 + (f1 - f0) * i / 2000.0)));
+	return worst;
+}
+
+// DC gain must be 1, not 1.25, and the passband must actually ripple about
+// 1 rather than peaking at DC. Ripple must shrink as taps are added.
+void test_equiripple_passband() {
+	const std::vector<double> bands   = {0.0, 0.20, 0.25, 0.5};
+	const std::vector<double> desired = {1.0, 1.0, 0.0, 0.0};
+	const std::vector<double> weights = {1.0, 1.0};
+
+	double prev_ripple_db = 1e9;
+	for (std::size_t N : {63u, 95u, 127u}) {
+		auto h = remez<double>(N, bands, desired, weights);
+
+		double lo = 1e30, hi = -1e30;
+		for (int i = 0; i <= 1000; ++i) {
+			double m = type1_amplitude(h, 0.20 * i / 1000.0);
+			lo = std::min(lo, m);
+			hi = std::max(hi, m);
+		}
+		double ripple_db = 20.0 * std::log10(hi / lo);
+
+		// Was 1.2473 for every length; must now be unity to well under 1%.
+		double dc = type1_amplitude(h, 0.0);
+		check(std::abs(dc - 1.0) < 5e-3,
+		      "N=" + std::to_string(N) + " DC gain " + std::to_string(dc) + ", expected ~1.0");
+
+		// Was pinned at ~2.4 dB for every length.
+		check(ripple_db < 0.05,
+		      "N=" + std::to_string(N) + " passband ripple " + std::to_string(ripple_db) +
+		      " dB, expected < 0.05");
+
+		// The defining property: more taps must buy less ripple.
+		check(ripple_db < prev_ripple_db,
+		      "N=" + std::to_string(N) + " ripple " + std::to_string(ripple_db) +
+		      " dB did not improve on " + std::to_string(prev_ripple_db));
+		prev_ripple_db = ripple_db;
+
+		// Equiripple means the passband ripple and the stopband floor are the
+		// same deviation when the band weights are equal. Before the fix these
+		// disagreed by ~7x even once the passband looked reasonable.
+		double delta_p = (std::pow(10.0, ripple_db / 20.0) - 1.0) /
+		                 (std::pow(10.0, ripple_db / 20.0) + 1.0);
+		double delta_s = peak_magnitude(h, 0.25, 0.5);
+		check(delta_s < delta_p * 1.5 && delta_p < delta_s * 1.5,
+		      "N=" + std::to_string(N) + " passband deviation " + std::to_string(delta_p) +
+		      " and stopband deviation " + std::to_string(delta_s) + " are not equal");
+	}
+
+	std::cout << "  equiripple_passband: passed\n";
+}
+
+// Attenuation must improve monotonically with length. It previously
+// plateaued near 20 dB and then went negative (stopband above passband).
+void test_stopband_grows_with_taps() {
+	const std::vector<double> bands   = {0.0, 0.20, 0.25, 0.5};
+	const std::vector<double> desired = {1.0, 1.0, 0.0, 0.0};
+	const std::vector<double> weights = {1.0, 1.0};
+
+	// Parks-McClellan reference attenuations for this specification.
+	const struct { std::size_t taps; double min_db; } expect[] = {
+		{ 63,  50.0},   // reference 56.5 dB
+		{ 95,  74.0},   // reference 80.2 dB
+		{127,  97.0},   // reference 103.9 dB
+	};
+
+	double prev_db = 0.0;
+	for (const auto& e : expect) {
+		auto h = remez<double>(e.taps, bands, desired, weights);
+		double atten_db = -20.0 * std::log10(peak_magnitude(h, 0.25, 0.5));
+
+		check(atten_db > e.min_db,
+		      "N=" + std::to_string(e.taps) + " stopband " + std::to_string(atten_db) +
+		      " dB, expected > " + std::to_string(e.min_db));
+		check(atten_db > prev_db,
+		      "N=" + std::to_string(e.taps) + " stopband " + std::to_string(atten_db) +
+		      " dB did not improve on " + std::to_string(prev_db));
+		prev_db = atten_db;
+	}
+
+	std::cout << "  stopband_grows_with_taps: passed (127 taps -> " +
+	             std::to_string(prev_db) + " dB)\n";
+}
+
+// A bandpass with equal weights on both stopbands must reject equally on
+// both sides. Before the fix the two stopbands differed by ~37 dB.
+void test_bandpass_symmetric_rejection() {
+	auto h = remez<double>(95, {0.0, 0.15, 0.20, 0.30, 0.35, 0.5},
+	                            {0.0, 0.0, 1.0, 1.0, 0.0, 0.0},
+	                            {1.0, 1.0, 1.0});
+
+	double lower_db = -20.0 * std::log10(peak_magnitude(h, 0.0, 0.15));
+	double upper_db = -20.0 * std::log10(peak_magnitude(h, 0.35, 0.5));
+
+	check(lower_db > 70.0, "lower stopband " + std::to_string(lower_db) + " dB, expected > 70");
+	check(upper_db > 70.0, "upper stopband " + std::to_string(upper_db) + " dB, expected > 70");
+	check(std::abs(lower_db - upper_db) < 3.0,
+	      "stopbands differ: " + std::to_string(lower_db) + " vs " + std::to_string(upper_db) + " dB");
+
+	std::cout << "  bandpass_symmetric_rejection: passed (" +
+	             std::to_string(lower_db) + " / " + std::to_string(upper_db) + " dB)\n";
+}
+
+// A specification the exchange cannot solve must be reported, not returned
+// as a filter whose stopband sits above its passband.
+void test_nonconvergence_throws() {
+	bool caught = false;
+	try {
+		// 127 taps with a 0.20-wide transition about 0.25 needs >300 dB of
+		// attenuation — unreachable in double precision. This previously
+		// returned an all-zero filter.
+		remez<double>(127, {0.0, 0.15, 0.35, 0.5}, {1.0, 1.0, 0.0, 0.0}, {1.0, 1.0});
+	} catch (const std::runtime_error&) {
+		caught = true;
+	}
+	check(caught, "unsolvable specification should throw");
+
+	std::cout << "  nonconvergence_throws: passed\n";
+}
+
 int main() {
 	try {
 		std::cout << "Parks-McClellan (Remez) equiripple FIR design tests\n";
@@ -344,6 +489,10 @@ int main() {
 		test_hilbert();
 		test_differentiator();
 		test_extended_validation();
+		test_equiripple_passband();
+		test_stopband_grows_with_taps();
+		test_bandpass_symmetric_rejection();
+		test_nonconvergence_throws();
 
 		std::cout << "All Remez tests passed.\n";
 		return 0;
