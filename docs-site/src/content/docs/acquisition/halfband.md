@@ -217,8 +217,46 @@ auto sharp_taps = design_halfband<double>(19, 0.05);
 
 The design function uses the Remez exchange algorithm internally, then
 enforces exact half-band constraints: the center tap is set to exactly
-0.5, even-offset taps are zeroed, symmetry is enforced, and the non-zero
-taps are normalized so the filter has unity DC gain.
+0.5, even-offset taps are zeroed, and symmetry is enforced.
+
+### Exact DC gain vs. full equiripple
+
+A third parameter, `exact_dc_gain` (default `false`), selects between two
+mutually exclusive properties:
+
+```cpp
+auto ripple = design_halfband<double>(31, 0.1);        // equiripple (default)
+auto exact  = design_halfband<double>(31, 0.1, true);  // unity DC gain
+```
+
+They cannot both hold, and that is a property of the half-band structure
+rather than of the design method. Writing the zero-phase amplitude as
+
+$$
+A(f) = 0.5 + \sum_{k \text{ odd}} 2h[c+k]\cos(2\pi f k)
+$$
+
+and using $\cos(\pi k) = -1$ for odd $k$ gives $A(0) + A(0.5) = 1$
+identically. In the equiripple solution $A(0.5)$ is a stopband extremum,
+so $|A(0.5)| = \delta$ and therefore $A(0) = 1 \mp \delta$ exactly.
+Forcing $A(0) = 1$ forces $A(0.5) = 0$, reachable only by scaling the
+whole odd part by $1/(1 \mp 2\delta)$ — and that lifts every other
+stopband ripple from $\delta$ to about $2\delta$.
+
+The measured cost is a consistent 6.0 dB:
+
+| taps | tw | `exact_dc_gain=true` | default | recovered |
+|---:|---:|---:|---:|---:|
+| 31 | 0.10 | 51.3 dB | 57.4 dB | 6.03 |
+| 51 | 0.10 | 81.1 dB | 87.1 dB | 6.00 |
+| 67 | 0.10 | 104.4 dB | 110.4 dB | 6.01 |
+| 95 | 0.10 | 144.7 dB | 150.7 dB | 5.99 |
+
+The default returns the equiripple design because that is what this
+function advertises. The DC error you take in exchange is bounded by
+$\delta$ — the same ripple the design already accepts in its passband —
+so it is negligible exactly when the filter is good. Pass `true` when
+unity DC gain through cascaded stages matters more than stopband depth.
 
 ### Half-Band Filter
 

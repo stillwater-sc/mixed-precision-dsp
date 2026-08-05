@@ -21,6 +21,28 @@ bool near(double a, double b, double eps = 1e-6) {
 	return std::abs(a - b) < eps;
 }
 
+// Zero-phase amplitude of an odd-length symmetric filter.
+double hb_amplitude(const mtl::vec::dense_vector<double>& h, double f) {
+	std::size_t L = (h.size() - 1) / 2;
+	double v = static_cast<double>(h[L]);
+	for (std::size_t k = 1; k <= L; ++k)
+		v += 2.0 * static_cast<double>(h[L + k]) *
+		     std::cos(sw::dsp::two_pi * f * static_cast<double>(k));
+	return v;
+}
+
+// The design's own ripple: the worst |A(f)| over its stopband. For a
+// half-band this is also its passband ripple and, by A(0) + A(0.5) = 1,
+// exactly its DC gain error when the odd taps are left unscaled.
+double hb_ripple(const mtl::vec::dense_vector<double>& h, double transition_width) {
+	const double f_start = 0.25 + transition_width / 2;
+	double worst = 0.0;
+	for (int i = 0; i <= 2000; ++i)
+		worst = std::max(worst, std::abs(
+		    hb_amplitude(h, f_start + (0.5 - f_start) * i / 2000.0)));
+	return worst;
+}
+
 // ============================================================================
 // Design: verify half-band tap structure
 // ============================================================================
@@ -108,19 +130,39 @@ void test_design_float() {
 // ============================================================================
 
 void test_dc_gain() {
-	auto taps = design_halfband<double>(15, 0.1);
+	const std::size_t N  = 15;
+	const double      tw = 0.1;
 
+	// Default (equiripple): DC gain is 1 -/+ delta. That is forced by the
+	// half-band identity A(0) + A(0.5) = 1 with A(0.5) a stopband extremum,
+	// so the right assertion ties the DC error to the design's own ripple
+	// rather than to a fixed tolerance. (issue #206)
+	auto taps = design_halfband<double>(N, tw);
 	double sum = 0.0;
-	for (std::size_t i = 0; i < taps.size(); ++i) {
-		sum += static_cast<double>(taps[i]);
-	}
+	for (std::size_t i = 0; i < taps.size(); ++i) sum += static_cast<double>(taps[i]);
 
-	if (!near(sum, 1.0, 1e-3))
-		throw std::runtime_error("test failed: DC gain = " +
-			std::to_string(sum) + ", expected ~1.0");
+	const double delta = hb_ripple(taps, tw);
+	if (!(std::abs(sum - 1.0) <= delta * 1.01))
+		throw std::runtime_error("test failed: DC gain = " + std::to_string(sum) +
+			", error exceeds the design ripple " + std::to_string(delta));
+	// And it really is the ripple, not merely bounded by it.
+	if (!near(std::abs(sum - 1.0), delta, delta * 0.01))
+		throw std::runtime_error("test failed: DC error " +
+			std::to_string(std::abs(sum - 1.0)) + " != ripple " +
+			std::to_string(delta));
 
-	std::cout << "  dc_gain: sum=" << sum << ", passed\n";
+	// exact_dc_gain=true buys unity DC gain outright.
+	auto exact = design_halfband<double>(N, tw, true);
+	double exact_sum = 0.0;
+	for (std::size_t i = 0; i < exact.size(); ++i) exact_sum += static_cast<double>(exact[i]);
+	if (!near(exact_sum, 1.0, 1e-12))
+		throw std::runtime_error("test failed: exact_dc_gain sum = " +
+			std::to_string(exact_sum) + ", expected 1.0");
+
+	std::cout << "  dc_gain: equiripple sum=" << sum << " (ripple " << delta
+	          << "), exact sum=" << exact_sum << ", passed\n";
 }
+
 
 // ============================================================================
 // Non-zero tap count verification
@@ -299,23 +341,41 @@ void test_decimation_count() {
 }
 
 void test_decimation_dc() {
-	auto taps = design_halfband<double>(15, 0.1);
-	HalfBandFilter<double> hb(taps);
+	const std::size_t N  = 15;
+	const double      tw = 0.1;
 
-	// Feed DC = 1.0 through decimation — settled output should be ~1.0
+	// Default (equiripple): settled DC output is the filter's DC gain,
+	// 1 -/+ delta.
+	auto taps = design_halfband<double>(N, tw);
+	const double delta = hb_ripple(taps, tw);
+	HalfBandFilter<double> hb(taps);
 	std::vector<double> input(200, 1.0);
 	auto output = hb.process_block_decimate(std::span<const double>(input));
 
-	// Check last outputs are settled near 1.0
 	std::size_t start = (output.size() > 10) ? (output.size() - 10) : 0;
 	for (std::size_t i = start; i < output.size(); ++i) {
-		if (!near(output[i], 1.0, 1e-3))
+		if (!near(output[i], 1.0, delta * 1.01))
 			throw std::runtime_error("test failed: decimation DC at " +
-				std::to_string(i) + " = " + std::to_string(output[i]));
+				std::to_string(i) + " = " + std::to_string(output[i]) +
+				", outside 1 +/- ripple (" + std::to_string(delta) + ")");
+	}
+
+	// exact_dc_gain=true passes DC through untouched. The tolerance sits just
+	// above the +/-1e-8 alternating dither HalfBandFilter injects for denormal
+	// prevention, which is what sets the floor here rather than the design.
+	auto exact_taps = design_halfband<double>(N, tw, true);
+	HalfBandFilter<double> hb_exact(exact_taps);
+	auto exact_out = hb_exact.process_block_decimate(std::span<const double>(input));
+	start = (exact_out.size() > 10) ? (exact_out.size() - 10) : 0;
+	for (std::size_t i = start; i < exact_out.size(); ++i) {
+		if (!near(exact_out[i], 1.0, 1e-7))
+			throw std::runtime_error("test failed: exact-DC decimation at " +
+				std::to_string(i) + " = " + std::to_string(exact_out[i]));
 	}
 
 	std::cout << "  decimation_dc: passed\n";
 }
+
 
 // ============================================================================
 // Decimation: compare with full-rate + downsample
@@ -710,8 +770,8 @@ void test_exact_dc_gain_tradeoff() {
 		const double      tw = spec.second;
 		const double      se = 0.25 + tw / 2;
 
-		auto forced = design_halfband<double>(N, tw);           // default: true
-		auto ripple = design_halfband<double>(N, tw, false);
+		auto forced = design_halfband<double>(N, tw, true);
+		auto ripple = design_halfband<double>(N, tw);            // default: false
 
 		const double d_forced = stopband_delta(forced, se);
 		const double d_ripple = stopband_delta(ripple, se);

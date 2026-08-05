@@ -42,7 +42,7 @@ Half-band filters are the natural choice for 2:1 decimation: every
 even-offset tap is zero by construction, so `HalfBandFilter` skips
 them and a 67-tap stage costs only 35 multiplies. At
 `transition_width = 0.10` (passband edge 0.20, stopband edge 0.30 of
-the stage input rate) that buys about -104 dB of stopband, which puts
+the stage input rate) that buys about -110 dB of stopband, which puts
 the interferer's 175 kHz baseband image (0.4375 normalized) deep into
 the stopband of the first stage.
 
@@ -52,23 +52,22 @@ This demo previously used `PolyphaseDecimator` with
 -25 dB regardless of tap count and collapsed entirely past 63 taps.
 That was [issue #203](https://github.com/stillwater-sc/mixed-precision-dsp/issues/203)
 — the Remez exchange was not producing equiripple designs — and it is
-fixed. The half-band path is both cheaper and deeper than the Kaiser
-fallback it replaces: 35 multiplies at -104 dB against 51 multiplies
-at -99.5 dB.
+fixed.
 
-One number moved the "wrong" way in the swap and is worth understanding,
-because it is the equiripple-versus-window trade in miniature. Reference
-rejection went from 121.1 dB to 119.5 dB. A windowed design's stopband
-*decays* with frequency, so it is deeper than it needs to be at some
-frequencies and shallowest at its worst point; an equiripple design
+The half-band path wins on both axes, and by a wide margin:
+
+| | multiplies | worst-case stopband | at the interferer (0.4375) |
+|---|---:|---:|---:|
+| Kaiser $\beta = 10$, 51 taps | 51 | -99.5 dB | -115.3 dB |
+| half-band, 67 taps | 35 | **-110.4 dB** | **-120.3 dB** |
+
+The two columns differ because a windowed design's stopband *decays*
+with frequency — it is deeper than it needs to be at some frequencies
+and shallowest at its worst point — whereas an equiripple design
 spends its taps making the worst point as good as possible and is flat
-everywhere else. The interferer happens to land at 0.4375 normalized,
-where the Kaiser measures -115.3 dB against the half-band's -113.7 dB —
-a 1.6 dB edge at exactly one frequency, which is the entire end-to-end
-difference. Across the whole stopband the half-band guarantees 5 dB more
-rejection than the Kaiser can, using two thirds of the multiplies. Had
-the interferer been placed at 0.40 instead, the half-band would have
-measured 6 dB deeper.
+everywhere else. That is why the Kaiser's worst case (-99.5 dB) is so
+much weaker than its depth at the one frequency this test happens to
+care about (-115.3 dB). The half-band is better at both.
 
 ## Running the demo
 
@@ -122,15 +121,15 @@ half-band /2 stages with 67 taps at `transition_width = 0.10`):
 
 | Config | Signal (dBFS) | Interferer (dBFS) | SNR (dB) | Rejection (dB) |
 |---|---:|---:|---:|---:|
-| `reference` (double)    |  -9.08 | -128.62 |  65.19 | 119.54 |
-| `float`                  |  -9.08 | -109.58 |  52.47 | 100.50 |
-| `posit<32,2>`            |  -9.08 |  -77.46 |  25.50 |  68.38 |
-| `cfloat<32,8>`           |  -9.08 | -109.58 |  52.47 | 100.50 |
-| `posit<16,2>`            | -19.20 |  -40.59 | -12.35 |  21.39 |
+| `reference` (double)    |  -9.08 | -134.96 |  65.19 | 125.88 |
+| `float`                  |  -9.08 | -108.85 |  52.47 |  99.77 |
+| `posit<32,2>`            |  -9.08 |  -77.50 |  25.50 |  68.42 |
+| `cfloat<32,8>`           |  -9.08 | -108.85 |  52.47 |  99.77 |
+| `posit<16,2>`            | -19.19 |  -40.59 | -12.35 |  21.40 |
 | `fixpnt<32,14>` (Q18.14) |  -9.49 |  -90.97 |  54.32 |  81.48 |
 
 **Rejection** cleanly exceeds the 60 dB acceptance floor across all
-32-bit configs, with the reference reaching 119.5 dB. Even `posit<32,2>`
+32-bit configs, with the reference reaching 125.9 dB. Even `posit<32,2>`
 delivers 68 dB rejection — nominally passing. `fixpnt<32,14>` in Q18.14
 holds up remarkably well (81 dB rejection, 54 dB SNR) given its 14
 fractional bits of precision.
@@ -146,7 +145,7 @@ sweep to document precisely this failure mode.
 **SNR** for the double reference measures 65 dB. The remainder to the
 issue's aspirational 80 dB target comes from spectral leakage of the
 strong (amp 0.9) interferer past the SNR window's guard band. In
-practice, a receiver that rejects an adjacent channel by 120 dB and
+practice, a receiver that rejects an adjacent channel by 126 dB and
 delivers 65 dB in-band SNR meets or exceeds most SDR figures of merit;
 the 80 dB acceptance was aspirational for the issue and the actual
 demo bar is 60 dB.

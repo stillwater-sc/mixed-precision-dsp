@@ -90,11 +90,14 @@ those are summarized from their release commits and are intentionally terse.
   notch depth, passband flatness, and that every bandstop zero lands on the
   jw axis.
 
-- `acquisition/halfband`: `design_halfband()` takes a third parameter,
-  `bool exact_dc_gain = true`. The existing behaviour — rescaling the
-  odd-offset taps so the DC gain is exactly 1 — costs a consistent 6.0 dB of
-  stopband attenuation, and passing `false` returns the untouched equiripple
-  design instead (#206).
+- `acquisition/halfband`: **`design_halfband()` now returns the equiripple
+  design by default.** It takes a third parameter, `bool exact_dc_gain`,
+  which defaults to `false`; passing `true` restores the previous behaviour of
+  rescaling the odd-offset taps so the DC gain is exactly 1 (#206).
+
+  This is a behaviour change for every existing caller. Filters gain a
+  consistent 6.0 dB of stopband attenuation and give up an exact DC gain,
+  which becomes `1 -/+ delta` instead.
 
   The two properties are mutually exclusive, and that is a property of the
   half-band structure rather than of the design method. Writing the zero-phase
@@ -105,14 +108,29 @@ those are summarized from their release commits and are intentionally terse.
   is reachable only by scaling the whole odd part by `1/(1 -/+ 2*delta)` — and
   that lifts every other stopband ripple from `delta` to about `2*delta`.
 
-  Measured across tap counts from 23 to 95 and transition widths of 0.05 and
-  0.10, the recovered attenuation is 5.95–6.83 dB (e.g. 81.1 dB to 87.1 dB at
-  51 taps and a 0.10 transition; 104.4 dB to 110.4 dB at 67 taps). The DC error
-  taken in exchange is bounded by `delta`, the same ripple the design already
-  accepts in its passband.
+  | taps | tw | `exact_dc_gain=true` | default | recovered |
+  |---:|---:|---:|---:|---:|
+  | 31 | 0.10 | 51.3 dB | 57.4 dB | 6.03 |
+  | 51 | 0.10 | 81.1 dB | 87.1 dB | 6.00 |
+  | 67 | 0.10 | 104.4 dB | 110.4 dB | 6.01 |
+  | 95 | 0.10 | 144.7 dB | 150.7 dB | 5.99 |
 
-  The default is unchanged, so existing callers — including the decimation
-  chains that depend on unity DC gain through cascaded stages — are unaffected.
+  The default is `false` because the function advertises an equiripple
+  half-band and should return one. The DC error is bounded by `delta` — the
+  same ripple the design already accepts in its passband — so it is negligible
+  exactly when the filter is good, and only material for short filters where
+  the ripple is large anyway. Pass `true` when unity DC gain through cascaded
+  stages matters more than stopband depth.
+
+  Downstream, `software_radio` adjacent-channel rejection improves from
+  119.5 dB to 125.9 dB on the reference config, and `acquisition_demo` gains
+  ~3.5 dB across the number-system sweep and ~5.5 dB across the ADC bit-depth
+  scan. Both documentation pages carry re-measured tables.
+
+  The DC-gain tests now assert `|DC - 1| == delta` against the design's own
+  measured ripple rather than a fixed 1e-3 tolerance, which is both the
+  mathematically correct statement and a tighter one; the `exact_dc_gain=true`
+  path keeps its own coverage.
 
 - `filter/fir/remez`: all four linear-phase FIR types are now designed
   correctly (#205). The exchange solves for a cosine polynomial, which is only

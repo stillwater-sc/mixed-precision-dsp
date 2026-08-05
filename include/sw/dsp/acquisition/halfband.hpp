@@ -34,10 +34,10 @@ namespace sw::dsp {
 //   num_taps         - filter length, must be of the form 4K+3 (e.g., 7, 11, 15, 19, ...)
 //   transition_width - transition bandwidth in normalized frequency [0, 0.5];
 //                      passband edge = 0.25 - tw/2, stopband edge = 0.25 + tw/2
-//   exact_dc_gain    - true (default): rescale the odd-offset taps so the DC
-//                      gain is exactly 1, at the cost of ~6 dB of stopband
-//                      attenuation. false: return the untouched equiripple
-//                      design, whose DC gain is 1 -/+ delta.
+//   exact_dc_gain    - false (default): return the untouched equiripple
+//                      design, whose DC gain is 1 -/+ delta. true: rescale the
+//                      odd-offset taps so the DC gain is exactly 1, at the
+//                      cost of ~6 dB of stopband attenuation.
 //
 // Returns: dense_vector of half-band filter taps with enforced structure:
 //   h[center] = 0.5, h[center +/- 2k] = 0 for k >= 1
@@ -60,16 +60,17 @@ namespace sw::dsp {
 // ripple from delta to about 2*delta — the ~6 dB. Measured, at 51 taps and a
 // 0.10 transition: 87.1 dB equiripple against 81.1 dB with exact DC gain.
 //
-// The default is `true` for compatibility: a decimation chain that cares about
-// unity DC gain through cascaded stages depends on it, and the existing tests
-// pin it. Pass `false` when stopband depth is what matters — the DC error you
-// take in exchange is bounded by delta, the same ripple the design already
-// accepts in its passband. (issue #206)
+// The default is `false`: this function advertises an equiripple half-band and
+// should return one. The DC error that comes with it is bounded by delta — the
+// same ripple the design already accepts in its passband — and shrinks as the
+// filter gets better, so it is negligible exactly when the filter is good.
+// Pass `true` when unity DC gain through cascaded stages matters more than
+// stopband depth. (issue #206)
 template <DspField T>
 mtl::vec::dense_vector<T> design_halfband(
     std::size_t num_taps,
     T transition_width,
-    bool exact_dc_gain = true) {
+    bool exact_dc_gain = false) {
 
 	if (num_taps < 3)
 		throw std::invalid_argument("design_halfband: num_taps must be >= 3");

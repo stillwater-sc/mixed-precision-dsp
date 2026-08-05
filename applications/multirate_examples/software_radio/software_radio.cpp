@@ -23,7 +23,7 @@
 // Test signal is a real waveform with:
 //   * A weak signal tone at IF + 5 kHz (amp 0.1) - should land at
 //     +5 kHz in the baseband output.
-//   * A strong adjacent-channel interferer at IF + 60 kHz (amp 0.9) -
+//   * A strong adjacent-channel interferer at IF + 175 kHz (amp 0.9) -
 //     lies in the anti-alias filter's stopband and MUST be attenuated
 //     by the decimation chain, otherwise it would alias into the
 //     output as a false signal.
@@ -49,8 +49,8 @@
 //   * All six precision configs measured.
 //
 // SNR note: the #139 issue text lists "SNR > 80 dB" as an acceptance
-// bar. At the 1000:1 decimation and Kaiser-windowed-sinc anti-alias
-// filters used here, the double reference measures ~65 dB SNR - the
+// bar. At the 1000:1 decimation and half-band anti-alias filters used
+// here, the double reference measures ~65 dB SNR - the
 // remainder comes from the strong-interferer sidelobe leakage past
 // the SNR window's guard band. Tightening this further would require
 // either (a) a much stronger analysis window with wider guard bands
@@ -145,7 +145,7 @@ struct DemoParams {
 	std::size_t ddc_fir_taps   = 63;       // odd; ~-70 dB stopband
 	// Post-CIC decimation-by-2 stages use the library HalfBandFilter. Half
 	// of a half-band filter's taps are exactly zero, so HalfBandFilter
-	// skips them: 67 taps costs 35 multiplies and buys -104 dB, against
+	// skips them: 67 taps costs 35 multiplies and buys -110 dB, against
 	// the 51 multiplies and -99.5 dB of the Kaiser-windowed sinc this
 	// replaces. num_taps must be of the form 4K+3.
 	std::size_t decim_taps     = 67;       // per half-band stage (4K+3)
@@ -247,7 +247,7 @@ run_pipeline(const std::vector<double>& adc_in_d) {
 
 	// --- Stage 3: half-band decimator down-2 (first) ---
 	// Equiripple half-band at pass 0.20 / stop 0.30 of the 400 kHz input
-	// rate, ~-104 dB stopband at 67 taps. The stopband edge sits comfortably
+	// rate, ~-110 dB stopband at 67 taps. The stopband edge sits comfortably
 	// past the interferer's 175 kHz baseband location (0.4375 normalized).
 	const auto hb_taps_d = design_halfband<double>(params.decim_taps,
 	                                                 params.decim_tw);

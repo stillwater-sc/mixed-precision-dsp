@@ -186,7 +186,7 @@ split based on the signal you'll actually run through it.
 
 The biggest surprise of this demo: with a CIC decimator in the chain,
 **`uniform_fixpnt32` beats every floating-point configuration by
-~40 dB**, and `uniform_posit16` collapses to negative SNR.
+~35 dB**, and `uniform_posit16` collapses to negative SNR.
 
 The cause is a structural property of CIC. A CIC integrator is
 `y[n] = y[n-1] + x[n]` — an unbounded accumulator. The classical
@@ -199,10 +199,10 @@ error never gets cancelled by the comb. The integrator slowly drifts.
 
 You can see this directly in the table below: float, posit32, and
 cfloat32 (all with ~24 bits of mantissa precision) cluster around
-54 dB SNR — that's the integrator drift floor, not the arithmetic
+58 dB SNR — that's the integrator drift floor, not the arithmetic
 ceiling. fixpnt32, with hardware-level two's-complement wrap,
 recovers ~93 dB. posit16's 4 mantissa bits aren't enough to keep
-the integrator stable at all, hence the -30 dB collapse.
+the integrator stable at all, hence the -28 dB collapse.
 
 The lesson: **if you have a CIC stage, use fixed-point (or any
 wrapping integer-like type) for the integrator state.** The
@@ -219,24 +219,24 @@ A clean run with a 16-bit ADC at 1 MHz, IF at 100 kHz, decimating
 Configuration                   Bits    SNR(dB)    ENOB
 -------------------------------------------------------
 uniform_double                   192        inf     ref
-uniform_float                     96      54.44    8.75
-uniform_posit32                   96      54.46    8.75
-uniform_posit16                   48     -30.06   -5.29
-uniform_cfloat32                  96      54.44    8.75
+uniform_float                     96      57.99    9.34
+uniform_posit32                   96      58.39    9.41
+uniform_posit16                   48     -28.36   -5.00
+uniform_cfloat32                  96      57.99    9.34
 uniform_fixpnt32                  96      92.76   15.12
-mixed_double_p32_p16             112      53.03    8.52
-mixed_double_double_float        160     146.95   24.12
-mixed_double_p32_float           128      54.46    8.75
-mixed_double_float_float         128      54.44    8.75
+mixed_double_p32_p16             112      57.16    9.20
+mixed_double_double_float        160     145.89   23.94
+mixed_double_p32_float           128      58.39    9.41
+mixed_double_float_float         128      57.99    9.34
 mixed_double_fx32_fx32           128      92.76   15.12
 
 === ADC bit-depth scan (uniform-double pipeline) ===
 ADC bits        SNR(dB)    ENOB
 -------------------------------
-8-bit             48.72    7.80
-12-bit            72.57   11.76
-14-bit            84.75   13.79
-16-bit            96.99   15.82
+8-bit             54.34    8.73
+12-bit            78.28   12.71
+14-bit            91.08   14.84
+16-bit           102.54   16.74
 ```
 
 These numbers measure the **complex-residual SNR** between the test
@@ -250,18 +250,18 @@ and over-stated `fixpnt32` quality by ~60 dB.
 
 A few patterns to note:
 
-- **`uniform_fixpnt32` (Q4.28) wins by ~40 dB.** This is the CIC
+- **`uniform_fixpnt32` (Q4.28) wins by ~35 dB.** This is the CIC
   state-precision lesson described above. The Q4.28 format gives
   enough fractional precision (~28 bits) to match the post-DDC
   signal range, and the hardware-level two's-complement wrap is
   exactly what the CIC integrator needs.
-- **All three 32-bit floating-point options cluster at ~54 dB SNR.**
+- **All three 32-bit floating-point options cluster at ~58 dB SNR.**
   `uniform_float`, `uniform_posit32`, and `uniform_cfloat32` are
   all bounded by the same physics: float-state CIC integrators drift
   on DC bias, regardless of mantissa precision. This is *not* a flaw
   in float or posit; it's a CIC design constraint that the demo
   surfaces empirically.
-- **`uniform_posit16` collapses to negative SNR (-30 dB).** Posit16
+- **`uniform_posit16` collapses to negative SNR (-28 dB).** Posit16
   has 4 mantissa bits at unity. That's nowhere near enough to keep
   the integrator stable, so the output is dominated by drift noise.
   This is a useful warning: narrow floating-point types in CIC chains
