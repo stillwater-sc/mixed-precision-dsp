@@ -83,3 +83,27 @@ For applications that need additional configuration (compile
 definitions, data files, multiple sources), the helper's signature
 stays the same — just add the extra `target_*` calls right after the
 `dsp_add_application()` line.
+
+## Writing output
+
+Demos must not write into the source tree — running one from the
+repository root should leave nothing behind. `dsp_add_application()`
+bakes a per-build output directory into every application via the
+`DSP_DEMO_OUTPUT_DIR` compile definition; use the helpers in
+[`common/demo_output.hpp`](common/demo_output.hpp) to reach it:
+
+```cpp
+#include <common/demo_output.hpp>
+
+// A single file, overridable with --csv=<path>:
+std::string csv_path = sw::dsp::demo::output_path("my_demo.csv");
+
+// A demo that writes several files into a directory:
+std::string outdir = sw::dsp::demo::output_dir();
+```
+
+That resolves to `<binary-dir>/demo-output/`, which the build creates
+at configure time and `build*/` in `.gitignore` already covers. Keep
+the `--csv=<path>` (or positional output directory) override, use an
+explicit path verbatim when given, and print the path actually written
+so a user can find the file.

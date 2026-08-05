@@ -35,8 +35,11 @@ cmake --build build-ci --target audio_resampler -j4
 ./build-ci/applications/multirate_examples/audio_resampler/audio_resampler --csv=out.csv
 ```
 
-By default the demo writes to `audio_resampler.csv` in the current
-directory. Passing `--csv=<path>` overrides the destination.
+By default the demo writes to `audio_resampler.csv` under the build
+tree's `demo-output/` directory, so running it from the repository root
+leaves nothing behind in the source tree. Passing `--csv=<path>`
+overrides the destination. Every demo reports the path it actually
+wrote.
 
 ## What the demo measures
 

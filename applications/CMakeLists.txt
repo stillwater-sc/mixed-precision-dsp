@@ -8,9 +8,21 @@
 # Defined at the parent (applications/) scope so each sub-directory's
 # CMakeLists.txt can call it directly. CMake function visibility flows
 # from parent to child via add_subdirectory().
+# Demos write their CSV output here rather than to the working directory,
+# so running one from the repository root no longer leaves files in the
+# source tree. Every demo still accepts --csv=<path> (or a positional
+# output directory) to override. See applications/common/demo_output.hpp.
+set(DSP_APPLICATIONS_DIR "${CMAKE_CURRENT_LIST_DIR}")
+set(DSP_DEMO_OUTPUT_DIR  "${CMAKE_BINARY_DIR}/demo-output")
+file(MAKE_DIRECTORY "${DSP_DEMO_OUTPUT_DIR}")
+
 function(dsp_add_application target_name folder)
 	add_executable(${target_name} ${target_name}.cpp)
 	target_link_libraries(${target_name} PRIVATE sw::dsp)
+	# <common/demo_output.hpp> resolves against applications/.
+	target_include_directories(${target_name} PRIVATE "${DSP_APPLICATIONS_DIR}")
+	target_compile_definitions(${target_name} PRIVATE
+		DSP_DEMO_OUTPUT_DIR="${DSP_DEMO_OUTPUT_DIR}")
 	set_target_properties(${target_name} PROPERTIES FOLDER "${folder}")
 endfunction()
 

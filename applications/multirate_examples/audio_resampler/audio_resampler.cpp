@@ -38,6 +38,8 @@
 #include <sw/dsp/spectral/fft.hpp>
 #include <sw/dsp/windows/kaiser.hpp>
 
+#include <common/demo_output.hpp>
+
 #include <mtl/vec/dense_vector.hpp>
 
 #include <universal/number/cfloat/cfloat.hpp>
@@ -415,7 +417,7 @@ void print_summary(const std::vector<ResamplerMetrics>& results) {
 // ============================================================================
 
 int main(int argc, char** argv) try {
-	std::string csv_path = "audio_resampler.csv";
+	std::string csv_path = sw::dsp::demo::output_path("audio_resampler.csv");
 	for (int i = 1; i < argc; ++i) {
 		std::string a = argv[i];
 		if (a.rfind("--csv=", 0) == 0)      csv_path = a.substr(6);

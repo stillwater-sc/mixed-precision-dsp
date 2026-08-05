@@ -3,6 +3,12 @@ build*/
 .astro/
 node_modules/
 CMakeUserPresets.json
+
+# Demo output. Demos write to <binary-dir>/demo-output, which build*/
+# already covers; this is the backstop for a run that overrides the path
+# back into the tree. Anchored to the root so tests/data/*.csv stays
+# tracked.
+/*.csv
 *.swp
 *.swo
 *~

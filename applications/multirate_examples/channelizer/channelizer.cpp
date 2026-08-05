@@ -33,6 +33,8 @@
 #include <sw/dsp/multirate/channelizer.hpp>
 #include <sw/dsp/spectral/fft.hpp>
 
+#include <common/demo_output.hpp>
+
 #include <mtl/vec/dense_vector.hpp>
 
 #include <universal/number/cfloat/cfloat.hpp>
@@ -321,7 +323,7 @@ void print_summary(const std::vector<ChannelReport>& reports) {
 // ============================================================================
 
 int main(int argc, char** argv) try {
-	std::string csv_path = "channelizer.csv";
+	std::string csv_path = sw::dsp::demo::output_path("channelizer.csv");
 	for (int i = 1; i < argc; ++i) {
 		const std::string a = argv[i];
 		if (a.rfind("--csv=", 0) == 0)   csv_path = a.substr(6);

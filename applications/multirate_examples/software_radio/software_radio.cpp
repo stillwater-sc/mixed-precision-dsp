@@ -69,6 +69,8 @@
 #include <sw/dsp/spectral/fft.hpp>
 #include <sw/dsp/windows/hamming.hpp>
 
+#include <common/demo_output.hpp>
+
 #include <mtl/vec/dense_vector.hpp>
 
 #include <universal/number/cfloat/cfloat.hpp>
@@ -459,7 +461,7 @@ void print_summary(const std::vector<ChannelReport>& reports) {
 // ============================================================================
 
 int main(int argc, char** argv) try {
-	std::string csv_path = "software_radio.csv";
+	std::string csv_path = sw::dsp::demo::output_path("software_radio.csv");
 	// Iteration-friendly flag: --fast skips the slow posit16 and
 	// fixpnt<32,14> configs (each takes several minutes at this input
 	// length) so smoke tests get feedback on the reference/float/posit32/

@@ -67,6 +67,8 @@
 #include <sw/dsp/instrument/display_envelope.hpp>
 #include <sw/dsp/instrument/measurements.hpp>
 
+#include <common/demo_output.hpp>
+
 #include <sw/universal/number/posit/posit.hpp>
 #include <sw/universal/number/cfloat/cfloat.hpp>
 #include <sw/universal/number/fixpnt/fixpnt.hpp>
@@ -873,7 +875,7 @@ void print_timing_report(const ConfigResult& reference) {
 // ============================================================================
 
 int main(int argc, char** argv) try {
-	std::string csv_path = "scope_demo.csv";
+	std::string csv_path = sw::dsp::demo::output_path("scope_demo.csv");
 	for (int i = 1; i < argc; ++i) {
 		std::string a = argv[i];
 		if (a.rfind("--csv=", 0) == 0)

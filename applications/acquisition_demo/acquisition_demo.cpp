@@ -25,6 +25,8 @@
 #include <sw/dsp/math/constants.hpp>
 #include <sw/dsp/windows/hamming.hpp>
 
+#include <common/demo_output.hpp>
+
 #if __has_include(<bit>)
 #include <bit>
 #endif
@@ -458,7 +460,7 @@ void print_usage(const char* prog) {
 		<< "  --sample-rate=<Hz>      ADC sample rate (default: 1000000)\n"
 		<< "  --adc-bits=8,12,14,16   Comma-separated bit depths for the ADC scan\n"
 		<< "  --num-samples=<N>       Input block length (default: 4096)\n"
-		<< "  --csv=<path>            Output CSV path (default: acquisition_demo.csv)\n"
+		<< "  --csv=<path>            Output CSV path (default: <build>/demo-output/acquisition_demo.csv)\n"
 		<< "  -h, --help              This message\n";
 }
 
@@ -530,7 +532,7 @@ std::vector<int> parse_int_list(const std::string& s) {
 }
 
 int main(int argc, char** argv) {
-	std::string csv_path = "acquisition_demo.csv";
+	std::string csv_path = sw::dsp::demo::output_path("acquisition_demo.csv");
 	try {
 		for (int i = 1; i < argc; ++i) {
 			const std::string arg = argv[i];

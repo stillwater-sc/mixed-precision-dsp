@@ -27,6 +27,8 @@
 #include <sw/dsp/types/projection.hpp>
 #include <sw/dsp/math/constants.hpp>
 
+#include <common/demo_output.hpp>
+
 #if __has_include(<bit>)
 #include <bit>
 #endif
@@ -420,7 +422,7 @@ void write_sweep_csv(const std::string& path, const std::vector<MetricRow>& rows
 
 int main(int argc, char* argv[]) {
 	try {
-		std::string outdir = ".";
+		std::string outdir = sw::dsp::demo::output_dir();
 		if (argc > 1) outdir = argv[1];
 		if (!outdir.empty() && outdir.back() == '/') outdir.pop_back();
 

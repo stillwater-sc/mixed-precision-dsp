@@ -85,6 +85,8 @@
 #include <sw/dsp/windows/hanning.hpp>
 #include <sw/dsp/math/constants.hpp>
 
+#include <common/demo_output.hpp>
+
 #include <sw/universal/number/posit/posit.hpp>
 
 #include <algorithm>
@@ -872,7 +874,7 @@ void print_timing_report(const ConfigResult& reference,
 // ============================================================================
 
 int main(int argc, char** argv) try {
-	std::string csv_path = "spectrum_analyzer_demo.csv";
+	std::string csv_path = sw::dsp::demo::output_path("spectrum_analyzer_demo.csv");
 	for (int i = 1; i < argc; ++i) {
 		std::string a = argv[i];
 		if (a.rfind("--csv=", 0) == 0) csv_path = a.substr(6);

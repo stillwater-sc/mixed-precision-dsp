@@ -35,6 +35,8 @@
 #include <sw/dsp/multirate/fractional_delay.hpp>
 #include <sw/dsp/spectral/fft.hpp>
 
+#include <common/demo_output.hpp>
+
 #include <mtl/vec/dense_vector.hpp>
 
 #include <universal/number/cfloat/cfloat.hpp>
@@ -361,7 +363,7 @@ void print_test_b_summary(const std::vector<Row>& rows) {
 // ============================================================================
 
 int main(int argc, char** argv) try {
-	std::string csv_path = "fractional_delay.csv";
+	std::string csv_path = sw::dsp::demo::output_path("fractional_delay.csv");
 	for (int i = 1; i < argc; ++i) {
 		const std::string a = argv[i];
 		if (a.rfind("--csv=", 0) == 0)     csv_path = a.substr(6);

@@ -27,6 +27,8 @@
 #include <sw/dsp/analysis/sensitivity.hpp>
 #include <sw/dsp/types/projection.hpp>
 
+#include <common/demo_output.hpp>
+
 #if __has_include(<bit>)
 #include <bit>
 #endif
@@ -431,7 +433,7 @@ void write_csv(const std::string& path, const std::vector<MetricRow>& all_rows) 
 int main(int argc, char* argv[]) {
   try {
 	// Optional output directory argument
-	std::string outdir = ".";
+	std::string outdir = sw::dsp::demo::output_dir();
 	if (argc > 1) outdir = argv[1];
 	std::cout << std::string(100, '=') << "\n";
 	std::cout << "  Mixed-Precision IIR Filter Comparison\n";

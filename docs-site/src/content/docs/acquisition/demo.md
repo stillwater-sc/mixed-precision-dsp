@@ -292,7 +292,7 @@ Options (all are key=value):
 | `--sample-rate=<Hz>` | `1000000` | ADC sample rate |
 | `--adc-bits=8,12,14,16` | `8,12,14,16` | Comma-separated bit depths for the ADC scan |
 | `--num-samples=<N>` | `4096` | Input block length |
-| `--csv=<path>` | `acquisition_demo.csv` | Output CSV path |
+| `--csv=<path>` | `<build>/demo-output/acquisition_demo.csv` | Output CSV path |
 | `-h`, `--help` | — | Print usage |
 
 The CSV path may also be passed positionally for backwards

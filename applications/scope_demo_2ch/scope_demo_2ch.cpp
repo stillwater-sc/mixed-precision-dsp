@@ -71,6 +71,8 @@
 #include <sw/dsp/math/constants.hpp>
 #include <sw/dsp/spectral/fft.hpp>
 
+#include <common/demo_output.hpp>
+
 #include <mtl/vec/dense_vector.hpp>
 
 #include <universal/number/cfloat/cfloat.hpp>
@@ -682,7 +684,7 @@ void print_summary(const std::vector<TwoChannelResult>& results) {
 // ============================================================================
 
 int main(int argc, char** argv) try {
-	std::string csv_path = "scope_demo_2ch.csv";
+	std::string csv_path = sw::dsp::demo::output_path("scope_demo_2ch.csv");
 	for (int i = 1; i < argc; ++i) {
 		std::string a = argv[i];
 		if (a.rfind("--csv=", 0) == 0)
