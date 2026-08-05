@@ -133,6 +133,32 @@ Each of `lp_to_hp`, `lp_to_bp(low, high)`, `lp_to_bs(low, high)`
 operates in place on a `PoleZeroPlot`, transforming its `s_poles` and
 `s_zeros` arrays and updating the metadata (kind, cutoff/low/high).
 
+The substitutions are stated for a prototype normalized to
+$\omega_c = 1$, so each transform first divides the prototype roots by
+the $\omega_c$ recorded in `cutoff_hz`. That makes the target
+frequencies mean what they say regardless of the cutoff the prototype
+was built at — a 1 kHz Butterworth through `lp_to_hp(p, 500.0)` is
+$-3$ dB at 500 Hz, and `lp_to_bp(p, 800.0, 1200.0)` is $-3$ dB at
+800 Hz and 1200 Hz. (Only Butterworth is $-3$ dB normalized at its
+cutoff; the other families place their band edges according to their
+own conventions — Chebyshev I at the end of its ripple band,
+Chebyshev II at its stopband corner.)
+
+How the zeros map is worth stating explicitly, because the count
+differs between the two band transforms:
+
+| prototype | LP→BP | LP→BS |
+|---|---|---|
+| each finite zero | splits into 2 | splits into 2 |
+| each zero at $\infty$ | **1** zero at $s = 0$ | a **pair** at $\pm j\omega_0$ |
+
+So an $N$-pole all-pole prototype (Butterworth, Chebyshev I, Bessel)
+becomes a bandpass with $2N$ poles and $N$ zeros at the origin, and a
+bandstop with $2N$ poles and $2N$ zeros sitting exactly on the
+$j\omega$ axis at $\pm j\omega_0$ — that pair *is* the notch. A
+biproper prototype (Chebyshev II, elliptic) has no zeros at infinity,
+so its bandpass gains none at the origin and does not null at DC.
+
 ### Bilinear transform
 
 `apply_bilinear(plot, fs)` maps every $s$-plane pole and zero via

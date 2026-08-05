@@ -50,6 +50,46 @@ those are summarized from their release commits and are intentionally terse.
   tap count and transition width; every cell where scipy converges now matches
   it.
 
+- `transfer_function/pole_zero`: `lp_to_bp()` and `lp_to_bs()` produced
+  constellations that were not bandpass and bandstop (#204).
+
+  Both transforms mishandled the prototype's zeros at infinity. Under
+  `s -> (s^2 + w0^2)/(BW*s)` each such zero contributes exactly **one** zero at
+  the origin — its partner stays at infinity — but `lp_to_bp` padded the zero
+  list to `2*order`, adding N spurious zeros at DC and dragging the response
+  peak out to ~3.5x the band centre. Under `s -> BW*s/(s^2 + w0^2)` each maps
+  onto the **pair** `+/- j*w0`, which is the notch; `lp_to_bs` generated none
+  of them, so an all-pole prototype became a bandstop with no finite zeros
+  whose response *peaked* at the band centre instead of nulling there. A
+  4th-order Butterworth now transforms to 8 poles and 4 origin zeros for
+  bandpass, and 8 poles and 8 zeros exactly on the jw axis at `+/- j*w0` for
+  bandstop. Biproper prototypes (Chebyshev II, elliptic) have no zeros at
+  infinity and correctly gain none at the origin, so their bandpass does not
+  null at DC.
+
+  A second defect, shared by `lp_to_hp()` and found while verifying the fix:
+  the Constantinides substitutions are stated for a prototype normalized to
+  `omega_c = 1`, and none of the three transforms divided the prototype roots
+  by their own `omega_c` first. Every result was therefore scaled by the
+  prototype cutoff. The example in the module documentation — a 1 kHz
+  Butterworth through `lp_to_hp(p, 500.0)` — placed its -3 dB point at
+  0.0796 Hz rather than 500 Hz, and `lp_to_bp(p, 800, 1200)` yielded a
+  passband spanning 337..2849 Hz. All three now normalize first, so the target
+  frequencies mean what they say: that highpass is -3 dB at 500.3 Hz and that
+  bandpass at 800.1 and 1199.9 Hz, independent of the cutoff the prototype was
+  built at.
+
+  `PoleZeroPlot::cutoff_hz` is now both read and written by the transforms —
+  it records the frequency the constellation is normalized to, so `lp_to_bp`
+  and `lp_to_bs` set it to the band centre `sqrt(low*high)` rather than
+  leaving a stale lowpass cutoff behind.
+
+  The existing tests asserted root counts and stability only, which held while
+  `lp_to_bp` emitted twice the zeros it should and `lp_to_bs` emitted none.
+  They now measure the transformed response: peak location, -3 dB band edges,
+  notch depth, passband flatness, and that every bandstop zero lands on the
+  jw axis.
+
 - `acquisition/halfband`: `design_halfband()` takes a third parameter,
   `bool exact_dc_gain = true`. The existing behaviour — rescaling the
   odd-offset taps so the DC gain is exactly 1 — costs a consistent 6.0 dB of

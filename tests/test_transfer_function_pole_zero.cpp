@@ -257,22 +257,204 @@ static void test_lp_to_hp() {
 }
 
 // ---------------------------------------------------------------------------
-// LP -> BP: LP order N produces 2N poles and 2N zeros total.
+// Issue #204 helpers: measure the transformed constellation's actual response
+// rather than only counting roots.
+//
+// The tests below previously asserted pole/zero COUNTS and stability only.
+// Every such assertion held while lp_to_bp emitted twice the zeros it should
+// and lp_to_bs emitted none at all, which is how a bandstop with no stopband
+// shipped. They now assert response shape.
+// ---------------------------------------------------------------------------
+static double pz_mag(const PoleZeroPlot& p, double f_hz) {
+	const std::complex<double> s(0.0, 2.0 * pi_d * f_hz);
+	std::complex<double> num(1.0, 0.0), den(1.0, 0.0);
+	for (const auto& z : p.s_zeros) num *= (s - z);
+	for (const auto& q : p.s_poles) den *= (s - q);
+	return std::abs(num / den);
+}
+
+// Bisect for the frequency where the response crosses `target_db` relative to
+// `ref_hz`, searching between lo_hz and hi_hz (monotone across that span).
+static double pz_find_db(const PoleZeroPlot& p, double lo_hz, double hi_hz,
+                          double ref_hz, double target_db) {
+	double a = lo_hz, b = hi_hz;
+	const double ref = pz_mag(p, ref_hz);
+	for (int i = 0; i < 200; ++i) {
+		const double m = std::sqrt(a * b);
+		const double db = 20.0 * std::log10(pz_mag(p, m) / ref);
+		((db < target_db) ? a : b) = m;
+	}
+	return std::sqrt(a * b);
+}
+
+// ---------------------------------------------------------------------------
+// LP -> BP: an N-pole ALL-POLE prototype produces 2N poles and N zeros, all
+// at the origin. The other N zeros of the substitution stay at infinity.
+// Emitting 2N origin zeros (the old behaviour) dragged the response peak out
+// to ~3.5x the band centre. A biproper prototype has no zeros at infinity and
+// so gains none at the origin — its bandpass does not null at DC. (#204)
 // ---------------------------------------------------------------------------
 static void test_lp_to_bp() {
+	const double lo = 500.0, hi = 2000.0;
+	const double fc = std::sqrt(lo * hi);
+
 	auto p = butterworth_prototype(4, 1000.0);
-	lp_to_bp(p, 500.0, 2000.0);
+	lp_to_bp(p, lo, hi);
 	if (p.s_poles.size() != 8)
 		throw std::runtime_error("lp_to_bp: expected 2N poles");
-	if (p.s_zeros.size() != 8)
-		throw std::runtime_error("lp_to_bp: expected 2N zeros");
-	// BP poles still in LHP (stability preserved).
+	if (p.s_zeros.size() != 4)
+		throw std::runtime_error("lp_to_bp: expected N zeros, got " +
+			std::to_string(p.s_zeros.size()));
+	for (const auto& z : p.s_zeros) {
+		if (std::abs(z) > 1e-9)
+			throw std::runtime_error("lp_to_bp: zero not at origin");
+	}
 	for (const auto& s : p.s_poles) {
 		if (s.real() > 1e-6 * std::abs(s))
 			throw std::runtime_error("lp_to_bp: pole left LHP");
 	}
 	if (p.kind != "bandpass")
 		throw std::runtime_error("lp_to_bp: kind not updated");
+
+	// The response must actually peak at the band centre, not 3.5x above it.
+	double peak_hz = fc, peak = pz_mag(p, fc);
+	for (int i = 0; i <= 4000; ++i) {
+		const double f = fc * std::pow(10.0, -2.0 + 4.0 * i / 4000.0);
+		const double m = pz_mag(p, f);
+		if (m > peak) { peak = m; peak_hz = f; }
+	}
+	if (std::abs(peak_hz / fc - 1.0) > 0.02)
+		throw std::runtime_error("lp_to_bp: response peaks at " +
+			std::to_string(peak_hz) + " Hz, expected the band centre " +
+			std::to_string(fc));
+
+	// A Butterworth prototype is -3 dB normalized, so the -3 dB edges must
+	// land on the requested band. This is what catches a transform that
+	// forgets to normalize the prototype by its own omega_c.
+	const double f_lo = pz_find_db(p, fc * 0.01, fc, fc, -3.0);
+	const double f_hi = pz_find_db(p, fc * 100.0, fc, fc, -3.0);
+	if (std::abs(f_lo / lo - 1.0) > 0.01 || std::abs(f_hi / hi - 1.0) > 0.01)
+		throw std::runtime_error("lp_to_bp: -3 dB band is " +
+			std::to_string(f_lo) + ".." + std::to_string(f_hi) +
+			" Hz, expected " + std::to_string(lo) + ".." + std::to_string(hi));
+
+	// Biproper prototype: Chebyshev II has no zeros at infinity, so its
+	// bandpass gains no origin zeros and does not null at DC.
+	auto c2 = chebyshev2_prototype(4, 1000.0, 40.0);
+	const std::size_t c2_lp_zeros = c2.s_zeros.size();
+	lp_to_bp(c2, lo, hi);
+	if (c2.s_zeros.size() != 2 * c2_lp_zeros)
+		throw std::runtime_error("lp_to_bp: biproper prototype should gain no "
+			"origin zeros, got " + std::to_string(c2.s_zeros.size()));
+	for (const auto& z : c2.s_zeros) {
+		if (std::abs(z) < 1e-9)
+			throw std::runtime_error("lp_to_bp: biproper prototype gained a "
+				"spurious zero at the origin");
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LP -> BS: each prototype zero at infinity maps onto the PAIR +/- j*omega_0.
+// That pair IS the notch. An all-pole prototype must gain 2N finite zeros,
+// all exactly on the jw axis at +/- omega_0. The old code transformed only
+// the (empty) finite zero list and produced a bandstop with no zeros, whose
+// response PEAKED at the band centre. (#204)
+// ---------------------------------------------------------------------------
+static void test_lp_to_bs() {
+	const double lo = 500.0, hi = 2000.0;
+	const double fc = std::sqrt(lo * hi);
+	const double w0 = 2.0 * pi_d * fc;
+
+	auto p = butterworth_prototype(4, 1000.0);
+	lp_to_bs(p, lo, hi);
+	if (p.s_poles.size() != 8)
+		throw std::runtime_error("lp_to_bs: expected 2N poles");
+	if (p.s_zeros.size() != 8)
+		throw std::runtime_error("lp_to_bs: expected 2N zeros, got " +
+			std::to_string(p.s_zeros.size()));
+	if (p.kind != "bandstop")
+		throw std::runtime_error("lp_to_bs: kind not updated");
+	for (const auto& s : p.s_poles) {
+		if (s.real() > 1e-6 * std::abs(s))
+			throw std::runtime_error("lp_to_bs: pole left LHP");
+	}
+	// Every zero sits exactly on the jw axis at +/- omega_0 — that is the notch.
+	for (const auto& z : p.s_zeros) {
+		if (std::abs(z.real()) > 1e-6 * w0)
+			throw std::runtime_error("lp_to_bs: notch zero off the jw axis");
+		if (std::abs(std::abs(z.imag()) - w0) > 1e-6 * w0)
+			throw std::runtime_error("lp_to_bs: notch zero not at +/- omega_0");
+	}
+
+	// The band centre must be a deep null, and both passbands flat at 0 dB.
+	const double ref = pz_mag(p, fc / 100.0);
+	const double notch_db = 20.0 * std::log10(pz_mag(p, fc) / ref);
+	if (!(notch_db < -100.0))
+		throw std::runtime_error("lp_to_bs: notch depth " +
+			std::to_string(notch_db) + " dB at the band centre, expected a null");
+	for (double f : {fc / 1000.0, fc / 100.0, fc * 100.0, fc * 1000.0}) {
+		const double db = 20.0 * std::log10(pz_mag(p, f) / ref);
+		if (std::abs(db) > 0.1)
+			throw std::runtime_error("lp_to_bs: passband at " +
+				std::to_string(f) + " Hz is " + std::to_string(db) + " dB");
+	}
+	// The centre must be the MINIMUM, not the maximum, over the sweep.
+	for (double r : {0.1, 0.5, 0.9, 1.1, 2.0, 10.0}) {
+		if (pz_mag(p, fc * r) <= pz_mag(p, fc))
+			throw std::runtime_error("lp_to_bs: band centre is not the minimum");
+	}
+
+	// Biproper prototype: Chebyshev II's zeros at infinity number
+	// order - nz, so it gains 2*(order - nz) zeros at +/- j*omega_0.
+	auto c2 = chebyshev2_prototype(4, 1000.0, 40.0);
+	const std::size_t nz = c2.s_zeros.size(), np = c2.s_poles.size();
+	lp_to_bs(c2, lo, hi);
+	if (c2.s_zeros.size() != 2 * nz + 2 * (np - nz))
+		throw std::runtime_error("lp_to_bs: biproper zero count is " +
+			std::to_string(c2.s_zeros.size()));
+}
+
+// ---------------------------------------------------------------------------
+// Issue #204: the Constantinides substitutions are stated for a prototype
+// normalized to omega_c = 1, so each transform must divide the prototype
+// roots by their own omega_c. Without it every result was scaled by the
+// prototype cutoff — the documented example, a 1 kHz prototype through
+// lp_to_hp(p, 500.0), placed its -3 dB point at 0.0796 Hz.
+// ---------------------------------------------------------------------------
+static void test_transform_frequency_placement() {
+	// A Butterworth prototype is -3 dB at its cutoff, and stays -3 dB at the
+	// target after any of the three transforms.
+	for (double proto_hz : {1.0, 100.0, 1000.0, 44100.0}) {
+		auto p = butterworth_prototype(4, proto_hz);
+		lp_to_hp(p, 500.0);
+		const double ref = pz_mag(p, 1e9);          // HP passband is up high
+		double a = 1e-6, b = 1e9;
+		for (int i = 0; i < 300; ++i) {
+			const double m = std::sqrt(a * b);
+			((20.0 * std::log10(pz_mag(p, m) / ref) < -3.0) ? a : b) = m;
+		}
+		const double f3 = std::sqrt(a * b);
+		if (std::abs(f3 / 500.0 - 1.0) > 0.01)
+			throw std::runtime_error("lp_to_hp from a " +
+				std::to_string(proto_hz) + " Hz prototype put -3 dB at " +
+				std::to_string(f3) + " Hz, expected 500");
+	}
+
+	// Same for the band transforms: the result must not depend on which
+	// cutoff the prototype happened to be built at.
+	for (double proto_hz : {1.0, 1000.0}) {
+		auto p = butterworth_prototype(4, proto_hz);
+		lp_to_bp(p, 800.0, 1200.0);
+		const double fc = std::sqrt(800.0 * 1200.0);
+		const double f_lo = pz_find_db(p, fc * 0.01, fc, fc, -3.0);
+		const double f_hi = pz_find_db(p, fc * 100.0, fc, fc, -3.0);
+		if (std::abs(f_lo / 800.0 - 1.0) > 0.01 ||
+		    std::abs(f_hi / 1200.0 - 1.0) > 0.01)
+			throw std::runtime_error("lp_to_bp from a " +
+				std::to_string(proto_hz) + " Hz prototype gave " +
+				std::to_string(f_lo) + ".." + std::to_string(f_hi) +
+				" Hz, expected 800..1200");
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +513,8 @@ int main() {
 		test_elliptic_input_validation();        std::cout << "  elliptic_input_validation PASS\n";
 		test_lp_to_hp();                         std::cout << "  lp_to_hp                 PASS\n";
 		test_lp_to_bp();                         std::cout << "  lp_to_bp                 PASS\n";
+		test_lp_to_bs();                         std::cout << "  lp_to_bs                 PASS\n";
+		test_transform_frequency_placement();    std::cout << "  transform_frequency      PASS\n";
 		test_bilinear_maps_lhp_inside_unit_circle();
 		std::cout << "  bilinear_lhp_inside_unit PASS\n";
 		test_dump_json();                        std::cout << "  dump_json                PASS\n";

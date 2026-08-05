@@ -59,10 +59,12 @@ struct PoleZeroPlot {
 	std::vector<std::complex<double>> z_poles;
 	std::vector<std::complex<double>> z_zeros;
 
-	// The angular cutoff (rad/s) the prototype was designed at. LP
-	// prototypes canonically use omega_c = 1; bandpass/bandstop
-	// intermediates carry through the low/high edge frequencies for
-	// the JSON viewer.
+	// The cutoff (Hz) the constellation is currently normalized to. The
+	// prototype builders set it to their `cutoff_hz` argument, and the
+	// LP->* transforms both READ it (to normalize the prototype before
+	// substituting) and update it to describe the result: lp_to_hp stores
+	// the new corner, lp_to_bp/lp_to_bs the band centre sqrt(low*high).
+	// It must be > 0 before any transform. (issue #204)
 	double cutoff_hz = 1.0;
 	double low_hz  = 0.0;   // used by BP/BS
 	double high_hz = 0.0;   // used by BP/BS
@@ -387,14 +389,38 @@ inline PoleZeroPlot elliptic_prototype(int order, double cutoff_hz,
 // LP -> BP: each s pole becomes two poles centered on omega_0 =
 //   sqrt(low*high) with width omega_c * (high - low).
 // LP -> BS: inverse of BP.
+//
+// PROTOTYPE NORMALIZATION. The Constantinides substitutions are stated for a
+// prototype normalized to omega_c = 1. The builders in this header return
+// prototypes at a real cutoff (butterworth_prototype(4, 1000.0) puts its
+// poles on a circle of radius 2*pi*1000), so each transform must divide the
+// prototype roots by their own omega_c before substituting. Omitting that
+// scaled every result by the prototype cutoff: the documented example —
+// a 1 kHz prototype through lp_to_hp(p, 500.0) — placed its -3 dB point at
+// 0.0796 Hz rather than 500 Hz, and lp_to_bp(p, 800, 1200) produced a
+// passband spanning 337..2849 Hz. The prototype's omega_c is read from
+// plot.cutoff_hz, which every builder sets. (issue #204)
 // ============================================================================
+
+namespace detail {
+// Angular cutoff the prototype in `plot` is currently normalized to.
+inline double prototype_omega_c(const PoleZeroPlot& plot) {
+	const double w = 2.0 * std::numbers::pi_v<double> * plot.cutoff_hz;
+	if (!(w > 0.0))
+		throw std::invalid_argument(
+			"pole_zero: prototype cutoff_hz must be > 0 before an LP->* transform");
+	return w;
+}
+} // namespace detail
 
 inline void lp_to_hp(PoleZeroPlot& plot, double cutoff_hz) {
 	const double omega_new = 2.0 * std::numbers::pi_v<double> * cutoff_hz;
+	const double omega_c   = detail::prototype_omega_c(plot);
+	// s_norm = s / omega_c, then s' = omega_new / s_norm.
 	auto invert = [&](std::vector<std::complex<double>>& v) {
 		for (auto& s : v) {
 			if (std::abs(s) < 1e-300) continue;
-			s = std::complex<double>(omega_new, 0.0) / s;
+			s = std::complex<double>(omega_new * omega_c, 0.0) / s;
 		}
 	};
 	invert(plot.s_poles);
@@ -424,11 +450,14 @@ inline void lp_to_bp(PoleZeroPlot& plot, double low_hz, double high_hz) {
 	const double omega_h = 2.0 * std::numbers::pi_v<double> * high_hz;
 	const double omega_0 = std::sqrt(omega_l * omega_h);
 	const double BW = omega_h - omega_l;
+	const double omega_c = detail::prototype_omega_c(plot);
 
 	auto transform = [&](std::vector<std::complex<double>>& v) {
 		std::vector<std::complex<double>> out;
 		out.reserve(v.size() * 2);
-		for (const auto& sp : v) {
+		for (const auto& sp_raw : v) {
+			// Normalize the prototype root to omega_c = 1 first.
+			const std::complex<double> sp = sp_raw / omega_c;
 			// Discriminant: (BW*sp/2)^2 - omega_0^2
 			const std::complex<double> half = 0.5 * BW * sp;
 			const std::complex<double> disc = std::sqrt(
@@ -438,21 +467,31 @@ inline void lp_to_bp(PoleZeroPlot& plot, double low_hz, double high_hz) {
 		}
 		v = std::move(out);
 	};
+	// The prototype's relative degree — its number of zeros at infinity —
+	// must be read BEFORE the transform doubles the finite zero list.
+	const int zeros_at_infinity =
+		static_cast<int>(plot.s_poles.size()) - static_cast<int>(plot.s_zeros.size());
+
 	transform(plot.s_poles);
 	transform(plot.s_zeros);
-	// LP-to-BP adds `order` zeros at s = 0 for filters without finite
-	// LP zeros (the DC nulling in a bandpass response).
-	// We accounted for pole doubling above; still need to add the DC
-	// zeros. Total BP zeros = 2 * order (matching pole count for a
-	// proper BP transfer function).
-	const int existing_z = static_cast<int>(plot.s_zeros.size());
-	const int needed_z   = 2 * plot.order;
-	for (int i = 0; i < (needed_z - existing_z); ++i) {
+
+	// Under s -> (s^2 + omega_0^2)/(BW*s), each FINITE prototype zero splits
+	// into two (handled by transform above) but each zero at INFINITY
+	// contributes exactly ONE zero at s = 0 — its partner stays at infinity.
+	// So an N-pole all-pole prototype yields 2N poles and N zeros at the
+	// origin, not 2N. Padding to 2*order instead put N spurious zeros at DC,
+	// which dragged the response peak out to ~3.5*omega_0. A biproper
+	// prototype (Chebyshev II, elliptic) has no zeros at infinity and
+	// correctly gains none at the origin: its bandpass does not null at DC.
+	// (issue #204)
+	for (int i = 0; i < zeros_at_infinity; ++i) {
 		plot.s_zeros.emplace_back(0.0, 0.0);
 	}
 	plot.kind = "bandpass";
 	plot.low_hz = low_hz;
 	plot.high_hz = high_hz;
+	// The result is normalized about the band centre, not the old LP cutoff.
+	plot.cutoff_hz = std::sqrt(low_hz * high_hz);
 	plot.z_poles.clear();
 	plot.z_zeros.clear();
 }
@@ -466,15 +505,22 @@ inline void lp_to_bs(PoleZeroPlot& plot, double low_hz, double high_hz) {
 	const double omega_h = 2.0 * std::numbers::pi_v<double> * high_hz;
 	const double omega_0 = std::sqrt(omega_l * omega_h);
 	const double BW = omega_h - omega_l;
+	const double omega_c = detail::prototype_omega_c(plot);
 
 	auto transform = [&](std::vector<std::complex<double>>& v) {
 		std::vector<std::complex<double>> out;
 		out.reserve(v.size() * 2);
-		for (const auto& sp : v) {
+		for (const auto& sp_raw : v) {
+			// Normalize the prototype root to omega_c = 1 first.
+			const std::complex<double> sp = sp_raw / omega_c;
 			if (std::abs(sp) < 1e-300) {
-				// Zero-input maps to +/- j*omega_0.
-				out.emplace_back(0.0,  omega_0);
-				out.emplace_back(0.0, -omega_0);
+				// A root AT THE ORIGIN. Solving BW*s/(s^2 + omega_0^2) = 0
+				// gives s = 0 and s = infinity, so only one finite image
+				// survives. (An LP prototype has no root at the origin; this
+				// arises only if a transformed plot is fed back in.) The
+				// +/- j*omega_0 pair that used to be emitted here belongs to
+				// roots at INFINITY, which are handled after the loop.
+				out.emplace_back(0.0, 0.0);
 				continue;
 			}
 			const std::complex<double> half = 0.5 * BW / sp;
@@ -485,13 +531,31 @@ inline void lp_to_bs(PoleZeroPlot& plot, double low_hz, double high_hz) {
 		}
 		v = std::move(out);
 	};
+
+	// As in lp_to_bp, read the relative degree before the transform runs.
+	const int zeros_at_infinity =
+		static_cast<int>(plot.s_poles.size()) - static_cast<int>(plot.s_zeros.size());
+
 	transform(plot.s_poles);
 	transform(plot.s_zeros);
-	// BS zeros include a pair at +/- j*omega_0 for each LP pole that
-	// wasn't already representing a zero; already handled by transform.
+
+	// Under s -> BW*s/(s^2 + omega_0^2) a zero at infinity requires
+	// s^2 + omega_0^2 = 0, so each one maps onto the PAIR +/- j*omega_0.
+	// That pair sitting exactly on the jw axis IS the notch, and generating
+	// it is what the previous implementation omitted entirely: it transformed
+	// the finite zero list, which is empty for an all-pole prototype, and
+	// produced a bandstop with no zeros and therefore no stopband at all —
+	// the response peaked at omega_0 instead of nulling there. An N-pole
+	// all-pole prototype must gain 2N zeros here. (issue #204)
+	for (int i = 0; i < zeros_at_infinity; ++i) {
+		plot.s_zeros.emplace_back(0.0,  omega_0);
+		plot.s_zeros.emplace_back(0.0, -omega_0);
+	}
 	plot.kind = "bandstop";
 	plot.low_hz = low_hz;
 	plot.high_hz = high_hz;
+	// The result is normalized about the band centre, not the old LP cutoff.
+	plot.cutoff_hz = std::sqrt(low_hz * high_hz);
 	plot.z_poles.clear();
 	plot.z_zeros.clear();
 }
