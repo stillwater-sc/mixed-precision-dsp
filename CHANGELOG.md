@@ -12,6 +12,32 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- `sdr/agc`: automatic gain control (#100, part of #85), the first stateful
+  component in the SDR module.
+
+  The loop is closed in the **log domain**, which is what buys the wide
+  dynamic range: a multiplicative correction becomes additive, so convergence
+  rate is the same whether the loop is climbing out of -60 dB or trimming
+  3 dB, and 60 dB of range is 6.9 nepers rather than 1000x linear. State is
+  kept in nepers because that is what the loop arithmetic wants; the public
+  interface is dB because that is what engineers want.
+
+  Attack is the fast direction, taken when the signal is too loud and the
+  gain must come down; decay is the slow one. Both are time constants in
+  seconds against a configured sample rate. `LevelDetector` selects
+  instantaneous magnitude or a smoothed RMS — the latter regulates average
+  power rather than chasing each QAM symbol, and measures 1.37 dB of gain
+  ripple on 16-QAM against 2.22 dB for instantaneous.
+
+  Two scalar parameters rather than this library's usual three: the gain and
+  level are real quantities whatever they multiply, so `SampleScalar` may be
+  complex while `StateScalar` stays real, and there are no coefficients to
+  carry a precision of their own.
+
+  Class invariants are exposed through a public `invariants_hold()` predicate
+  and asserted from the tests, rather than by `assert()` in the header — CI
+  runs Release, where `NDEBUG` strips assertions.
+
 - `sdr/metrics`: EVM, MER, BER and constellation impairment measurement
   (#97, part of #85), completing phase 1 of the SDR epic.
 
