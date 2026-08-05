@@ -12,6 +12,29 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- `sdr/carrier_recovery`, `sdr/loop_filter`: Costas carrier recovery (#99,
+  part of #85), completing phase 2 of the SDR epic. BPSK, QPSK and
+  decision-directed detectors, AFC for wide-offset acquisition, and frequency
+  and phase outputs for monitoring.
+
+  The PI loop filter is now shared with timing recovery through
+  `PiLoopFilter`, which also carries the deviation-from-nominal integrator
+  convention in one place rather than two.
+
+  The phase accumulator wraps to `[-pi, pi)` every symbol — the same lesson
+  the timing loop's symbol clock carries, in another guise: an unbounded
+  phase passes 1e4 within a million samples, where a narrow type's ULP
+  exceeds the per-symbol increment and the oscillator stops turning. Verified
+  bounded over a 200,000-symbol run.
+
+  AFC needed a modulation-stripped frequency detector. The obvious
+  `Im(y[k]*conj(y[k-1]))` measures rotation between consecutive symbols, but
+  on QPSK those already differ by a random multiple of 90 degrees, so the
+  data swamps the frequency — measured, it turned an exact lock into a 0.76
+  error vector at every offset. Stripping with the sliced decision first
+  leaves the rotation between *errors*, which is frequency. With it the loop
+  acquires a 0.25 rad/symbol offset that the bare PLL cannot reach.
+
 - `sdr/timing_recovery`: symbol timing recovery (#98, part of #85). Gardner
   (non-data-aided, >= 2 samples/symbol) and Mueller-Muller (decision-directed,
   1 sample/symbol) detectors, a proportional-integral loop filter
