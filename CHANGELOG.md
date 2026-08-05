@@ -10,6 +10,25 @@ those are summarized from their release commits and are intentionally terse.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.9.0] — 2026-08-05
+
+A bug-fix release covering the filter-design path. Four defects closed —
+#203, #204, #205, #206 — spanning the Parks-McClellan exchange, the
+half-band designer, and the Constantinides band transformations.
+
+One theme runs through all four: every one shipped because its tests asserted
+STRUCTURE rather than RESPONSE. Tap counts, symmetry, a zero centre tap, poles
+in the left half-plane, root counts — all held perfectly while the filters
+themselves were wrong. Each fix here adds response-shape assertions (ripple,
+stopband depth, band edges, notch placement) and each new test was verified to
+fail against the pre-fix code.
+
+The v0.9 milestone remains open: it tracks the SDR feature backlog, of which
+only #204 is part. This release is the bug-fix work that accumulated
+alongside it.
+
 ### Fixed
 
 - `filter/fir/remez`: the Parks-McClellan designers returned filters that were
@@ -183,6 +202,59 @@ those are summarized from their release commits and are intentionally terse.
   weights and cancels in every ratio it appears in, but it keeps the products
   near O(N) instead of growing like 2^N.
 
+## [0.8.0] — 2026-08-03
+
+Two multi-issue tracks land on top of v0.7: the multirate demonstrator backlog
+and the Pipeline Probe & Transfer-Function Monitor epic. All 10 issues in the
+v0.8 milestone are closed.
+
+### Added
+
+**Pipeline Probe module — `sw::dsp::probe`**
+
+- `SignalProbe` + `NoOpProbe` + `ProbedStage` capture infrastructure, letting any
+  pipeline stage be instrumented without changing its type when probing is off
+  (#155). `include/sw/dsp/probe/signal_probe.hpp`
+- Four domain views over captured buffers — time, magnitude, phase, and I-Q
+  constellation (#156). `include/sw/dsp/probe/views.hpp`
+
+**Transfer-Function Monitor module — `sw::dsp::transfer_function`**
+
+- `sweep_bode` numerical Bode analyzer for arbitrary LTI blocks — magnitude,
+  phase, and group-delay sweeps (#157). `include/sw/dsp/transfer_function/bode.hpp`
+- Closed-form analytical pole/zero extraction for all five filter families —
+  Butterworth, Chebyshev I, Chebyshev II, Bessel, and Elliptic (#158, #202).
+  `include/sw/dsp/transfer_function/pole_zero.hpp`
+
+**Multirate demonstrators — `applications/multirate_examples/`**
+
+- `audio_resampler` — 44.1/48 kHz rational sample-rate conversion (#136)
+- `fractional_delay` — polyphase 1/L-sample fractional delay (#138)
+- `channelizer` — Bellanger polyphase M-channel analysis bank (#137)
+- `software_radio` — 100 MHz → 100 kHz SDR receiver chain (#139)
+
+Every demo carries an acceptance criterion that is checked at exit, so a
+regression in the underlying DSP fails the demo rather than printing bad numbers.
+
+**Library**
+
+- `sw::dsp::multirate` gains the `FractionalDelay` and `Channelizer` classes.
+- `elliptic_sn_series` promoted from an internal helper in `filter/iir/elliptic.hpp`
+  to public API in `include/sw/dsp/math/elliptic_integrals.hpp`, so the elliptic
+  pole/zero prototype and the elliptic filter design share one implementation.
+
+**Documentation**
+
+- New docs-site sidebar categories for Pipeline Probes and the Transfer Function
+  Monitor, with overview pages for `probe`, `probe/views`, and
+  `transfer-function`, plus cross-references from the `analysis` and
+  `acquisition` overviews (#159).
+
+### Changed
+
+- `filter/iir/elliptic.hpp` now consumes the shared `elliptic_sn_series` instead
+  of its own local copy (net −23 lines).
+
 ## [0.7.0] — 2026-08-02
 
 ### Added
@@ -237,7 +309,8 @@ commits for the change set.
   GitHub Release with an auto-generated changelog from conventional commits when
   a `v*` tag is pushed, verifying the tag matches the CMake version first.
 
-[Unreleased]: https://github.com/stillwater-sc/mixed-precision-dsp/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/stillwater-sc/mixed-precision-dsp/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/stillwater-sc/mixed-precision-dsp/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/stillwater-sc/mixed-precision-dsp/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/stillwater-sc/mixed-precision-dsp/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/stillwater-sc/mixed-precision-dsp/compare/v0.6.0...v0.6.1
