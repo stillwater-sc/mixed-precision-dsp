@@ -143,8 +143,29 @@ static void test_channel_isolation() {
 
 		std::size_t peak = 0;
 		for (std::size_t c = 0; c < M; ++c) if (energy[c] > energy[peak]) peak = c;
-		check(peak == target, "tone in channel " + std::to_string(target) +
-		      " peaked in channel " + std::to_string(peak));
+		// EITHER the channel or its conjugate mirror is a correct answer.
+		// A real input puts equal energy in c and M-c, so which one compares
+		// greater is decided by rounding — this assertion originally
+		// demanded `target` and passed on Linux while failing on macOS and
+		// MSVC, which picked the mirror. Equal energies have no preferred
+		// winner, and a test must not pretend otherwise.
+		const std::size_t mirror = M - target;
+		check(peak == target || peak == mirror,
+		      "tone in channel " + std::to_string(target) +
+		      " peaked in channel " + std::to_string(peak) +
+		      ", expected " + std::to_string(target) + " or its mirror " +
+		      std::to_string(mirror));
+		// The pair must also hold essentially all the energy between them.
+		const double paired = energy[target] + energy[mirror];
+		double total = 0.0;
+		for (std::size_t c = 0; c < M; ++c) total += energy[c];
+		// Measured ~62%. Uniform spreading would be 2/16 = 12.5%, so this is
+		// strong concentration for a single-transform window — but it is not
+		// 90%, because that window is not a sharp filter. The threshold
+		// records what the structure actually achieves.
+		check(paired > 0.5 * total, "tone in channel " + std::to_string(target) +
+		      ": only " + std::to_string(100.0 * paired / total) +
+		      "% of the energy landed in the channel and its mirror");
 
 		// Rejection three channels away. A single transform's worth of
 		// window is not a sharp filter — measured 15-20 dB — and that is the
@@ -159,7 +180,7 @@ static void test_channel_isolation() {
 		// and reads 7 dB of leakage from the image rather than the skirt of
 		// the channel under test.
 		const std::size_t adj = target - 2;
-		const double rej = 10.0 * std::log10(energy[peak] / energy[adj]);
+		const double rej = 10.0 * std::log10(energy[target] / energy[adj]);
 		std::cout << "    " << std::setw(15) << target << "   " << std::setw(12) << peak
 		          << "   " << std::fixed << std::setprecision(1) << rej << " dB\n";
 		check(rej > 12.0, "channel " + std::to_string(target) +
