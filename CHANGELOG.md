@@ -12,6 +12,26 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- `sdr/rrc`: root-raised-cosine and raised-cosine pulse-shaping filter design
+  (#96, part of #85), plus `peak_isi()` for measuring residual intersymbol
+  interference from a composite response.
+
+  These are design functions returning taps, not stateful processors: the
+  shaping itself reuses the multirate primitives already in the library —
+  `PolyphaseInterpolator` with RRC taps is the transmit shaper,
+  `PolyphaseDecimator` with the same taps is the receive matched filter. RRC
+  is symmetric, so the "time-reversed" matched filter is the same tap set and
+  no reversal helper is provided.
+
+  Both removable singularities are handled by their limits: `t = 0`, and
+  `|4*alpha*t/T| = 1`, which lands on an actual tap whenever
+  `samples_per_symbol / (4*alpha)` is an integer — `alpha = 1` with 4 samples
+  per symbol, for instance. Normalization defaults to unit energy, matching
+  MATLAB `rcosdesign()`, which makes an RRC pair composite to a peak of
+  exactly 1 at the symbol instant so the zero-ISI property reads directly off
+  the composite samples. `num_taps` must be odd, so that a tap lands on `t = 0`
+  — the instant the property is defined at.
+
 - `sdr/constellation`: QAM/PSK constellation mapping and demapping, the first
   piece of the SDR modulation/demodulation epic (#95, part of #85). Supports
   BPSK, QPSK, 8-PSK, 16-QAM, 64-QAM and 256-QAM with Gray labelling and unit
