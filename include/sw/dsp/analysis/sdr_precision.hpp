@@ -297,9 +297,16 @@ std::vector<SdrLinkResult> analyze_blocks(const SdrLinkConfig& cfg,
 		rows.push_back(std::move(r));
 	}
 	const double ref2 = rows.front().evm_rms * rows.front().evm_rms;
-	for (auto& r : rows) {
-		const double d = r.evm_rms * r.evm_rms - ref2;
-		r.evm_contribution = (d > 0.0) ? std::sqrt(d) : 0.0;
+	// The reference contributes nothing to itself BY DEFINITION, set rather
+	// than computed. Evaluating x*x - ref2 for the reference row looks like
+	// an exact zero but is not portably one: a compiler free to contract the
+	// product into an FMA evaluates it at higher precision than ref2 was, and
+	// the difference comes out a denormal rather than zero. That happened on
+	// the RISC-V cross-build while every other platform returned 0.
+	rows.front().evm_contribution = 0.0;
+	for (std::size_t i = 1; i < rows.size(); ++i) {
+		const double d = rows[i].evm_rms * rows[i].evm_rms - ref2;
+		rows[i].evm_contribution = (d > 0.0) ? std::sqrt(d) : 0.0;
 	}
 	return rows;
 }

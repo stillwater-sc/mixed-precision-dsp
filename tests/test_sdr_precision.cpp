@@ -10,6 +10,7 @@
 #include <universal/number/cfloat/cfloat.hpp>
 #include <universal/number/posit/posit.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
