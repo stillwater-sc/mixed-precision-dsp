@@ -258,13 +258,18 @@ static void test_csv_export() {
 	      "constellation CSV row count");
 
 	// The header must carry the identifier columns the existing tooling reads.
-	std::ifstream in(sweep);
-	std::string header;
-	std::getline(in, header);
-	for (const char* col : {"pipeline", "block", "scalar_type", "bit_width",
-	                        "modulation", "evm_rms", "ber"})
-		check(header.find(col) != std::string::npos,
-		      "CSV header is missing column " + std::string(col));
+	// Scoped so the stream is closed before the file is removed: Windows
+	// refuses to delete a file that still has an open handle, where POSIX is
+	// happy to unlink one.
+	{
+		std::ifstream in(sweep);
+		std::string header;
+		std::getline(in, header);
+		for (const char* col : {"pipeline", "block", "scalar_type", "bit_width",
+		                        "modulation", "evm_rms", "ber"})
+			check(header.find(col) != std::string::npos,
+			      "CSV header is missing column " + std::string(col));
+	}
 
 	std::filesystem::remove(sweep);
 	std::filesystem::remove(cons);
