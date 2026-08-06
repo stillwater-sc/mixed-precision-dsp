@@ -12,6 +12,36 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- Documentation: SDR mixed-precision guide (#105, closes epic #85). Six new
+  docs-site pages under `sdr/` — overview, constellation/pulse-shaping/metrics,
+  synchronization, OFDM, channelizer, and precision analysis — plus a new
+  "SDR Modulation & Demodulation" sidebar section. The existing `acquisition/`
+  section is relabelled "SDR Receiver Front-End" so the two halves of the SDR
+  stack are distinguishable, and the two now cross-link in both directions.
+
+  The precision page carries the **corrected epic premise**. #85 assumed that
+  posit reaches a higher modulation order than cfloat or fixpnt at equal bit
+  width; the #104 sweep measured the opposite at full scale, and the page
+  states why — an amplitude-normalized link keeps the waveform inside one
+  octave, and a uniform absolute step is optimal by construction against an
+  absolute error metric. It documents the axis the families genuinely differ
+  on (input backoff / dynamic range) and flags the unresolved 8-bit ordering
+  as #209 rather than presenting it as settled.
+
+  Every measured number is sourced from a test or demo run at this revision
+  rather than from theory: RRC truncation-vs-quantization floors, AGC stall
+  against gain-state precision, the timing loop's bandwidth/jitter trade,
+  Costas AFC pull-in range, OFDM pilot spacing against multipath, PAPR against
+  FFT size, and channelizer reconstruction against prototype length.
+
+  The pages also record the module's central mixed-precision finding: datapath
+  blocks separate the number systems across orders of magnitude, while the
+  synchronization loops do not separate them at all — a loop is
+  precision-insensitive until it crosses a ULP threshold and stops moving
+  entirely. That is why the fix for a failing loop is changing what the state
+  holds (relative position, wrapped phase, deviation from nominal), not
+  widening the type.
+
 - `applications/sdr_demo`: SDR link demonstrator (#104, capstone for #85).
   Sweeps a complete TX -> AWGN -> RX link (bits -> Gray map -> RRC
   interpolation -> channel -> matched filter -> symbol sampling -> demap)
