@@ -12,6 +12,33 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- `analysis/sdr_precision`: end-to-end SDR precision analysis (#103, part of
+  #85). `run_link()` measures EVM, MER and BER across bits -> constellation ->
+  RRC shaping -> AWGN -> matched filter -> demap; `analyze_blocks()` attributes
+  the result per block; `evm_budget()` and CSV writers support Pareto and
+  visualization work. The CSV schema matches `precision_sweep.csv` at the
+  identifier columns.
+
+  Attribution narrows **one block at a time** with everything else at double,
+  and subtracts the reference **in power**. Both matter: every configuration
+  carries a common floor — here the RRC truncation ISI, 7.26e-03 at a
+  10-symbol span — that is often larger than the arithmetic under test, so
+  raw EVMs agree to four digits and say nothing.
+
+  The measured contributions **do not add**, and which way they miss depends
+  on precision: on 16-QAM the parts sum to 2.97e-04 against a whole-chain
+  3.41e-04 for posit16 (more than the sum) and 1.37e-02 against 9.47e-03 for
+  posit8 (less). A breakdown is an attribution, not a budget; `whole_chain`
+  is therefore measured rather than summed.
+
+  The all-double reference reproduces the closed-form 16-QAM BER curve within
+  5% from 8 to 12 dB, which is what validates the noise scaling, pulse
+  shaping, sampling instant and demapper together.
+
+  The chain deliberately excludes the timing and carrier loops: those converge
+  stochastically, and their residual would be indistinguishable from the
+  arithmetic residual being measured.
+
 - `sdr/ofdm`: OFDM modulator and demodulator (#101, part of #85).
   `OfdmLayout` allocates DC-null, guard, pilot and data subcarriers from one
   config shared by both halves so they cannot disagree; the modulator loads

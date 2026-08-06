@@ -59,6 +59,7 @@ dsp_add_test(test_sdr_timing_recovery "Tests/SDR")
 dsp_add_test(test_sdr_carrier_recovery "Tests/SDR")
 dsp_add_test(test_sdr_channelizer   "Tests/SDR")
 dsp_add_test(test_sdr_ofdm          "Tests/SDR")
+dsp_add_test(test_sdr_precision     "Tests/Analysis")
 
 # =============================================================================
 # Signals — generators + I/O

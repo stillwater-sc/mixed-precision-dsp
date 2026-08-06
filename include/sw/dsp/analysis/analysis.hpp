@@ -7,4 +7,5 @@
 #include <sw/dsp/analysis/stability.hpp>
 #include <sw/dsp/analysis/sensitivity.hpp>
 #include <sw/dsp/analysis/condition.hpp>
+#include <sw/dsp/analysis/sdr_precision.hpp>
 #include <sw/dsp/analysis/acquisition_precision.hpp>
