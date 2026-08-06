@@ -125,6 +125,13 @@ dsp_add_test(test_src             "Tests/Conditioning")
 dsp_add_test(test_noise_shaping   "Tests/Conditioning")
 
 # =============================================================================
+# Multirate — rate conversion and polyphase primitives that are not tied to
+# one filter design. (The polyphase FIR decimator/interpolator themselves are
+# covered by test_fir_multirate under Tests/Filter/FIR.)
+# =============================================================================
+dsp_add_test(test_multirate_fractional_delay "Tests/Multirate")
+
+# =============================================================================
 # Acquisition — SDR / IF receiver primitives
 # =============================================================================
 dsp_add_test(test_cic             "Tests/Acquisition")

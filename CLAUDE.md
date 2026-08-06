@@ -45,7 +45,7 @@ Every test carries labels for selective runs:
 
 - **`unit`** — attached to all unit tests (via `dsp_add_test()` in `tests/CMakeLists.txt`).
 - **`regression`** — attached to tests under `tests/regression/` (via `dsp_add_regression_test()`).
-- **Per-module** — first path segment of the folder argument, lowercased. Current modules: `acquisition`, `analysis`, `conditioning`, `estimation`, `filter`, `foundation`, `image`, `instrument`, `probe`, `quantization`, `sdr`, `signals`, `spectral`, `spectrum`, `transferfunction`, `windows`.
+- **Per-module** — first path segment of the folder argument, lowercased. Current modules: `acquisition`, `analysis`, `conditioning`, `estimation`, `filter`, `foundation`, `image`, `instrument`, `multirate`, `probe`, `quantization`, `sdr`, `signals`, `spectral`, `spectrum`, `transferfunction`, `windows`.
 
 Common invocations:
 

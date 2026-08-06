@@ -325,6 +325,43 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Fixed
 
+- `multirate/fractional_delay`: the default `taps_per_phase = 12` was rejected
+  by the class's own validator, so `FractionalDelay<double> fd(64)` — the
+  documented defaults — always threw (#208). The default is now `11`. The
+  parameter documentation named 12, 16 and 24 as recommended values; every
+  one of them is even and therefore also threw, so the recommendations are
+  now 11 and 15–25.
+
+  **The constraint was kept, not relaxed**, because it is load-bearing. Odd
+  `K` keeps the intrinsic group delay `(K-1)/2` an integer, which makes phase
+  0 `sinc(k - center)` sampled on the integers — exactly one non-zero tap, an
+  unfiltered passthrough. Measured, a request at the group-delay floor
+  reproduces its input to 3e-17. With even `K` the floor is a half-integer,
+  so *no* request lands on an unfiltered tap and every output, including a
+  nominally integer delay, pays interpolation error and passband droop.
+
+  Validation moved from the constructor body into `design_bank`, which is
+  called from the initializer list. The `L == 0` check in the body could not
+  stop `design_bank` or the ring-buffer sizing beside it from running on a
+  bad value first, since the body runs after the whole initializer list. The
+  error message now names the offending value.
+
+  The class had **no unit test at all**, which is why the default could sit
+  broken: the demo passes an explicit odd 15, so nothing ever constructed it
+  the documented way. `tests/test_multirate_fractional_delay.cpp` covers the
+  regression, the validation paths, the phase-0 passthrough property, delay
+  accuracy across the phase grid, the 1/L quantization, the floor and
+  `max_int_delay` boundaries, `reset()`, and a precision sweep. New
+  `multirate` CTest label.
+
+  Delay is measured as the DC group delay of the impulse response,
+  `sum k*h[k] / sum h[k]`, which *is* `-dphi/domega` at DC rather than an
+  estimate of it. Correlating a delayed tone — the obvious alternative — is
+  ambiguous modulo the tone period, and at any frequency inside the passband
+  that period exceeds the delays under test; broadband noise removes the
+  ambiguity but leaves a peak too broad to refine (7e-02 samples of bias
+  against 6e-04 for the moment).
+
 - `acquisition/nco`, `acquisition/ddc`: absolute RF frequencies and sample
   rates overflowed narrow state types (#207). `NCO::set_frequency` took both
   arguments at `StateScalar` and divided only afterwards, so each was
