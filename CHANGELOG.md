@@ -12,6 +12,35 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- `sdr/ofdm`: OFDM modulator and demodulator (#101, part of #85).
+  `OfdmLayout` allocates DC-null, guard, pilot and data subcarriers from one
+  config shared by both halves so they cannot disagree; the modulator loads
+  the grid, inverse-transforms and prepends a cyclic prefix; the demodulator
+  strips the prefix, transforms, estimates the channel by least squares at
+  the pilots with linear interpolation between them, and equalizes.
+  `papr_db()` measures peak-to-average power ratio.
+
+  A **flat channel equalizes to machine precision at every pilot spacing** —
+  interpolating a constant is exact, which isolates the equalizer from the
+  interpolator. Under frequency-selective multipath the residual is
+  interpolation error and behaves like it: EVM falls with pilot density
+  (3.6e-02 to 4.4e-03 at spacing 8 down to 2 on a 2-tap channel) and rises
+  with delay spread at every density.
+
+  Intercarrier interference against transform precision, 64-QAM on an ideal
+  channel, where nothing but the transform contributes:
+
+  | | EVM | |
+  |---|---:|---:|
+  | double | 3.4e-16 | -309 dB |
+  | posit32 | 1.2e-08 | -158 dB |
+  | float, cfloat32 | 1.6e-07 | -136 dB |
+  | posit16 | 4.0e-04 | -68 dB |
+
+  posit16 stays two orders inside 64-QAM's 0.309 decision distance. Measured
+  PAPR grows with subcarrier count as expected: 5.3 dB at 16 subcarriers,
+  7.7 dB at 64, 12.0 dB at 256.
+
 - `sdr/channelizer`: 2x-oversampled analysis/synthesis filter bank with
   perfect reconstruction (#102, part of #85). `OversampledChannelizer` splits
   a wideband stream into M channels at a hop of M/2;
