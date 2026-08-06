@@ -42,8 +42,10 @@ focused header (`cic.hpp`, `nco.hpp`, etc.).
   *"instrument data acquisition"*).
 - An ADC driver. The samples are assumed to already be in memory.
 - A demodulator. The complex baseband output of this chain is the
-  *input* to a demodulator (FM, QAM, OFDM, GMSK, ...) which lives
-  elsewhere.
+  *input* to a demodulator, which lives in the
+  [SDR modulation and demodulation module](../../sdr/overview/) —
+  constellation mapping, pulse shaping, the synchronization loops,
+  OFDM and the channelizer.
 
 The CIC, half-band, and polyphase decimators are the most reusable
 piece — they're the same primitives an instrument front end would
@@ -224,6 +226,11 @@ hard ceiling on `posit<32,2>` in this kind of chain.
 
 ## See also
 
+- [SDR Modulation & Demodulation](../../sdr/overview/) — what happens
+  to the I/Q baseband this chain produces: constellation demapping,
+  matched filtering, the AGC / timing / carrier loops, OFDM, and the
+  [end-to-end precision sweep](../../sdr/precision/) across number
+  systems
 - [Multirate Signal Processing Overview](../../multirate/overview/) —
   the broader multirate theory (Noble identity, polyphase
   decomposition theorem) and the pattern catalog mapping multirate

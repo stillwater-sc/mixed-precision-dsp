@@ -57,8 +57,16 @@ export default defineConfig({
           autogenerate: { directory: 'multirate' },
         },
         {
-          label: 'Software-Defined Radio',
+          // The receiver front-end: IF to baseband. Renamed from
+          // 'Software-Defined Radio' when the modulation/demodulation
+          // section below was added, so the two SDR halves are
+          // distinguishable in the sidebar.
+          label: 'SDR Receiver Front-End',
           autogenerate: { directory: 'acquisition' },
+        },
+        {
+          label: 'SDR Modulation & Demodulation',
+          autogenerate: { directory: 'sdr' },
         },
         {
           label: 'Instrument Data Acquisition',

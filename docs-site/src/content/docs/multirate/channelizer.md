@@ -185,6 +185,7 @@ when you need one channel at a rate that isn't $f_s / M$.
 
 ## Related pages
 
+- [SDR Polyphase Channelizer](../sdr/channelizer/) — the synthesis half. This bank is maximally decimated and therefore has **no perfect-reconstruction property**: recombining its channels bottoms out at a ~17% residual. If you need to rebuild the wideband stream, use the oversampled analysis/synthesis pair there and accept a shorter prototype
 - [Multirate Overview](./overview/) — polyphase decomposition + Noble identity theory, including the historical context of Bellanger's 1976 paper
 - [Pattern Catalog](./patterns/) — full multirate problem→API mapping
 - [DDC](../acquisition/ddc/) — single-channel tune-and-decimate alternative
