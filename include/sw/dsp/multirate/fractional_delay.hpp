@@ -41,6 +41,7 @@
 #include <cstddef>
 #include <numbers>
 #include <stdexcept>
+#include <string>
 #include <vector>
 #include <mtl/vec/dense_vector.hpp>
 #include <sw/dsp/concepts/scalar.hpp>
@@ -58,10 +59,21 @@ public:
 
 	// L: number of polyphase phases. Delay resolution = 1/L samples.
 	//    Higher L = finer resolution + more coefficient memory.
-	// taps_per_phase: length of each phase filter. Total prototype
-	//    length = L * taps_per_phase. Longer = better in-band flatness
-	//    and lower stopband. 12 is a common default; 16-24 for stricter
-	//    audio applications.
+	// taps_per_phase: length of each phase filter, and MUST BE ODD
+	//    (>= 3). Total prototype length = L * taps_per_phase. Longer =
+	//    better in-band flatness and lower stopband. 11 is a reasonable
+	//    default; 15-25 for stricter audio applications.
+	//
+	//    The oddness requirement is not incidental. With odd K the
+	//    intrinsic group delay (K-1)/2 is an INTEGER, so phase 0 is
+	//    sinc(k - center) sampled on the integers: exactly one non-zero
+	//    tap, i.e. an unfiltered passthrough. An integer delay request
+	//    therefore costs nothing at all — measured, the phase-0 impulse
+	//    response reproduces its input to 3e-17. With even K the floor
+	//    is a half-integer, so NO request lands on an unfiltered tap and
+	//    every output, including a nominally integer delay, pays
+	//    interpolation error and passband droop. Callers who want an
+	//    even-length prototype want a different filter, not this one.
 	// max_int_delay: maximum integer-part delay the caller will request.
 	//    Ring buffer sized to taps_per_phase + max_int_delay so any
 	//    delay in [group_delay, group_delay + max_int_delay + 1) can
@@ -69,7 +81,7 @@ public:
 	// kaiser_beta: window sharpness. beta = 8 gives ~-58 dB stopband,
 	//    beta = 12 gives ~-115 dB. Higher beta = wider transition band.
 	FractionalDelay(std::size_t L,
-	                 std::size_t taps_per_phase = 12,
+	                 std::size_t taps_per_phase = 11,
 	                 std::size_t max_int_delay = 32,
 	                 double kaiser_beta = 8.0)
 		: L_(L),
@@ -78,11 +90,7 @@ public:
 		  sub_taps_(design_bank(L, taps_per_phase, kaiser_beta)),
 		  ring_(taps_per_phase + max_int_delay + 1, SampleScalar{}),
 		  ring_size_(taps_per_phase + max_int_delay + 1),
-		  write_pos_(0) {
-		if (L == 0)
-			throw std::invalid_argument(
-				"FractionalDelay: L must be > 0");
-	}
+		  write_pos_(0) {}
 
 	// Push `in` into the delay line and return the interpolated output
 	// at the specified offset. `offset_samples` is measured from the
@@ -161,11 +169,23 @@ private:
 	//
 	// PURE: no side effects. Called from the constructor's initializer
 	// list.
+	//
+	// EVERY argument is validated here rather than in the constructor
+	// body, because the body runs after the whole initializer list: a
+	// check placed there cannot stop this function, or the ring-buffer
+	// sizing beside it, from running on a bad value first.
 	static std::vector<mtl::vec::dense_vector<CoeffScalar>>
 	design_bank(std::size_t L, std::size_t K, double kaiser_beta) {
+		if (L == 0)
+			throw std::invalid_argument(
+				"FractionalDelay: L must be > 0");
+		// Odd K keeps the (K-1)/2 group delay an integer, which is what
+		// makes phase 0 an exact passthrough. See the constructor's
+		// parameter documentation.
 		if (K < 3 || (K & 1U) == 0)
 			throw std::invalid_argument(
-				"FractionalDelay: taps_per_phase must be odd and >= 3");
+				"FractionalDelay: taps_per_phase must be odd and >= 3, got " +
+				std::to_string(K));
 
 		const double pi     = std::numbers::pi_v<double>;
 		const double center = static_cast<double>(K - 1) / 2.0;

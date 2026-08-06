@@ -9,7 +9,7 @@ bank that shifts an input stream by any multiple of 1/L samples at
 runtime, without redesigning any coefficients between calls.
 
 This class complements the existing static
-[`sw::dsp::instrument::FractionalDelay`](../../instrument/fractional-delay/),
+[`sw::dsp::instrument::FractionalDelay`](https://github.com/stillwater-sc/mixed-precision-dsp/blob/main/include/sw/dsp/instrument/fractional_delay.hpp),
 which redesigns its FIR whenever `set_delay()` is called. The polyphase
 variant trades memory (L filter phases held in RAM) for the ability to
 switch phases per-sample.
@@ -163,12 +163,28 @@ The design has two independent knobs:
 - **$K$ (taps per phase)**: sets the filter quality. Longer $K$ =
   flatter passband, sharper transition, deeper stopband — at the cost
   of $K$ multiplies per output sample and $(K-1)/2$ samples of
-  intrinsic group delay.
+  intrinsic group delay. **$K$ must be odd** (see below); the
+  constructor throws otherwise.
 
-For most applications, $K = 12$ to $K = 24$ is enough. Increase $K$
+For most applications, $K = 11$ to $K = 25$ is enough. Increase $K$
 for stricter audio use (mastering, high-end reverbs), decrease for
 low-latency real-time control loops. $L$ can go as high as memory
 allows without changing runtime cost.
+
+### Why $K$ must be odd
+
+With odd $K$ the intrinsic group delay $(K-1)/2$ is an **integer**, so
+phase 0 is $\mathrm{sinc}(k - \text{center})$ sampled on the integers —
+exactly one non-zero tap, an unfiltered passthrough. A request at the
+group-delay floor therefore costs nothing at all: measured, the phase-0
+impulse response reproduces its input to $3\times10^{-17}$.
+
+With even $K$ the floor lands on a half-integer, so **no** request maps
+to an unfiltered tap and every output — including a nominally integer
+delay — pays interpolation error and passband droop. That is why the
+constraint exists, and why [#208](https://github.com/stillwater-sc/mixed-precision-dsp/issues/208)
+was fixed by moving the default onto an odd value (11) rather than by
+relaxing the check.
 
 ## Source
 
@@ -181,5 +197,5 @@ allows without changing runtime cost.
 
 - [Multirate Overview](./overview/) — polyphase decomposition theory
 - [Pattern Catalog](./patterns/) — full multirate problem→API mapping
-- [Instrument FractionalDelay](../instrument/fractional-delay/) — the static, design-at-construction variant
+- [`instrument::FractionalDelay`](https://github.com/stillwater-sc/mixed-precision-dsp/blob/main/include/sw/dsp/instrument/fractional_delay.hpp) — the static, design-at-construction variant. It has no docs-site page yet, so this points at the header.
 - [Audio Resampler Demo](./audio-resampler/) — sibling multirate demonstrator using polyphase for rational rate conversion
