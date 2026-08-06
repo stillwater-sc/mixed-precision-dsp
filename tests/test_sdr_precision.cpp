@@ -156,12 +156,23 @@ static void test_ber_curves() {
 		          << "  " << t << "   " << std::fixed << std::setprecision(2)
 		          << d / t << "   " << std::scientific << std::setprecision(3)
 		          << p << "\n";
-		// The reference must land on the theoretical curve. Within 25%: the
-		// nearest-neighbour approximation contributes a few percent and the
-		// RRC truncation floor a little more.
-		check(d / t > 0.75 && d / t < 1.25,
+		// The reference must land on the theoretical curve, within a
+		// tolerance that SCALES WITH THE ERROR COUNT. A Monte Carlo BER has
+		// a relative standard error near 1/sqrt(errors), and at 12 dB this
+		// sweep accumulates only about 20 errors — a 22% one-sigma spread.
+		// A flat +/-25% band is a coin flip there, and it duly passed on
+		// Linux and failed on MSVC, whose std::normal_distribution draws a
+		// different realization from the same mt19937 seed (the standard
+		// specifies the engine's sequence, not the distribution's). The
+		// floor keeps the check meaningful where errors are plentiful.
+		const std::size_t errs = run_link<double>(c, SdrBlock::none).bit_errors;
+		const double tol = std::max(0.25, 3.0 / std::sqrt(
+			static_cast<double>(errs > 0 ? errs : 1)));
+		check(std::abs(d / t - 1.0) < tol,
 		      "double BER at " + std::to_string(ebn0) + " dB is " +
-		      std::to_string(d) + " against a theoretical " + std::to_string(t));
+		      std::to_string(d) + " against a theoretical " + std::to_string(t) +
+		      " (" + std::to_string(errs) + " errors, tolerance " +
+		      std::to_string(tol) + ")");
 	}
 	// BER falls as SNR rises, for both.
 	for (std::size_t i = 1; i < d_ber.size(); ++i) {
