@@ -59,6 +59,9 @@ add_subdirectory(fft_tradeoff)
 # Acquisition pipeline demo (Issue #93)
 add_subdirectory(acquisition_demo)
 
+# SDR link demo (Issue #104) — capstone for the SDR epic #85
+add_subdirectory(sdr_demo)
+
 # Scope demonstrator (Issue #152) — capstone for #133
 add_subdirectory(scope_demo)
 

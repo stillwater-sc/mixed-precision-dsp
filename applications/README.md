@@ -22,7 +22,8 @@ Applications/
 ├── Spectral/
 │   └── fft_tradeoff            FFT precision/length trade-off analysis
 ├── SDR/                        Software-defined radio receiver demos
-│   └── acquisition_demo        End-to-end SDR pipeline (capstone for #84)
+│   ├── acquisition_demo        End-to-end SDR pipeline (capstone for #84)
+│   └── sdr_demo                TX→AWGN→RX link, precision sweep (capstone for #85)
 ├── Instrument/                 Digital-oscilloscope / spectrum-analyzer demos
 │   ├── scope_demo              End-to-end scope pipeline (capstone for #133)
 │   └── spectrum_analyzer_demo  End-to-end spectrum-analyzer pipeline (capstone for #134)

@@ -12,6 +12,47 @@ those are summarized from their release commits and are intentionally terse.
 
 ### Added
 
+- `applications/sdr_demo`: SDR link demonstrator (#104, capstone for #85).
+  Sweeps a complete TX -> AWGN -> RX link (bits -> Gray map -> RRC
+  interpolation -> channel -> matched filter -> symbol sampling -> demap)
+  over 15 number-system configurations x 4 modulations (QPSK, 16-QAM,
+  64-QAM, 256-QAM), across IEEE, cfloat, posit and fixpnt at 8, 12, 16 and
+  32 bits. Writes `sdr_demo.csv` (the sweep), `sdr_demo_pareto.csv` (bits of
+  arithmetic against delivered bits/symbol), `sdr_demo_constellations.csv`
+  (clouds for plotting), `sdr_demo_blocks.csv` (per-block attribution) and
+  `sdr_demo_backoff.csv` (dynamic range).
+
+  Unlike `analysis/sdr_precision`, which projects coefficients into the
+  narrow type and computes in `double`, the demo instantiates
+  `PolyphaseInterpolator<Coeff,State,Sample>` and
+  `FIRFilter<Coeff,State,Sample>` on the type under test: coefficients,
+  accumulators and samples all run narrow. Both views are reported, labeled.
+
+  The reported metric is **implementation loss** — `10*log10(EVM_narrow^2 /
+  EVM_double^2)` at the Eb/N0 that puts the double chain at BER 1e-3, with
+  1 dB the usability threshold. The reference is re-measured at the sweep's
+  own symbol count and seed so the narrow chain sees the same noise
+  realization and most sampling variance cancels in the ratio.
+
+  **The epic's expectation that posit reaches a higher modulation order than
+  its rivals at equal width is not what the measurement shows at full
+  scale.** On 16-QAM at 8 bits, `fixpnt<8,5>` costs 0.81 dB (usable) against
+  1.27 dB for both `posit<8,2>` and `cfloat<8,4>` (not usable), so fixed-
+  point carries 16-QAM at 8 bits where the other two carry only QPSK. This
+  is the expected result once stated plainly: the link is amplitude-
+  normalized end to end, the waveform lives in one octave, and a uniform
+  absolute step is exactly what EVM rewards.
+
+  The demo therefore also measures the condition under which the tapered
+  format does win — an input-backoff sweep that attenuates signal and noise
+  together (Eb/N0 unchanged) and restores the level before measuring. There
+  `fixpnt<8,5>` is best at full scale and gone by -12 dB, while `posit<8,2>`
+  holds to -36 dB and `posit<16,2>` to -48 dB against 24 dB for
+  `fixpnt<16,13>`. Dynamic range, not precision at full scale, is the axis
+  that separates the families. The conclusion is derived from the sweep data
+  at run time, so changing the parameters changes the finding rather than
+  leaving a stale claim in the output.
+
 - `analysis/sdr_precision`: end-to-end SDR precision analysis (#103, part of
   #85). `run_link()` measures EVM, MER and BER across bits -> constellation ->
   RRC shaping -> AWGN -> matched filter -> demap; `analyze_blocks()` attributes
