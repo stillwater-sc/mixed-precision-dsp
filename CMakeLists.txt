@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.0)
+cmake_minimum_required(VERSION 3.22...4.2)
 
 if(NOT DEFINED DSP_MAJOR)
 	set(DSP_MAJOR 0)
